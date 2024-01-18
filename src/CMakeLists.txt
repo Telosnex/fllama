@@ -3,7 +3,7 @@
 # the plugin to fail to compile for some customers of the plugin.
 cmake_minimum_required(VERSION 3.10)
 
-project(fllama_library VERSION 0.0.1 LANGUAGES C)
+project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 
 set (BUILD_SHARED_LIBS ON)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -18,7 +18,7 @@ set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
 
 add_subdirectory(./llama.cpp)
 add_library(fllama SHARED
-  "fllama.c"
+  "fllama.cpp"
 )
 target_include_directories(fllama PRIVATE ./llama.cpp ./llama.cpp/common)
 target_link_libraries(fllama llama common)
