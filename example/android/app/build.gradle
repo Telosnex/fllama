@@ -45,7 +45,8 @@ android {
         applicationId "com.example.fllama_example"
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
-        minSdkVersion flutter.minSdkVersion
+        // 23 fixes llama.cpp compilation error due to missing POSIX_MADV_WILLNEED.
+        minSdkVersion 23
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
