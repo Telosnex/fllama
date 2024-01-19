@@ -79,3 +79,15 @@ flutter:
   #
   # For details regarding fonts in packages, see
   # https://flutter.dev/custom-fonts/#from-packages
+ffigen:
+  output: lib/bindings.dart
+  comments:
+    style: any
+    length: full
+  headers:
+    entry-points:
+      - "src/fllama.h"
+  preamble: |
+    // ignore_for_file: always_specify_types
+    // ignore_for_file: camel_case_types
+    // ignore_for_file: non_constant_identifier_names

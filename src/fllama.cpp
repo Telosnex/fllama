@@ -1,7 +1,7 @@
 #include "fllama.h"
-#include "llama.h"
-#include "ggml.h"
-#include "common.h"
+#include <llama/llama.h>
+#include <llama/ggml.h>
+#include <llama/common/sampling.h>
 
 #include <cassert>
 #include <cinttypes>

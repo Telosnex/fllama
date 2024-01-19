@@ -16,19 +16,22 @@ endif()
 #set(LLAMA_STATIC ON CACHE BOOL "llama: enable static link libraries" FORCE)
 set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
 
-add_subdirectory(./llama.cpp)
+add_subdirectory(llama.cpp)
 add_library(fllama SHARED
   "fllama.cpp"
 )
-target_include_directories(fllama PRIVATE ./llama.cpp ./llama.cpp/common)
-target_link_libraries(fllama llama common)
+
+target_include_directories(fllama PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common"
+)
+
+target_link_libraries(fllama PRIVATE llama common)
 
 set_target_properties(fllama PROPERTIES
-  PUBLIC_HEADER fllama.h
-  OUTPUT_NAME "fllama"
   BUILD_WITH_INSTALL_RPATH TRUE
   INSTALL_RPATH "$ORIGIN"
 )
 
 # Was here in default template, unsure if neeeded still.
-#target_compile_definitions(fllama PUBLIC DART_SHARED_LIB)
+target_compile_definitions(fllama PUBLIC DART_SHARED_LIB)
