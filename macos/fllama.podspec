@@ -22,6 +22,6 @@ A new Flutter FFI plugin project.
   s.dependency 'FlutterMacOS'
 
   s.platform = :osx, '10.11'
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
+  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'USER_HEADER_SEARCH_PATHS' => '"${PROJECT_DIR}/.."/**' }
   s.swift_version = '5.0'
 end
