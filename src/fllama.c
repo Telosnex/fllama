@@ -1,4 +1,5 @@
 #include "fllama.h"
+#include "llama.cpp/llama.h"
 
 // A very short-lived native function.
 //
@@ -13,6 +14,8 @@ FFI_PLUGIN_EXPORT intptr_t sum(intptr_t a, intptr_t b) { return a + b; }
 // block Dart execution. This will cause dropped frames in Flutter applications.
 // Instead, call these native functions on a separate isolate.
 FFI_PLUGIN_EXPORT intptr_t sum_long_running(intptr_t a, intptr_t b) {
+    return GGML_MAX_CONTEXTS;
+
   // Simulate work.
 #if _WIN32
   Sleep(5000);
@@ -20,4 +23,8 @@ FFI_PLUGIN_EXPORT intptr_t sum_long_running(intptr_t a, intptr_t b) {
   usleep(5000 * 1000);
 #endif
   return a + b;
+}
+
+FFI_PLUGIN_EXPORT intptr_t llama_cpp_get_constant(void) {
+  return GGML_MAX_CONTEXTS;
 }

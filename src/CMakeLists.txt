@@ -15,3 +15,9 @@ set_target_properties(fllama PROPERTIES
 )
 
 target_compile_definitions(fllama PUBLIC DART_SHARED_LIB)
+
+add_subdirectory(llama.cpp)
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp)
+
+target_link_libraries(fllama PRIVATE llama)
