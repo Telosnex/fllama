@@ -18,10 +18,25 @@ A new Flutter FFI plugin project.
   # paths, so Classes contains a forwarder C file that relatively imports
   # `../src/*` so that the C sources can be shared among all target platforms.
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*'
+  s.source_files = 'Classes/**/*', 
+                   'llama.cpp/llama.cpp', 
+                   'llama.cpp/ggml.c', 
+                   'llama.cpp/ggml-quants.c', 
+                   'llama.cpp/ggml-backend.c', 
+                   'llama.cpp/ggml-alloc.c', 
+                   'llama.cpp/common/common.cpp', 
+                   'llama.cpp/common/build-info.cpp', 
+                   'llama.cpp/ggml-metal.m' 
+  s.frameworks = 'Foundation', 'Metal', 'MetalKit'
   s.dependency 'FlutterMacOS'
 
-  s.platform = :osx, '10.11'
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'USER_HEADER_SEARCH_PATHS' => '"${PROJECT_DIR}/.."/**' }
+  s.platform = :osx, '10.14'
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'USER_HEADER_SEARCH_PATHS' => ['$(PODS_TARGET_SRCROOT)/../llama.cpp/**/*.h', '$(PODS_TARGET_SRCROOT)/../llama.cpp/common/**/*.h'],
+    'OTHER_CFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc'],
+    'OTHER_CPLUSPLUSFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc'],
+    'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', 'GGML_USE_METAL=1'],
+  }
   s.swift_version = '5.0'
 end
