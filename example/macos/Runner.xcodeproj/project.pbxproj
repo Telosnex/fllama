@@ -195,7 +195,6 @@
 				7A0FE3EEAC467F17947D5B8A /* Pods-RunnerTests.release.xcconfig */,
 				5699F0DC1BF89897ACE25993 /* Pods-RunnerTests.profile.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -558,6 +557,7 @@
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				USER_HEADER_SEARCH_PATHS = "\"../../src/llama.cpp\"/**";
 			};
 			name = Profile;
 		};
@@ -638,6 +638,7 @@
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				USER_HEADER_SEARCH_PATHS = "\"../../src/llama.cpp\"/**";
 			};
 			name = Debug;
 		};
@@ -684,6 +685,7 @@
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				USER_HEADER_SEARCH_PATHS = "\"../../src/llama.cpp\"/**";
 			};
 			name = Release;
 		};

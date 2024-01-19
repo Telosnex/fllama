@@ -1,5 +1,5 @@
 #include "fllama.h"
-#include "llama.cpp/llama.h"
+#include "llama.h"
 
 // A very short-lived native function.
 //
