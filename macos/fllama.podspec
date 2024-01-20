@@ -12,6 +12,8 @@ A new Flutter FFI plugin project.
   s.homepage         = 'http://example.com'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Your Company' => 'email@example.com' }
+  s.dependency 'FlutterMacOS'
+  s.swift_version = '5.0'
 
   # This will ensure the source files in Classes/ are included in the native
   # builds of apps using this FFI plugin. Podspec does not support relative
@@ -28,8 +30,6 @@ A new Flutter FFI plugin project.
                    'llama.cpp/common/build-info.cpp', 
                    'llama.cpp/ggml-metal.m' 
   s.frameworks = 'Foundation', 'Metal', 'MetalKit'
-  s.dependency 'FlutterMacOS'
-
   s.platform = :osx, '10.11'
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
@@ -38,5 +38,4 @@ A new Flutter FFI plugin project.
     'OTHER_CPLUSPLUSFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc'],
     'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', 'GGML_USE_METAL=1'],
   }
-  s.swift_version = '5.0'
 end
