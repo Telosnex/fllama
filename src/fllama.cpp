@@ -50,6 +50,8 @@ FFI_PLUGIN_EXPORT extern "C" intptr_t sum(intptr_t a, intptr_t b) { return a + b
 // block Dart execution. This will cause dropped frames in Flutter applications.
 // Instead, call these native functions on a separate isolate.
 FFI_PLUGIN_EXPORT extern "C" intptr_t sum_long_running(intptr_t a, intptr_t b) {
+  std::cout << "Hello from fllama!" << std::endl;
+
   sleep(5);
       // Log the current working directory
     char currentDir[PATH_MAX];
@@ -83,7 +85,7 @@ FFI_PLUGIN_EXPORT extern "C" intptr_t sum_long_running(intptr_t a, intptr_t b) {
     #endif
 
     struct llama_model_params model_params = llama_model_default_params();
-    model_params.n_gpu_layers = 99;
+    model_params.n_gpu_layers = 0;
     struct llama_model * model = llama_load_model_from_file(modelPath, model_params);
     if (model == NULL) {
         fprintf(stderr , "%s: error: unable to load model\n" , __func__);

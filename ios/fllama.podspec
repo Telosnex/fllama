@@ -18,11 +18,28 @@ A new Flutter FFI plugin project.
   # paths, so Classes contains a forwarder C file that relatively imports
   # `../src/*` so that the C sources can be shared among all target platforms.
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
   s.platform = :ios, '11.0'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
   s.swift_version = '5.0'
+  # n.b. above is standard flutter (modulo missing s.source_files)
+  s.source_files = 'Classes/**/*', 
+  'llama.cpp/llama.cpp', 
+  'llama.cpp/ggml.c', 
+  'llama.cpp/ggml-quants.c', 
+  'llama.cpp/ggml-backend.c', 
+  'llama.cpp/ggml-alloc.c', 
+  'llama.cpp/common/common.cpp', 
+  'llama.cpp/common/build-info.cpp', 
+  'llama.cpp/ggml-metal.m' 
+s.frameworks = 'Foundation', 'Metal', 'MetalKit'
+s.pod_target_xcconfig = {
+'DEFINES_MODULE' => 'YES',
+'USER_HEADER_SEARCH_PATHS' => ['$(PODS_TARGET_SRCROOT)/../llama.cpp/**/*.h', '$(PODS_TARGET_SRCROOT)/../llama.cpp/common/**/*.h'],
+'OTHER_CFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc'],
+'OTHER_CPLUSPLUSFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc'],
+'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', 'GGML_USE_METAL=1'],
+}
 end
