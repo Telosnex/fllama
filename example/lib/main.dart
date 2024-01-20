@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:ffi';
 
+import 'package:fllama/fllama_bindings_generated.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 
-import 'package:fllama/fllama.dart' as fllama;
+import 'package:fllama/fllama.dart';
 
 void main() {
   runApp(const MyApp());
@@ -17,14 +19,20 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  late int sumResult;
-  late Future<int> sumAsyncResult;
+  late Future<String> sumAsyncResult;
 
   @override
   void initState() {
     super.initState();
-    sumResult = fllama.sum(1, 2);
-    sumAsyncResult = fllama.sumAsync(3, 4);
+    final request = FllamaInferenceRequest(
+      input: 'Hello, world!',
+      numThreads: 8,
+      numThreadsBatch: 8,
+      numGpuLayers: 0,
+      modelPath: '',
+    );
+    // /Call the FFI function and pass the pointer to the struct.
+    sumAsyncResult = fllamaInferenceAsync(request);
   }
 
   @override
@@ -49,25 +57,18 @@ class _MyAppState extends State<MyApp> {
                   textAlign: TextAlign.center,
                 ),
                 spacerSmall,
-                Text(
-                  'sum(1, 2) = $sumResult',
-                  style: textStyle,
-                  textAlign: TextAlign.center,
-                ),
-                spacerSmall,
-                FutureBuilder<int>(
+                FutureBuilder<String>(
                   future: sumAsyncResult,
-                  builder: (BuildContext context, AsyncSnapshot<int> value) {
+                  builder: (BuildContext context, AsyncSnapshot<String> value) {
                     final displayValue =
                         (value.hasData) ? value.data : 'loading';
                     return Text(
-                      'await sumAsync(3, 4) = $displayValue',
+                      'Inference = $displayValue',
                       style: textStyle,
                       textAlign: TextAlign.center,
                     );
                   },
                 ),
-            
               ],
             ),
           ),

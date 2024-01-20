@@ -1,35 +1,61 @@
-
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'fllama_bindings_generated.dart';
+import 'package:ffi/ffi.dart';
+import 'package:fllama/fllama_bindings_generated.dart';
 
-/// A very short-lived native function.
-///
-/// For very short-lived functions, it is fine to call them on the main isolate.
-/// They will block the Dart execution while running the native function, so
-/// only do this for native functions which are guaranteed to be short-lived.
-int sum(int a, int b) => _bindings.sum(a, b);
+class FllamaInferenceRequest {
+  int numThreads;
+  int numThreadsBatch;
+  int numGpuLayers;
+  String input;
+  String modelPath;
 
-/// A longer lived native function, which occupies the thread calling it.
-///
-/// Do not call these kind of native functions in the main isolate. They will
-/// block Dart execution. This will cause dropped frames in Flutter applications.
-/// Instead, call these native functions on a separate isolate.
-///
-/// Modify this to suit your own use case. Example use cases:
-///
-/// 1. Reuse a single isolate for various different kinds of requests.
-/// 2. Use multiple helper isolates for parallel execution.
-Future<int> sumAsync(int a, int b) async {
+  FllamaInferenceRequest({
+    required this.numThreads,
+    required this.numThreadsBatch,
+    required this.numGpuLayers,
+    required this.input,
+    required this.modelPath,
+  });
+
+  fllama_inference_request toFllamaInferenceRequest() {
+    fllama_inference_request request = calloc<fllama_inference_request>().ref;
+    request.num_threads = numThreads;
+    request.num_threads_batch = numThreadsBatch;
+    request.num_gpu_layers = numGpuLayers;
+    Pointer<Utf8> inputStr = input.toNativeUtf8();
+    request.input = inputStr.cast<Char>();
+    return request;
+  }
+}
+
+Future<String> fllamaInferenceAsync(FllamaInferenceRequest request) async {
+  print('G');
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
-  final int requestId = _nextSumRequestId++;
-  final _SumRequest request = _SumRequest(requestId, a, b);
-  final Completer<int> completer = Completer<int>();
-  _sumRequests[requestId] = completer;
-  helperIsolateSendPort.send(request);
+  print('H');
+
+  final int requestId = _nextInferenceRequestId++;
+  print('I');
+  final _IsolateInferenceRequest isolateRequest =
+      _IsolateInferenceRequest(requestId, request);
+  print('J');
+
+  final Completer<String> completer = Completer<String>();
+  print('K');
+
+  _isolateInferenceRequests[requestId] = completer;
+  print('L');
+  try {
+    helperIsolateSendPort.send(isolateRequest);
+  } catch (e) {
+    print(e);
+  }
+  print('M');
+
+  print('Sent inference request $requestId');
   return completer.future;
 }
 
@@ -52,33 +78,32 @@ final DynamicLibrary _dylib = () {
 /// The bindings to the native functions in [_dylib].
 final FllamaBindings _bindings = FllamaBindings(_dylib);
 
-
 /// A request to compute `sum`.
 ///
 /// Typically sent from one isolate to another.
-class _SumRequest {
+class _IsolateInferenceRequest {
   final int id;
-  final int a;
-  final int b;
+  final FllamaInferenceRequest request;
 
-  const _SumRequest(this.id, this.a, this.b);
+  const _IsolateInferenceRequest(this.id, this.request);
 }
 
 /// A response with the result of `sum`.
 ///
 /// Typically sent from one isolate to another.
-class _SumResponse {
+class _IsolateInferenceResponse {
   final int id;
-  final int result;
+  final String result;
 
-  const _SumResponse(this.id, this.result);
+  const _IsolateInferenceResponse(this.id, this.result);
 }
 
-/// Counter to identify [_SumRequest]s and [_SumResponse]s.
-int _nextSumRequestId = 0;
+/// Counter to identify [_IsolateInferenceRequest]s and [_IsolateInferenceResponse]s.
+int _nextInferenceRequestId = 0;
 
-/// Mapping from [_SumRequest] `id`s to the completers corresponding to the correct future of the pending request.
-final Map<int, Completer<int>> _sumRequests = <int, Completer<int>>{};
+/// Mapping from [_IsolateInferenceRequest] `id`s to the completers corresponding to the correct future of the pending request.
+final Map<int, Completer<String>> _isolateInferenceRequests =
+    <int, Completer<String>>{};
 
 /// The SendPort belonging to the helper isolate.
 Future<SendPort> _helperIsolateSendPort = () async {
@@ -97,10 +122,10 @@ Future<SendPort> _helperIsolateSendPort = () async {
         completer.complete(data);
         return;
       }
-      if (data is _SumResponse) {
+      if (data is _IsolateInferenceResponse) {
         // The helper isolate sent us a response to a request we sent.
-        final Completer<int> completer = _sumRequests[data.id]!;
-        _sumRequests.remove(data.id);
+        final Completer<String> completer = _isolateInferenceRequests[data.id]!;
+        _isolateInferenceRequests.remove(data.id);
         completer.complete(data.result);
         return;
       }
@@ -112,9 +137,13 @@ Future<SendPort> _helperIsolateSendPort = () async {
     final ReceivePort helperReceivePort = ReceivePort()
       ..listen((dynamic data) {
         // On the helper isolate listen to requests and respond to them.
-        if (data is _SumRequest) {
-          final int result = _bindings.sum_long_running(data.a, data.b);
-          final _SumResponse response = _SumResponse(data.id, result);
+        if (data is _IsolateInferenceRequest) {
+          final Pointer<Char> result = _bindings
+              .fllama_inference(data.request.toFllamaInferenceRequest());
+          // Turn Pointer<Char> to String.
+          final String resultString = result.cast<Utf8>().toDartString();
+          final _IsolateInferenceResponse response =
+              _IsolateInferenceResponse(data.id, resultString);
           sendPort.send(response);
           return;
         }
