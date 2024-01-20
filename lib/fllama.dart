@@ -33,29 +33,18 @@ class FllamaInferenceRequest {
 }
 
 Future<String> fllamaInferenceAsync(FllamaInferenceRequest request) async {
-  print('G');
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
-  print('H');
-
   final int requestId = _nextInferenceRequestId++;
-  print('I');
   final _IsolateInferenceRequest isolateRequest =
       _IsolateInferenceRequest(requestId, request);
-  print('J');
-
   final Completer<String> completer = Completer<String>();
-  print('K');
-
   _isolateInferenceRequests[requestId] = completer;
-  print('L');
   try {
     helperIsolateSendPort.send(isolateRequest);
   } catch (e) {
-    print(e);
+    // ignore: avoid_print
+    print('[fflama] ERROR sending request to helper isolate: $e');
   }
-  print('M');
-
-  print('Sent inference request $requestId');
   return completer.future;
 }
 

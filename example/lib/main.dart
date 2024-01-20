@@ -1,7 +1,5 @@
 import 'dart:io';
-import 'dart:ffi';
 
-import 'package:fllama/fllama_bindings_generated.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 
