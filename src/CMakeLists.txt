@@ -8,7 +8,11 @@ project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 set(BUILD_SHARED_LIBS ON)
 
 add_subdirectory(llama.cpp)
-add_subdirectory(llama.cpp/common)
+
+if(ANDROID)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DANDROID_ARM_NEON=TRUE -DANDROID_TOOLCHAIN=clang -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DANDROID_ARM_NEON=TRUE -DANDROID_TOOLCHAIN=clang -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23")
+endif()
 
 add_library(fllama SHARED
   "fllama.cpp"
@@ -22,3 +26,10 @@ set_target_properties(fllama PROPERTIES
 target_compile_definitions(fllama PUBLIC DART_SHARED_LIB)
 target_include_directories(fllama PUBLIC .)
 target_link_libraries(fllama PUBLIC llama common)
+
+if(ANDROID)
+    find_library(LOG_LIB log) # Find the log library
+    target_link_libraries(fllama PUBLIC
+      ${LOG_LIB} # Add this to link against the log library for Android
+    )
+endif()

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'dart:async';
 
@@ -39,8 +41,9 @@ class _MyAppState extends State<MyApp> {
             padding: const EdgeInsets.all(10),
             child: Column(
               children: [
+                Text(Directory.current.path),
                 const Text(
-                  'This calls a native function through FFI that is shipped as source in the package. '
+                  'This BLORP a native function through FFI that is shipped as source in the package. '
                   'The native code is built as part of the Flutter Runner build.',
                   style: textStyle,
                   textAlign: TextAlign.center,
@@ -64,6 +67,7 @@ class _MyAppState extends State<MyApp> {
                     );
                   },
                 ),
+            
               ],
             ),
           ),
