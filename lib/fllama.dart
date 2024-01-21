@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
@@ -178,7 +179,15 @@ Future<SendPort> _helperIsolateSendPort = () async {
         if (data is _IsolateInferenceRequest) {
           late final NativeCallable<NativeInferenceCallback> callback;
           void onResponse(Pointer<Char> responsePointer) {
-            final String partial = responsePointer.cast<Utf8>().toDartString();
+            // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
+            // order to allow malformed UTF-8.
+            final codeUnits = responsePointer.cast<Uint8>();
+            var length = 0;
+            while (codeUnits[length] != 0) {
+              length++;
+            }
+            final partial = utf8.decode(codeUnits.asTypedList(length),
+                allowMalformed: true);
             final _IsolateInferenceResponse response =
                 _IsolateInferenceResponse(0, partial, true);
             sendPort.send(response);
