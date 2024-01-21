@@ -99,7 +99,39 @@ static int n_remain;
 static int n_past;
 static int n_consumed;
 
-// hi.
+// Current implementation based on llama.cpp/examples/simple/simple.cpp combined
+// with handling sampling manually via top_p and temp functions.
+//
+// The other route you'll see is setting up a sampling context, but it doesn't
+// work well without a lot of hand-holding - ex. manually specifying the exact
+// samplers you want to use. If you just use it straight-up, one of the other 6
+// techniques outside top-P and temperature overrides temperature, somehow.
+//
+// It's incompatible with what seems to be the "new batch API", which it seems
+// simple.cpp used. But who knows, that'd require some semblance of
+// documentation.
+//
+// macOS and iOS based on intuition that:
+// - it will be difficult to get llama.cpp building as a CMakeLists library.
+// - a .podspec is a pseudo-CMakeLists file.
+// - creating a seperate llama.cpp .podspec is not ideal as llama.cpp
+// support
+//   is necessarily opinionated - ex. whether or not to pursue Metal
+//   support.
+//
+// Thus, integrating by copying the llama.cpp source to
+// {ios/macos}/Classes/llama.cpp was the best option. After repeatedly
+// building and fixing errors requiring relative imports, you then have a
+// llama.cpp library that can be used in the iOS and macOS.
+//
+// Due to the copying, the build is entirely contained within the codebase.
+// Updating versions required updating the submodule _and_ copying the files
+// to the iOS and macOS directories, and then fixing relative imports. This
+// takes about 20 minutes, tops.
+// 3 files:
+// - llama.cpp/common/common.h
+// - llama.cpp/common/grammar-parser.h
+// - llama.cpp/common/sampling.h
 FFI_PLUGIN_EXPORT extern "C" const char *
 fllama_inference(fllama_inference_request request,
                  fllama_inference_callback callback) {
@@ -112,6 +144,10 @@ fllama_inference(fllama_inference_request request,
     std::cout << "[fllama] Initializing params." << std::endl;
     params.n_ctx = request.context_size;
     std::cout << "[fllama] Context size: " << params.n_ctx << std::endl;
+    // Very unclear what this means, but, if its < the total number of tokens,
+    // llama.cpp assertion fails. (n_tokens <= n_batch)
+    params.n_batch = request.context_size;
+    std::cout << "[fllama] Batch size: " << params.n_batch << std::endl;
     params.n_predict = request.max_tokens;
     std::cout << "[fllama] Max tokens: " << params.n_predict << std::endl;
     params.sparams.temp = request.temperature;
@@ -157,31 +193,6 @@ fllama_inference(fllama_inference_request request,
               << std::endl;
     std::cout << "[fllama] Output tokens requested: " << params.n_predict
               << std::endl;
-    std::cout << "[fllama] DEBUG, REMOVE: mirostat: " << params.sparams.mirostat
-              << std::endl;
-
-    // Current implementation based on llama.cpp/examples/simple/simple.cpp.
-    // macOS and iOS based on intuition that:
-    // - it will be difficult to get llama.cpp building as a CMakeLists library.
-    // - a .podspec is a pseudo-CMakeLists file.
-    // - creating a seperate llama.cpp .podspec is not ideal as llama.cpp
-    // support
-    //   is necessarily opinionated - ex. whether or not to pursue Metal
-    //   support.
-    //
-    // Thus, integrating by copying the llama.cpp source to
-    // {ios/macos}/Classes/llama.cpp was the best option. After repeatedly
-    // building and fixing errors requiring relative imports, you then have a
-    // llama.cpp library that can be used in the iOS and macOS.
-    //
-    // Due to the copying, the build is entirely contained within the codebase.
-    // Updating versions required updating the submodule _and_ copying the files
-    // to the iOS and macOS directories, and then fixing relative imports. This
-    // takes about 20 minutes, tops.
-    // 3 files:
-    // - llama.cpp/common/common.h
-    // - llama.cpp/common/grammar-parser.h
-    // - llama.cpp/common/sampling.h
     const int n_max_tokens = request.max_tokens;
     llama_context_params ctx_params =
         llama_context_params_from_gpt_params(params);
@@ -206,12 +217,13 @@ fllama_inference(fllama_inference_request request,
     // main loop
 
     int n_cur = batch.n_tokens;
+    int n_gen = 0;
     int n_decode = 0;
     std::string result;
 
     const auto t_main_start = ggml_time_us();
 
-    while (n_cur <= n_max_tokens) {
+    while (n_gen <= n_max_tokens) {
       {
         auto n_vocab = llama_n_vocab(model);
         auto *logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
@@ -226,21 +238,25 @@ fllama_inference(fllama_inference_request request,
         llama_token_data_array candidates_p = {candidates.data(),
                                                candidates.size(), false};
         // Why if?
-        // - Observed get repeated [PAD] output from stable lm Zephyr 3B at 0 temp.
-        // - Observed infinitesimally larger than 0 gets same output as when llama_sample_temp is commented out.
-        // - llama_sample_temp implementation indicates silent divide by 0 when temp == 0.
+        // - Observed get repeated [PAD] output from stable lm Zephyr 3B at 0
+        // temp.
+        // - Observed infinitesimally larger than 0 gets same output as when
+        // llama_sample_temp is commented out.
+        // - llama_sample_temp implementation indicates silent divide by 0 when
+        // temp == 0.
         if (params.sparams.temp > 0.0f) {
           llama_sample_temp(ctx, &candidates_p, params.sparams.temp);
         }
         // Only bother with top_p if it's not 1.0f (consider all tokens)
         // > 0 condition added out of caution, not tested.
         if (params.sparams.top_p < 1.0f && params.sparams.top_p > 0.0f) {
-          llama_sample_top_p(ctx, &candidates_p, params.sparams.top_p, 1 /* min_keep */);
+          llama_sample_top_p(ctx, &candidates_p, params.sparams.top_p,
+                             1 /* min_keep */);
         }
         const llama_token new_token_id = llama_sample_token(ctx, &candidates_p);
 
         // is it an end of stream?
-        if (new_token_id == llama_token_eos(model) || n_cur == n_max_tokens) {
+        if (new_token_id == llama_token_eos(model) || n_gen == n_max_tokens) {
           break;
         }
         result += llama_token_to_piece(ctx, new_token_id);
@@ -260,6 +276,7 @@ fllama_inference(fllama_inference_request request,
         llama_batch_add(batch, new_token_id, n_cur, {0}, true);
 
         n_decode += 1;
+        n_gen += 1;
       }
 
       n_cur += 1;
@@ -292,5 +309,4 @@ fllama_inference(fllama_inference_request request,
     return c_result;
   });
   inference_thread.detach();
-  return "Hello from fllama!";
 }
