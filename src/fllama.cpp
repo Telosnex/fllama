@@ -213,15 +213,34 @@ fllama_inference(fllama_inference_request request,
 
     while (n_cur <= n_max_tokens) {
       {
-        // sample based on sampling parameters created from inference request.
-        // (gpt_params.sparams)
-        const llama_token new_token_id =
-            llama_sampling_sample(sampling_context, ctx, NULL);
-        llama_sampling_accept(sampling_context, ctx, new_token_id, true);
+        auto n_vocab = llama_n_vocab(model);
+        auto *logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
+
+        std::vector<llama_token_data> candidates;
+        candidates.reserve(n_vocab);
+
+        for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
+          candidates.emplace_back(
+              llama_token_data{token_id, logits[token_id], 0.0f});
+        }
+        llama_token_data_array candidates_p = {candidates.data(),
+                                               candidates.size(), false};
+        // Why if?
+        // - Observed get repeated [PAD] output from stable lm Zephyr 3B at 0 temp.
+        // - Observed infinitesimally larger than 0 gets same output as when llama_sample_temp is commented out.
+        // - llama_sample_temp implementation indicates silent divide by 0 when temp == 0.
+        if (params.sparams.temp > 0.0f) {
+          llama_sample_temp(ctx, &candidates_p, params.sparams.temp);
+        }
+        // Only bother with top_p if it's not 1.0f (consider all tokens)
+        // > 0 condition added out of caution, not tested.
+        if (params.sparams.top_p < 1.0f && params.sparams.top_p > 0.0f) {
+          llama_sample_top_p(ctx, &candidates_p, params.sparams.top_p, 1 /* min_keep */);
+        }
+        const llama_token new_token_id = llama_sample_token(ctx, &candidates_p);
+
         // is it an end of stream?
         if (new_token_id == llama_token_eos(model) || n_cur == n_max_tokens) {
-          LOG_TEE("\n");
-
           break;
         }
         result += llama_token_to_piece(ctx, new_token_id);
@@ -233,7 +252,6 @@ fllama_inference(fllama_inference_request request,
           // Assuming the callback or the caller now owns the resource and will
           // free it.
         }
-        flush(std::cout);
 
         // prepare the next batch
         llama_batch_clear(batch);

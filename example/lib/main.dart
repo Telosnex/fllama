@@ -37,6 +37,7 @@ class _MyAppState extends State<MyApp> {
           child: Container(
             padding: const EdgeInsets.all(10),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 ElevatedButton.icon(
                   onPressed: _openGgufPressed,
@@ -62,7 +63,7 @@ class _MyAppState extends State<MyApp> {
                       final request = FllamaInferenceRequest(
                         contextSize: 4096,
                         maxTokens: 256,
-                        temperature: 1.4,
+                        temperature: 1.0,
                         topP: 1.0,
                         input: _controller.text,
                         ggmlMetalPath: null,
