@@ -132,12 +132,14 @@ static int n_consumed;
 // - llama.cpp/common/common.h
 // - llama.cpp/common/grammar-parser.h
 // - llama.cpp/common/sampling.h
-FFI_PLUGIN_EXPORT extern "C" const char *
+FFI_PLUGIN_EXPORT extern "C" void
 fllama_inference(fllama_inference_request request,
                  fllama_inference_callback callback) {
   std::cout << "[fllama] Hello from fllama.cpp!" << std::endl;
-  callback("Hello from fllama!");
-
+  // Run on a thread.
+  // A non-blocking method ensures that the callback can be on the caller
+  // thread. This significantly simplifies the implementation of the caller,
+  // particularly in Dart.
   std::thread inference_thread([request, callback]() {
     std::cout << "[fllama] Inference thread started." << std::endl;
     gpt_params params;
@@ -295,18 +297,7 @@ fllama_inference(fllama_inference_request request,
     LOG_TEE("%s: decoded %d tokens in %.2f s, speed: %.2f t/s\n", __func__,
             n_decode, (t_main_end - t_main_start) / 1000000.0f,
             n_decode / ((t_main_end - t_main_start) / 1000000.0f));
-
     llama_print_timings(ctx);
-
-    // Allocate a C-style string to return.
-    // Dart FFI boundary needs to be a C-style string.
-    // We need to copy the result to newly allocated memory because the
-    // std::string will be destroyed when the function ends
-    char *c_result = new char[result.size() + 1]; // +1 for the null terminator
-    std::strcpy(c_result, result.c_str());
-
-    // Return the newly allocated C-style string
-    return c_result;
   });
   inference_thread.detach();
 }
