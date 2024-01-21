@@ -1,7 +1,5 @@
-import 'dart:io';
-
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'dart:async';
 
 import 'package:fllama/fllama.dart';
 
@@ -17,55 +15,72 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  late Future<String> sumAsyncResult;
+  String? modelPath;
+  String latestResult = '';
+  final TextEditingController _controller = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    final request = FllamaInferenceRequest(
-      input: 'Hello, world!',
-      numThreads: 8,
-      numThreadsBatch: 8,
-      numGpuLayers: 0,
-      modelPath: '',
-    );
-    // /Call the FFI function and pass the pointer to the struct.
-    sumAsyncResult = fllamaInferenceAsync(request);
   }
 
   @override
   Widget build(BuildContext context) {
-    const textStyle = TextStyle(fontSize: 25);
+    const textStyle = TextStyle(fontSize: 14);
     const spacerSmall = SizedBox(height: 10);
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Native Packages'),
+          title: const Text('fllama'),
         ),
         body: SingleChildScrollView(
           child: Container(
             padding: const EdgeInsets.all(10),
             child: Column(
               children: [
-                Text(Directory.current.path),
-                const Text(
-                  'This BLORP a native function through FFI that is shipped as source in the package. '
-                  'The native code is built as part of the Flutter Runner build.',
-                  style: textStyle,
-                  textAlign: TextAlign.center,
+                ElevatedButton.icon(
+                  onPressed: _openGgufPressed,
+                  icon: const Icon(Icons.file_open),
+                  label: const Text('Open .gguf'),
                 ),
+                if (modelPath != null)
+                  SelectableText(
+                    'Model path: $modelPath',
+                    style: textStyle,
+                  ),
                 spacerSmall,
-                FutureBuilder<String>(
-                  future: sumAsyncResult,
-                  builder: (BuildContext context, AsyncSnapshot<String> value) {
-                    final displayValue =
-                        (value.hasData) ? value.data : 'loading';
-                    return Text(
-                      'Inference = $displayValue',
-                      style: textStyle,
-                      textAlign: TextAlign.center,
-                    );
-                  },
+                if (modelPath != null)
+                  TextField(
+                    controller: _controller,
+                  ),
+                const SizedBox(
+                  height: 8,
+                ),
+                if (modelPath != null)
+                  ElevatedButton(
+                    onPressed: () async {
+                      final request = FllamaInferenceRequest(
+                        contextSize: 4096,
+                        maxTokens: 256,
+                        temperature: 1.4,
+                        topP: 1.0,
+                        input: _controller.text,
+                        ggmlMetalPath: null,
+                        numGpuLayers: 0,
+                        modelPath: modelPath!,
+                      );
+
+                      fllamaInferenceAsync(request, (String result) {
+                        setState(() {
+                          latestResult = result;
+                        });
+                      });
+                    },
+                    child: const Text('Run inference'),
+                  ),
+                SelectableText(
+                  latestResult,
+                  style: textStyle,
                 ),
               ],
             ),
@@ -73,5 +88,24 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
     );
+  }
+
+  void _openGgufPressed() async {
+    XTypeGroup ggufTypeGroup = const XTypeGroup(
+      label: '.gguf',
+      extensions: ['gguf'],
+      // UTIs are required for iOS, which does not support local LLMs.
+      uniformTypeIdentifiers: [],
+    );
+    final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
+      ggufTypeGroup,
+    ]);
+    if (file == null) {
+      return;
+    }
+    final filePath = file.path;
+    setState(() {
+      modelPath = filePath;
+    });
   }
 }
