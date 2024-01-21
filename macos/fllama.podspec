@@ -28,6 +28,8 @@ A new Flutter FFI plugin project.
                    'llama.cpp/ggml-alloc.c', 
                    'llama.cpp/common/common.cpp', 
                    'llama.cpp/common/build-info.cpp', 
+                   'llama.cpp/common/grammar-parser.cpp', 
+                   'llama.cpp/common/sampling.cpp', 
                    'llama.cpp/ggml-metal.m' 
   s.frameworks = 'Foundation', 'Metal', 'MetalKit'
   s.platform = :osx, '10.11'

@@ -5,6 +5,7 @@
 
 #include <iostream>
 #include <string>
+#include <thread>
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -52,12 +53,14 @@ inline void logd(const std::string &format, Args... args)
 #include "../ios/llama.cpp/common/common.h"
 #include "../ios/llama.cpp/llama.h"
 #include "../ios/llama.cpp/ggml.h"
+#include "../ios/llama.cpp/sampling.h"
 
 #elif TARGET_OS_OSX
 // macOS-specific includes
 #include "../macos/llama.cpp/common/common.h"
 #include "../macos/llama.cpp/llama.h"
 #include "../macos/llama.cpp/ggml.h"
+#include "../macos/llama.cpp/common/sampling.h"
 
 #else
 // Other platforms
@@ -100,55 +103,59 @@ static int n_past;
 static int n_consumed;
 
 // hi.
-FFI_PLUGIN_EXPORT extern "C" const char *fllama_inference(fllama_inference_request request)
+FFI_PLUGIN_EXPORT extern "C" const char *fllama_inference(fllama_inference_request request, fllama_inference_callback callback)
 {
-  std::cout << "Hello from fllama!" << std::endl;
+  std::cout << "[fllama] Hello from fllama.cpp!" << std::endl;
+  callback("Hello from fllama!");
 
-  // Log the current working directory
-  char currentDir[PATH_MAX];
-  if (getcwd(currentDir, sizeof(currentDir)) != NULL)
-  {
-    logd("Current Working Directory: %s", currentDir);
-    // std::cout << "Current Working Directory: " << currentDir << std::endl;
-  }
-
-  ggml_time_init();
+  std::thread inference_thread([request, callback]()
+                               {
+  std::cout << "[fllama] Inference thread started." << std::endl;
   gpt_params params;
-
-  llama_backend_init(params.numa);
-
-  // Load a dummy model from a file (replace 'dummy_model.llm' with an actual model file path)
-  const char *modelFolder = "/Users/jamesoleary/Library/Containers/com.example.fllamaExample/Data/";
-
-  const char *modelPath = "/Users/jamesoleary/Library/Containers/com.example.fllamaExample/Data/phi-2.Q4_K_M.gguf";
-#if defined(__APPLE__)
-#include "TargetConditionals.h"
-#if !TARGET_OS_IPHONE
-  // This code will only be included in macOS builds, not iOS.
-  const char *envVarName = "GGML_METAL_PATH_RESOURCES";
-  setenv(envVarName, modelFolder, 1);
-#endif
-#endif
-
-  struct llama_model_params model_params = llama_model_default_params();
-
+  std::cout << "[fllama] Initializing params." << std::endl;
+  params.n_ctx = request.context_size;
+  std::cout << "[fllama] Context size: " << params.n_ctx << std::endl;
+  params.n_predict = request.max_tokens;
+  std::cout << "[fllama] Max tokens: " << params.n_predict << std::endl;
+  params.sparams.temp = request.temperature;
+  std::cout << "[fllama] Temperature: " << params.sparams.temp << std::endl;
+  params.sparams.samplers_sequence = "pt";
+  params.sparams.top_p = request.top_p;
+  std::cout << "[fllama] Top P: " << params.sparams.top_p << std::endl;
+  params.model = request.model_path;
+  std::cout << "[fllama] Model path: " << params.model << std::endl;
 // Force CPU if iOS simulator: no GPU support available, hangs.
 #if TARGET_IPHONE_SIMULATOR
   model_params.n_gpu_layers = 0;
 // Otherwise, for physical iOS devices and other platforms
 #else
-  model_params.n_gpu_layers = 99;
+  params.n_gpu_layers = request.num_gpu_layers;
 #endif
-
-  struct llama_model *model = llama_load_model_from_file(modelPath, model_params);
-  if (model == NULL)
-  {
-    fprintf(stderr, "%s: error: unable to load model\n", __func__);
-    throw std::runtime_error("[fllama] Unable to load model from file: " + std::string(modelPath));
+  const char *metal_path = request.ggml_metal_path;
+  if (metal_path != nullptr) {
+    std::cout << "[fllama] Metal path: " << metal_path << std::endl;
+    setenv("GGML_METAL_PATH_RESOURCES", metal_path, 1);
+  } else {
+    std::cout << "[fllama] Metal path not provided; Metal not enabled. You should try to provide a path on macOS or iOS." << std::endl;
   }
+
+  llama_backend_init(params.numa);
+  std::tie(model, ctx) = llama_init_from_gpt_params(params);
+  if (model == NULL || ctx == NULL) {
+    std::cout << "[fllama] Unable to load model." << std::endl;
+    if (model != NULL) {
+      llama_free_model(model);
+    }
+    throw std::runtime_error("[fllama] Unable to initialize model");
+  }
+  struct llama_model_params model_params = llama_model_default_params();
+
+  llama_sampling_context *sampling_context = llama_sampling_init(params.sparams);
   std::vector<llama_token> tokens_list;
   tokens_list = ::llama_tokenize(model, request.input, true);
-  std::cout << "[fllama] Number of tokens: " << tokens_list.size() << std::endl;
+  std::cout << "[fllama] Input token count: " << tokens_list.size() << std::endl;
+  std::cout << "[fllama] Output tokens requested: " << params.n_predict << std::endl;
+  std::cout << "[fllama] DEBUG, REMOVE: mirostat: " << params.sparams.mirostat << std::endl;
 
   // Current implementation based on llama.cpp/examples/simple/simple.cpp.
   // macOS and iOS based on intuition that:
@@ -169,19 +176,12 @@ FFI_PLUGIN_EXPORT extern "C" const char *fllama_inference(fllama_inference_reque
   // - llama.cpp/common/common.h
   // - llama.cpp/common/grammar-parser.h
   // - llama.cpp/common/sampling.h
-  const int n_len = 300;
-  std::cout << "B" << std::endl;
-  llama_context_params ctx_params = llama_context_default_params();
-  ctx_params.seed = 1234;
-  ctx_params.n_ctx = 2048;
-  ctx_params.n_threads = params.n_threads;
+  const int n_max_tokens = request.max_tokens;
+  llama_context_params ctx_params = llama_context_params_from_gpt_params(params);
   std::cout << "Number of threads: " << ctx_params.n_threads << std::endl;
-  ctx_params.n_threads_batch = params.n_threads_batch == -1 ? params.n_threads : params.n_threads_batch;
-  ctx = llama_new_context_with_model(model, ctx_params);
 
-  const int n_ctx = llama_n_ctx(ctx);
-  const int n_kv_req = tokens_list.size() + (n_len - tokens_list.size());
-  llama_batch batch = llama_batch_init(512, 0, 1);
+  const int n_kv_req = tokens_list.size() + (n_max_tokens - tokens_list.size());
+  llama_batch batch = llama_batch_init(tokens_list.size() + n_max_tokens, 0, 1);
   // evaluate the initial prompt
   for (size_t i = 0; i < tokens_list.size(); i++)
   {
@@ -204,35 +204,28 @@ FFI_PLUGIN_EXPORT extern "C" const char *fllama_inference(fllama_inference_reque
 
   const auto t_main_start = ggml_time_us();
 
-  while (n_cur <= n_len)
+  while (n_cur <= n_max_tokens)
   {
-    // sample the next token
     {
-      auto n_vocab = llama_n_vocab(model);
-      auto *logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
-
-      std::vector<llama_token_data> candidates;
-      candidates.reserve(n_vocab);
-
-      for (llama_token token_id = 0; token_id < n_vocab; token_id++)
-      {
-        candidates.emplace_back(llama_token_data{token_id, logits[token_id], 0.0f});
-      }
-
-      llama_token_data_array candidates_p = {candidates.data(), candidates.size(), false};
-
-      // sample the most likely token
-      const llama_token new_token_id = llama_sample_token_greedy(ctx, &candidates_p);
-
+      // sample based on sampling parameters created from inference request. (gpt_params.sparams)
+      const llama_token new_token_id = llama_sampling_sample(sampling_context, ctx, NULL);
+      llama_sampling_accept(sampling_context, ctx, new_token_id, true);
       // is it an end of stream?
-      if (new_token_id == llama_token_eos(model) || n_cur == n_len)
+      if (new_token_id == llama_token_eos(model) || n_cur == n_max_tokens)
       {
         LOG_TEE("\n");
 
         break;
       }
       result += llama_token_to_piece(ctx, new_token_id);
-      fflush(stdout);
+      char *c_result = (char *)malloc(result.size() + 1); // +1 for the null terminator
+      if (c_result)
+      { // Ensure malloc succeeded before using the pointer
+        std::strcpy(c_result, result.c_str());
+        callback(c_result);
+        // Assuming the callback or the caller now owns the resource and will free it.
+      }
+      flush(std::cout);
 
       // prepare the next batch
       llama_batch_clear(batch);
@@ -269,5 +262,7 @@ FFI_PLUGIN_EXPORT extern "C" const char *fllama_inference(fllama_inference_reque
   std::strcpy(c_result, result.c_str());
 
   // Return the newly allocated C-style string
-  return c_result;
+  return c_result; });
+  inference_thread.detach();
+  return "Hello from fllama!";
 }

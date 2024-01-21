@@ -34,30 +34,54 @@ class FllamaBindings {
   /// Instead, call these native functions on a separate isolate.
   ffi.Pointer<ffi.Char> fllama_inference(
     fllama_inference_request request,
+    fllama_inference_callback callback,
   ) {
     return _fllama_inference(
       request,
+      callback,
     );
   }
 
   late final _fllama_inferencePtr = _lookup<
       ffi.NativeFunction<
-          ffi.Pointer<ffi.Char> Function(
-              fllama_inference_request)>>('fllama_inference');
-  late final _fllama_inference = _fllama_inferencePtr
-      .asFunction<ffi.Pointer<ffi.Char> Function(fllama_inference_request)>();
+          ffi.Pointer<ffi.Char> Function(fllama_inference_request,
+              fllama_inference_callback)>>('fllama_inference');
+  late final _fllama_inference = _fllama_inferencePtr.asFunction<
+      ffi.Pointer<ffi.Char> Function(
+          fllama_inference_request, fllama_inference_callback)>();
 }
 
 final class fllama_inference_request extends ffi.Struct {
+  /// Required: context size
   @ffi.Int()
-  external int num_threads;
+  external int context_size;
 
+  /// Optional: Path to ggml.metal
+  external ffi.Pointer<ffi.Char> ggml_metal_path;
+
+  /// Required: input text
+  external ffi.Pointer<ffi.Char> input;
+
+  /// Required: max tokens to generate
   @ffi.Int()
-  external int num_threads_batch;
+  external int max_tokens;
 
+  /// Required: .ggml model file path
+  external ffi.Pointer<ffi.Char> model_path;
+
+  /// Required: number of GPU layers. 0 for CPU only. 99 for all layers. Automatically 0 on iOS simulator.
   @ffi.Int()
   external int num_gpu_layers;
 
-  /// Pointer to the input string
-  external ffi.Pointer<ffi.Char> input;
+  /// Optional: temperature. Defaults to 0. (llama.cpp behavior)
+  @ffi.Float()
+  external double temperature;
+
+  /// Optional: 0 < top_p <= 1. Defaults to 1. (llama.cpp behavior)
+  @ffi.Float()
+  external double top_p;
 }
+
+typedef fllama_inference_callback = ffi.Pointer<
+    ffi
+    .NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char> partial_result)>>;

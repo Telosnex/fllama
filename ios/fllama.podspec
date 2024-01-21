@@ -33,7 +33,9 @@ A new Flutter FFI plugin project.
   'llama.cpp/ggml-alloc.c', 
   'llama.cpp/common/common.cpp', 
   'llama.cpp/common/build-info.cpp', 
-  'llama.cpp/ggml-metal.m' 
+  'llama.cpp/ggml-metal.m',
+  'llama.cpp/common/grammar-parser.cpp', 
+  'llama.cpp/common/sampling.cpp', 
 s.frameworks = 'Foundation', 'Metal', 'MetalKit'
 s.pod_target_xcconfig = {
 'DEFINES_MODULE' => 'YES',
