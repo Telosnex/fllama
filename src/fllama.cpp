@@ -222,12 +222,16 @@ void _fllama_inference_sync(fllama_inference_request request,
   int n_cur = batch.n_tokens;
   int n_gen = 0;
   int n_decode = 0;
-  std::string result;
 
   const auto t_main_start = ggml_time_us();
 
+  // Reserve result string once to avoid an allocation in loop.
+  const auto estimated_total_size = n_max_tokens * 10;
+  std::string result;
+  result.reserve(estimated_total_size);
+  char *c_result = (char *)malloc(estimated_total_size); // Allocate once with estimated size
   while (n_gen <= n_max_tokens) {
-    {
+  {
       auto n_vocab = llama_n_vocab(model);
       auto *logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
 
@@ -263,13 +267,9 @@ void _fllama_inference_sync(fllama_inference_request request,
         break;
       }
       result += llama_token_to_piece(ctx, new_token_id);
-      char *c_result =
-          (char *)malloc(result.size() + 1); // +1 for the null terminator
-      if (c_result) { // Ensure malloc succeeded before using the pointer
+      if (c_result) {
         std::strcpy(c_result, result.c_str());
-        callback(c_result);
-        // Assuming the callback or the caller now owns the resource and will
-        // free it.
+        callback(c_result); // Here, ensure callback is quick and error-safe
       }
 
       // prepare the next batch
@@ -303,4 +303,5 @@ void _fllama_inference_sync(fllama_inference_request request,
 
   llama_free(ctx);
   llama_backend_free();
+  free(c_result);
 }

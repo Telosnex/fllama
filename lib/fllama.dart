@@ -192,7 +192,6 @@ Future<SendPort> _helperIsolateSendPort = () async {
           }
           final partial =
               utf8.decode(codeUnits.asTypedList(length), allowMalformed: true);
-          malloc.free(responsePointer);
           final _IsolateInferenceResponse response =
               _IsolateInferenceResponse(0, partial, true);
           sendPort.send(response);
