@@ -99,6 +99,8 @@ static int n_remain;
 static int n_past;
 static int n_consumed;
 
+void _fllama_inference_sync(fllama_inference_request request,
+                 fllama_inference_callback callback);
 // Current implementation based on llama.cpp/examples/simple/simple.cpp combined
 // with handling sampling manually via top_p and temp functions.
 //
@@ -141,6 +143,17 @@ fllama_inference(fllama_inference_request request,
   // thread. This significantly simplifies the implementation of the caller,
   // particularly in Dart.
   std::thread inference_thread([request, callback]() {
+    try {
+      _fllama_inference_sync(request, callback);
+    } catch (const std::exception &e) {
+      std::cout << "[fllama] Exception: " << e.what() << std::endl;
+    }
+  });
+  inference_thread.detach();
+}
+
+void _fllama_inference_sync(fllama_inference_request request,
+                 fllama_inference_callback callback) {
     std::cout << "[fllama] Inference thread started." << std::endl;
     gpt_params params;
     std::cout << "[fllama] Initializing params." << std::endl;
@@ -298,6 +311,5 @@ fllama_inference(fllama_inference_request request,
             n_decode, (t_main_end - t_main_start) / 1000000.0f,
             n_decode / ((t_main_end - t_main_start) / 1000000.0f));
     llama_print_timings(ctx);
-  });
-  inference_thread.detach();
-}
+
+                 }
