@@ -88,13 +88,6 @@ inline void logd(const std::string &format, Args... args) {
 static std::atomic_bool stop_generation(false);
 static std::mutex continue_mutex;
 
-static llama_model *model;
-static llama_context *ctx;
-static llama_context *ctx_guidance;
-
-static std::vector<llama_token> embd;
-static std::vector<llama_token> embd_inp;
-
 static int n_remain;
 static int n_past;
 static int n_consumed;
@@ -190,6 +183,8 @@ void _fllama_inference_sync(fllama_inference_request request,
   }
 
   llama_backend_init(params.numa);
+  llama_model *model;
+  llama_context *ctx;
   std::tie(model, ctx) = llama_init_from_gpt_params(params);
   if (model == NULL || ctx == NULL) {
     std::cout << "[fllama] Unable to load model." << std::endl;
@@ -295,7 +290,8 @@ void _fllama_inference_sync(fllama_inference_request request,
       throw std::runtime_error("Inference failed");
     }
   }
-
+  llama_batch_free(batch);
+  llama_free_model(model);
   // Log finished
   const auto t_main_end = ggml_time_us();
   const auto t_main = t_main_end - t_main_start;
@@ -304,4 +300,7 @@ void _fllama_inference_sync(fllama_inference_request request,
           n_decode, (t_main_end - t_main_start) / 1000000.0f,
           n_decode / ((t_main_end - t_main_start) / 1000000.0f));
   llama_print_timings(ctx);
+
+  llama_free(ctx);
+  llama_backend_free();
 }
