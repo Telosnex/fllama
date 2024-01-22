@@ -198,10 +198,7 @@ void _fllama_inference_sync(fllama_inference_request request,
       }
       throw std::runtime_error("[fllama] Unable to initialize model");
     }
-    struct llama_model_params model_params = llama_model_default_params();
 
-    llama_sampling_context *sampling_context =
-        llama_sampling_init(params.sparams);
     std::vector<llama_token> tokens_list;
     tokens_list = ::llama_tokenize(model, request.input, true);
     std::cout << "[fllama] Input token count: " << tokens_list.size()
@@ -213,8 +210,6 @@ void _fllama_inference_sync(fllama_inference_request request,
         llama_context_params_from_gpt_params(params);
     std::cout << "Number of threads: " << ctx_params.n_threads << std::endl;
 
-    const int n_kv_req =
-        tokens_list.size() + (n_max_tokens - tokens_list.size());
     llama_batch batch =
         llama_batch_init(tokens_list.size() + n_max_tokens, 0, 1);
     // evaluate the initial prompt
@@ -230,7 +225,6 @@ void _fllama_inference_sync(fllama_inference_request request,
     }
 
     // main loop
-
     int n_cur = batch.n_tokens;
     int n_gen = 0;
     int n_decode = 0;
