@@ -32,7 +32,7 @@ class FllamaBindings {
   /// Do not call these kind of native functions in the main isolate. They will
   /// block Dart execution. This will cause dropped frames in Flutter applications.
   /// Instead, call these native functions on a separate isolate.
-  ffi.Pointer<ffi.Char> fllama_inference(
+  void fllama_inference(
     fllama_inference_request request,
     fllama_inference_callback callback,
   ) {
@@ -44,11 +44,10 @@ class FllamaBindings {
 
   late final _fllama_inferencePtr = _lookup<
       ffi.NativeFunction<
-          ffi.Pointer<ffi.Char> Function(fllama_inference_request,
+          ffi.Void Function(fllama_inference_request,
               fllama_inference_callback)>>('fllama_inference');
   late final _fllama_inference = _fllama_inferencePtr.asFunction<
-      ffi.Pointer<ffi.Char> Function(
-          fllama_inference_request, fllama_inference_callback)>();
+      void Function(fllama_inference_request, fllama_inference_callback)>();
 }
 
 final class fllama_inference_request extends ffi.Struct {
