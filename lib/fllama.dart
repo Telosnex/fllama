@@ -176,39 +176,31 @@ Future<SendPort> _helperIsolateSendPort = () async {
     final ReceivePort helperReceivePort = ReceivePort()
       ..listen((dynamic data) {
         // On the helper isolate listen to requests and respond to them.
-        if (data is _IsolateInferenceRequest) {
-          late final NativeCallable<NativeInferenceCallback> callback;
-          void onResponse(Pointer<Char> responsePointer) {
-            // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
-            // order to allow malformed UTF-8.
-            final codeUnits = responsePointer.cast<Uint8>();
-            var length = 0;
-            while (codeUnits[length] != 0) {
-              length++;
-            }
-            final partial = utf8.decode(codeUnits.asTypedList(length),
-                allowMalformed: true);
-            final _IsolateInferenceResponse response =
-                _IsolateInferenceResponse(0, partial, true);
-            sendPort.send(response);
-          }
-
-          callback =
-              NativeCallable<NativeInferenceCallback>.listener(onResponse);
-
-          final Pointer<Char> result = _bindings.fllama_inference(
-            data.request.toFllamaInferenceRequest(),
-            callback.nativeFunction,
-          );
-
-          // Inference complete. Send the result back to the main isolate.
-          final String resultString = result.cast<Utf8>().toDartString();
-          final _IsolateInferenceResponse response =
-              _IsolateInferenceResponse(data.id, resultString, false);
-          sendPort.send(response);
-          return;
+        if (data is! _IsolateInferenceRequest) {
+          throw UnsupportedError(
+              'Unsupported message type: ${data.runtimeType}');
         }
-        throw UnsupportedError('Unsupported message type: ${data.runtimeType}');
+
+        late final NativeCallable<NativeInferenceCallback> callback;
+        void onResponse(Pointer<Char> responsePointer) {
+          // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
+          // order to allow malformed UTF-8.
+          final codeUnits = responsePointer.cast<Uint8>();
+          var length = 0;
+          while (codeUnits[length] != 0) {
+            length++;
+          }
+          final partial =
+              utf8.decode(codeUnits.asTypedList(length), allowMalformed: true);
+          final _IsolateInferenceResponse response =
+              _IsolateInferenceResponse(0, partial, true);
+          sendPort.send(response);
+        }
+        callback = NativeCallable<NativeInferenceCallback>.listener(onResponse);
+        _bindings.fllama_inference(
+          data.request.toFllamaInferenceRequest(),
+          callback.nativeFunction,
+        );
       });
 
     // Send the port to the main isolate on which we can receive requests.
