@@ -82,5 +82,5 @@ final class fllama_inference_request extends ffi.Struct {
 }
 
 typedef fllama_inference_callback = ffi.Pointer<
-    ffi
-    .NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char> partial_result)>>;
+    ffi.NativeFunction<
+        ffi.Void Function(ffi.Pointer<ffi.Char> response, ffi.Uint8 done)>>;

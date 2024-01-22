@@ -71,7 +71,7 @@ class _MyAppState extends State<MyApp> {
                         modelPath: modelPath!,
                       );
 
-                      fllamaInferenceAsync(request, (String result) {
+                      fllamaInferenceAsync(request, (String result, bool done) {
                         setState(() {
                           latestResult = result;
                         });

@@ -4,13 +4,14 @@
 #define FFI_PLUGIN_EXPORT
 #endif
 
+#include <stdint.h> // For uint8_t
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 
-typedef void (*fllama_inference_callback)(const char *partial_result);
+typedef void (*fllama_inference_callback)(const char *response, uint8_t done);
 
 struct fllama_inference_request
 {

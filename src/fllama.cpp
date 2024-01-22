@@ -85,13 +85,6 @@ inline void logd(const std::string &format, Args... args) {
 #pragma warning(disable : 4244 4267) // possible loss of data
 #endif
 
-static std::atomic_bool stop_generation(false);
-static std::mutex continue_mutex;
-
-static int n_remain;
-static int n_past;
-static int n_consumed;
-
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback);
 // Current implementation based on llama.cpp/examples/simple/simple.cpp combined
@@ -267,10 +260,10 @@ void _fllama_inference_sync(fllama_inference_request request,
         break;
       }
       result += llama_token_to_piece(ctx, new_token_id);
-      if (c_result) {
+
         std::strcpy(c_result, result.c_str());
-        callback(c_result); // Here, ensure callback is quick and error-safe
-      }
+        callback(c_result, false);
+
 
       // prepare the next batch
       llama_batch_clear(batch);
@@ -290,9 +283,11 @@ void _fllama_inference_sync(fllama_inference_request request,
       throw std::runtime_error("Inference failed");
     }
   }
-  llama_batch_free(batch);
-  llama_free_model(model);
-  // Log finished
+
+  std::strcpy(c_result, result.c_str());
+  callback(/* response */ c_result, /* done */ true);
+
+    // Log finished
   const auto t_main_end = ggml_time_us();
   const auto t_main = t_main_end - t_main_start;
   fprintf(stderr, "main loop: %f ms\n", t_main / 1000.0f);
@@ -301,7 +296,13 @@ void _fllama_inference_sync(fllama_inference_request request,
           n_decode / ((t_main_end - t_main_start) / 1000000.0f));
   llama_print_timings(ctx);
 
+
+  // Free everything. Model loading time is negligible, especially when
+  // compared to amount of RAM consumed by leaving model in memory
+  // (~= size of model on disk)
+  free(c_result);
+  llama_batch_free(batch);
+  llama_free_model(model);
   llama_free(ctx);
   llama_backend_free();
-  free(c_result);
 }

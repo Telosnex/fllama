@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -7,8 +9,9 @@ import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 import 'package:fllama/fllama_bindings_generated.dart';
 
-typedef NativeInferenceCallback = Void Function(Pointer<Char> partial_result);
-typedef fllama_inference_callback
+typedef NativeInferenceCallback = Void Function(
+    Pointer<Char> response, Uint8 done);
+typedef NativeFllamaInferenceCallback
     = Pointer<NativeFunction<NativeInferenceCallback>>;
 
 class FllamaInferenceRequest {
@@ -64,7 +67,7 @@ class FllamaInferenceRequest {
 }
 
 // This callback type will be used in Dart to receive incremental results
-typedef FllamaInferenceCallback = void Function(String result);
+typedef FllamaInferenceCallback = void Function(String response, bool done);
 Future<String> fllamaInferenceAsync(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
@@ -121,10 +124,10 @@ class _IsolateInferenceRequest {
 /// Typically sent from one isolate to another.
 class _IsolateInferenceResponse {
   final int id;
-  final String result;
-  final bool isPartial;
+  final String response;
+  final bool done;
 
-  const _IsolateInferenceResponse(this.id, this.result, this.isPartial);
+  const _IsolateInferenceResponse(this.id, this.response, this.done);
 }
 
 /// Counter to identify [_IsolateInferenceRequest]s and [_IsolateInferenceResponse]s.
@@ -155,16 +158,20 @@ Future<SendPort> _helperIsolateSendPort = () async {
         return;
       }
       if (data is _IsolateInferenceResponse) {
-        if (!data.isPartial) {
+        print(
+            '[fllama inference isolate] [#${data.id}] received response. done? ${data.done}');
+        final callback = _isolateInferenceCallbacks[data.id];
+        if (callback != null) {
+          callback(data.response, data.done);
+        }
+        if (data.done) {
+          _isolateInferenceCallbacks.remove(data.id);
           final Completer<String> completer =
               _isolateInferenceRequests[data.id]!;
+          completer.complete(data.response);
           _isolateInferenceRequests.remove(data.id);
-          completer.complete(data.result);
           return;
         } else {
-          final FllamaInferenceCallback callback =
-              _isolateInferenceCallbacks[data.id]!;
-          callback(data.result);
           return;
         }
       }
@@ -182,7 +189,7 @@ Future<SendPort> _helperIsolateSendPort = () async {
         }
 
         late final NativeCallable<NativeInferenceCallback> callback;
-        void onResponse(Pointer<Char> responsePointer) {
+        void onResponse(Pointer<Char> responsePointer, int done) {
           // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
           // order to allow malformed UTF-8.
           final codeUnits = responsePointer.cast<Uint8>();
@@ -193,7 +200,7 @@ Future<SendPort> _helperIsolateSendPort = () async {
           final partial =
               utf8.decode(codeUnits.asTypedList(length), allowMalformed: true);
           final _IsolateInferenceResponse response =
-              _IsolateInferenceResponse(0, partial, true);
+              _IsolateInferenceResponse(data.id, partial, done == 1);
           sendPort.send(response);
         }
 
