@@ -1,92 +1,71 @@
 # fllama
+Flutter x llama.cpp
 
-A new Flutter FFI plugin project.
+- Everywhere 
+  - (except web)
+  - Android, iOS, macOS, Linux, Windows.
+- Fast
+  - GPU acceleration via Metal on iOS and Mac.
+  - >= reading speed on all platforms.
+- Private
+  - No network connection, server, cloud required.
+- Forward compatible
+  - Any model compatible with llama.cpp. 
+  - So every model.
 
 ## Getting Started
-
-This project is a starting point for a Flutter
-[FFI plugin](https://docs.flutter.dev/development/platform-integration/c-interop),
-a specialized package that includes native code directly invoked with Dart FFI.
-
-## Project structure
-
-This template uses the following structure:
-
-* `src`: Contains the native source code, and a CmakeFile.txt file for building
-  that source code into a dynamic library.
-
-* `lib`: Contains the Dart code that defines the API of the plugin, and which
-  calls into the native code using `dart:ffi`.
-
-* platform folders (`android`, `ios`, `windows`, etc.): Contains the build files
-  for building and bundling the native code library with the platform application.
-
-## Building and bundling native code
-
-The `pubspec.yaml` specifies FFI plugins as follows:
-
+- Add this to your package's pubspec.yaml file:
 ```yaml
-  plugin:
-    platforms:
-      some_platform:
-        ffiPlugin: true
+dependencies:
+  fllama: ^0.0.1
+    git:
+      url: https://github.com/Telosnex/fllama.git
+      ref: main
 ```
+- Run inference:
+```dart
+import 'package:fllama/fllama.dart';
 
-This configuration invokes the native build for the various target platforms
-and bundles the binaries in Flutter applications using these FFI plugins.
-
-This can be combined with dartPluginClass, such as when FFI is used for the
-implementation of one platform in a federated plugin:
-
-```yaml
-  plugin:
-    implements: some_other_plugin
-    platforms:
-      some_platform:
-        dartPluginClass: SomeClass
-        ffiPlugin: true
-```
-
-A plugin can have both FFI and method channels:
-
-```yaml
-  plugin:
-    platforms:
-      some_platform:
-        pluginClass: SomeName
-        ffiPlugin: true
-```
-
-The native build systems that are invoked by FFI (and method channel) plugins are:
-
-* For Android: Gradle, which invokes the Android NDK for native builds.
-  * See the documentation in android/build.gradle.
-* For iOS and MacOS: Xcode, via CocoaPods.
-  * See the documentation in ios/fllama.podspec.
-  * See the documentation in macos/fllama.podspec.
-* For Linux and Windows: CMake.
-  * See the documentation in linux/CMakeLists.txt.
-  * See the documentation in windows/CMakeLists.txt.
-
-## Binding to native code
-
-To use the native code, bindings in Dart are needed.
-To avoid writing these by hand, they are generated from the header file
-(`src/fllama.h`) by `package:ffigen`.
-Regenerate the bindings by running `flutter pub run ffigen --config ffigen.yaml`.
-
-## Invoking native code
-
-Very short-running native functions can be directly invoked from any isolate.
-For example, see `sum` in `lib/fllama.dart`.
-
-Longer-running functions should be invoked on a helper isolate to avoid
-dropping frames in Flutter applications.
-For example, see `sumAsync` in `lib/fllama.dart`.
-
-## Flutter help
-
-For help getting started with Flutter, view our
-[online documentation](https://flutter.dev/docs), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
-
+final llama = Fllama();
+final request = FllamaInferenceRequest(
+                  // Proportional to RAM use. 
+                  // 4096 is a good default. 
+                  // 2048 should be considered on devices with low RAM (<8 GB)
+                  // 8192 and higher can be considered on device with high RAM (>16 GB)
+                  // Models are trained on <= a certain context size.
+                  contextSize: 4096,
+                  maxTokens: 256,
+                  temperature: 1.0,
+                  topP: 1.0,
+                  // Make sure to format input appropriately for the model, ex. ChatML
+                  input: _controller.text,
+                  // Pass a path to ggml.metal if you want to use GPU inference on iOS on macOS. About 3x faster.
+                  ggmlMetalPath: null,
+                  // 0 = CPU only. Functionally, maximum number of layers to run on GPU. 
+                  // 99/100 are used in llama.cpp examples when intent is to run all layers 
+                  // on GPU. Automatically set to 0 in obvious scenarios where it will be
+                  // incompatible, such as iOS simulator. You should set it to 0 on CI,
+                  // virtualized graphics cards will not work.
+                  numGpuLayers: 99,
+                  // Path to a GGUF file.
+                  // Obtain from HuggingFace.
+                  // Recommended models available on fllama HuggingFace.
+                  // https://huggingface.co/telosnex/fllama/tree/main
+                  //
+                  // Stable LM 3B is reasonable on all devices. ~360 wpm on Android, 
+                  // ~540 wpm on iOS, ~2700 wpm on ultra premium macOS. (M2 Max MBP).
+                  // People read at ~250 wpm.
+                  //
+                  // Mistral 7B is best on 2023 iPhones or 2024 Androids or better.
+                  // It's about 2/3 the speed of Stable LM 3B and requires 5 GB of RAM.
+                  //
+                  // Mixtral should only be considered on a premium laptop or desktop,
+                  // such as an M-series MacBook or a premium desktop purchased in 2023
+                  // or later.
+                  modelPath: null,
+                );
+fllamaInferenceAsync(request, (String result, bool done) {
+  setState(() {
+    latestResult = result;
+  });
+});
