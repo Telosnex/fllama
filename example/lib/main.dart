@@ -70,7 +70,6 @@ class _MyAppState extends State<MyApp> {
                         numGpuLayers: 0,
                         modelPath: modelPath!,
                       );
-
                       fllamaInferenceAsync(request, (String result, bool done) {
                         setState(() {
                           latestResult = result;
