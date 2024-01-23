@@ -48,9 +48,9 @@ inline void logd(const std::string &format, Args... args) {
 #if TARGET_OS_IOS
 // iOS-specific includes
 #include "../ios/llama.cpp/common/common.h"
+#include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml.h"
 #include "../ios/llama.cpp/llama.h"
-#include "../ios/llama.cpp/sampling.h"
 
 #elif TARGET_OS_OSX
 // macOS-specific includes
@@ -160,7 +160,7 @@ void _fllama_inference_sync(fllama_inference_request request,
   std::cout << "[fllama] Model path: " << params.model << std::endl;
 // Force CPU if iOS simulator: no GPU support available, hangs.
 #if TARGET_IPHONE_SIMULATOR
-  model_params.n_gpu_layers = 0;
+  params.n_gpu_layers = 0;
 // Otherwise, for physical iOS devices and other platforms
 #else
   params.n_gpu_layers = request.num_gpu_layers;
