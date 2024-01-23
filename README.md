@@ -21,7 +21,7 @@ Flutter x llama.cpp
 - Add this to your package's pubspec.yaml file:
 ```yaml
 dependencies:
-  fllama: ^0.0.1
+  fllama:
     git:
       url: https://github.com/Telosnex/fllama.git
       ref: main
