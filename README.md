@@ -5,15 +5,16 @@ Flutter x llama.cpp
   - (except web)
   - Android, iOS, macOS, Linux, Windows.
 - Fast
+  - exceeds average reading speed on all platforms.
   - GPU acceleration via Metal on iOS and Mac.
-  - >= reading speed on all platforms.
 - Private
   - No network connection, server, cloud required.
 - Forward compatible
-  - Any model compatible with llama.cpp. 
-  - So every model.
+  - Any model compatible with llama.cpp. (so, every model.)
+- Use with FONNX for RAG
+  - Combine with [FONNX](https://github.com/Telosnex/fonnx) to have a full retrieval-augmented generation stack available on all platforms.
 
-## Getting Started
+## Integrate
 - Add this to your package's pubspec.yaml file:
 ```yaml
 dependencies:
@@ -69,3 +70,64 @@ fllamaInferenceAsync(request, (String result, bool done) {
     latestResult = result;
   });
 });
+```
+## Tips & Tricks
+### Enable Metal on iOS and macOS.
+  Get ggml.metal from the src/llama.cpp subdirectory, add to your assets, and
+  include its path in the FllamaInferenceRequest.
+  If you get odd C++ build errors in the shader code, check your .xcodeproj
+  and remove it from any build phases that are not "Copy Bundle Resources".
+### file_selector plugin OOMs on Android
+  The example app uses the `file_selector` plugin to select a GGUF file.
+  It runs out of memory and crashes on Android with even the smallest model
+  files. This is a known issue with the plugin.
+### Recommended models
+
+  3 top-tier open models are in the [fllama HuggingFace repo](https://huggingface.co/telosnex/fllama/tree/main).
+  - __Stable LM 3B__ is the first LLM model that can handle RAG, using documents such as web pages to answer a query, on *all* devices. 
+  > Mistral models via [Nous Research](https://nousresearch.com/).
+    They trained and finetuned the Mistral base models for chat to create the OpenHermes series of models.
+  - __Mistral 7B__ is best on 2023 iPhones or 2024 Androids or better.
+    It's about 2/3 the speed of Stable LM 3B and requires 5 GB of RAM.
+  - __Mixtral 8x7B__ should only be considered on a premium laptop or desktop,
+    such as an M-series MacBook or a premium desktop purchased in 2023
+    or later. It's about 1/3 the speed of Stable LM 3B and requires 
+    26 GB of RAM.
+### RAM Requirements
+  Roughly: you'll need as much RAM as the model file size.
+  If inference runs on CPU, that much regular RAM is required.
+  If inference runs on GPU, that much GPU RAM is required.
+
+### Download files from HuggingFace at runtime
+  HuggingFace, among many things, can be thought of as GitHub for AI models.
+  You can download a model from HuggingFace and use it with fllama.
+  To get a download URL at runtime, see below.
+  ```dart
+  String getHuggingFaceUrl(
+    {required String repoId,
+    required String filename,
+    String? revision,
+    String? subfolder}) {
+  // Default values
+  const String defaultEndpoint = 'https://huggingface.co';
+  const String defaultRevision = 'main';
+
+  // Ensure the revision and subfolder are not null and are URI encoded
+  final String encodedRevision =
+      Uri.encodeComponent(revision ?? defaultRevision);
+  final String encodedFilename = Uri.encodeComponent(filename);
+  final String? encodedSubfolder =
+      subfolder != null ? Uri.encodeComponent(subfolder) : null;
+
+  // Handle subfolder if provided
+  final String fullPath = encodedSubfolder != null
+      ? '$encodedSubfolder/$encodedFilename'
+      : encodedFilename;
+
+  // Construct the URL
+  final String url =
+      '$defaultEndpoint/$repoId/resolve/$encodedRevision/$fullPath';
+
+  return url;
+}
+```
