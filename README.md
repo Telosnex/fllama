@@ -1,6 +1,10 @@
 # fllama
+
+![fllama logo, flutter bird riding a llama](https://github.com/Telosnex/fllama/blob/main/fllama.png)
+
 Flutter x llama.cpp
 
+[https://github.com/Telosnex/fllama/blob/main/fllama.png]
 - Everywhere 
   - (except web)
   - Android, iOS, macOS, Linux, Windows.
