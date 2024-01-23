@@ -39,6 +39,16 @@ android {
     // (e.g. ndkVersion "23.1.7779620")
     ndkVersion android.ndkVersion
 
+    defaultConfig {
+        ndk {
+            // Workaround for https://github.com/llvm/llvm-project/issues/65820
+            // affecting armeabi-v7a.
+            //
+            // See https://github.com/ggerganov/llama.cpp/pull/4926/commits/943bba2e5d75b130f2370719282024985c31fc6d
+            abiFilters 'arm64-v8a', 'x86_64', 'x86'
+        }
+    }
+  
     // Invoke the shared CMake build with the Android Gradle Plugin.
     externalNativeBuild {
         cmake {
