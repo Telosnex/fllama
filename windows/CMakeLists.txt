@@ -18,6 +18,7 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DI
 set(fllama_bundled_libraries
   # Defined in ../src/CMakeLists.txt.
   # This can be changed to accommodate different builds.
-  $<TARGET_FILE:fllama>
+  "$<TARGET_FILE:llama>"
+  "$<TARGET_FILE:fllama>"
   PARENT_SCOPE
 )

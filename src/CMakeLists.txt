@@ -6,8 +6,6 @@ cmake_minimum_required(VERSION 3.10)
 project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 
 set(BUILD_SHARED_LIBS ON)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/install)
 
 # Otherwise ex. Android build on macOS fails with `error: unknown target CPU 'cyclone'`
 set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
@@ -18,13 +16,7 @@ if(ANDROID)
     # See discussion @ https://github.com/ggerganov/llama.cpp/pull/4926
 endif()
 
-if(MSVC)
-  # Hack because Windows compilers will put .dll files in
-  # $CMAKE_BINARY_DIR/Debug/ folder.
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>")
-endif()
-
-add_subdirectory(llama.cpp)
+add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)
 
 add_library(fllama SHARED
   "fllama.cpp"
@@ -45,8 +37,3 @@ if(ANDROID)
       ${LOG_LIB} # Add this to link against the log library for Android
     )
 endif()
-
-install(TARGETS fllama
-  LIBRARY DESTINATION lib
-  PUBLIC_HEADER DESTINATION include
-)
