@@ -24,5 +24,5 @@ set(fllama_bundled_libraries
 
 install(
   TARGETS llama fllama
-  LIBRARY DESTINATION "${CMAKE_INSTALL_PREFIX}/lib"
+  LIBRARY DESTINATION "${CMAKE_BINARY_DIR}/fllama_plugin_install/lib"
 )
