@@ -1,5 +1,5 @@
-<img src="header.png"
-     alt="FONNX image header, bird like Flutter mascot riding a llama. Text reads: FLLAMA. Run cutting-edge, free, large language models. Near ChatGPT quality. On any platform.
+<img src="fllama_header.png"
+     alt="fllama image header, bird like Flutter mascot riding a llama. Text reads: FLLAMA. Run cutting-edge, free, large language models. Near ChatGPT quality. On any platform.
      iOS, macOS, Android, Windows, Linux. Metal GPU support."
      style="float: left; margin-right: 0px;" />
 
