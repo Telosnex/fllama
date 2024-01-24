@@ -21,3 +21,8 @@ set(fllama_bundled_libraries
   "$<TARGET_FILE:fllama>"
   PARENT_SCOPE
 )
+
+install(
+  TARGETS llama fllama
+  LIBRARY DESTINATION "${CMAKE_INSTALL_PREFIX}/lib"
+)
