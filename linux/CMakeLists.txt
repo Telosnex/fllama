@@ -16,7 +16,7 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DI
 # external build triggered from this build file.
 
 set(fllama_bundled_libraries
-  "${CMAKE_INSTALL_PREFIX}/lib/libllama.so"
-  "${CMAKE_INSTALL_PREFIX}/lib/libfllama.so"
+  "lib/libllama.so"
+  "lib/libfllama.so"
   PARENT_SCOPE
 )
