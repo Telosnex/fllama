@@ -1,19 +1,13 @@
-# fllama
+<img src="header.png"
+     alt="FONNX image header, bird like Flutter mascot riding a llama. Text reads: FLLAMA. Run cutting-edge, free, large language models. Near ChatGPT quality. On any platform.
+     iOS, macOS, Android, Windows, Linux. Metal GPU support."
+     style="float: left; margin-right: 0px;" />
 
-![fllama logo, flutter bird riding a llama](https://github.com/Telosnex/fllama/blob/main/fllama.png)
-
-Flutter x llama.cpp
-
-- Everywhere 
-  - (except web)
-  - Android, iOS, macOS, Linux, Windows.
-- Fast
-  - exceeds average reading speed on all platforms.
+- Everywhere (except web)
+- Fast: exceeds average reading speed on all platforms.
   - GPU acceleration via Metal on iOS and Mac.
-- Private
-  - No network connection, server, cloud required.
-- Forward compatible
-  - Any model compatible with llama.cpp. (so, every model.)
+- Private: No network connection, server, cloud required.
+- Forward compatible: Any model compatible with llama.cpp. (so, every model.)
 - Use with FONNX for RAG
   - Combine with [FONNX](https://github.com/Telosnex/fonnx) to have a full retrieval-augmented generation stack available on all platforms.
 
