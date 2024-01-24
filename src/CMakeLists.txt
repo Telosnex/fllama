@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.10)
 project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 
 set(BUILD_SHARED_LIBS ON)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # Otherwise ex. Android build on macOS fails with `error: unknown target CPU 'cyclone'`
 set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
