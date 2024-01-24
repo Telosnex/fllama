@@ -1,22 +1,28 @@
 PODS:
+  - file_selector_ios (0.0.1):
+    - Flutter
   - fllama (0.0.1):
     - Flutter
   - Flutter (1.0.0)
 
 DEPENDENCIES:
+  - file_selector_ios (from `.symlinks/plugins/file_selector_ios/ios`)
   - fllama (from `.symlinks/plugins/fllama/ios`)
   - Flutter (from `Flutter`)
 
 EXTERNAL SOURCES:
+  file_selector_ios:
+    :path: ".symlinks/plugins/file_selector_ios/ios"
   fllama:
     :path: ".symlinks/plugins/fllama/ios"
   Flutter:
     :path: Flutter
 
 SPEC CHECKSUMS:
-  fllama: c2d766818a11202fa48c932a49eb1cb99a808c76
-  Flutter: f04841e97a9d0b0a8025694d0796dd46242b2854
+  file_selector_ios: b6a6c6667913d571590169ef946afbafe3b52688
+  fllama: f378de015b5537a7f447c15b8abc163d1c0a47e3
+  Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
 
-PODFILE CHECKSUM: 70d9d25280d0dd177a5f637cdb0f0b0b12c6a189
+PODFILE CHECKSUM: 819463e6a0290f5a72f145ba7cde16e8b6ef0796
 
 COCOAPODS: 1.14.3

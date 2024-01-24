@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
@@ -57,27 +59,26 @@ class _MyAppState extends State<MyApp> {
                 const SizedBox(
                   height: 8,
                 ),
-                if (modelPath != null)
-                  ElevatedButton(
-                    onPressed: () async {
-                      final request = FllamaInferenceRequest(
-                        contextSize: 4096,
-                        maxTokens: 256,
-                        temperature: 1.0,
-                        topP: 1.0,
-                        input: _controller.text,
-                        ggmlMetalPath: null,
-                        numGpuLayers: 0,
-                        modelPath: modelPath!,
-                      );
-                      fllamaInferenceAsync(request, (String result, bool done) {
-                        setState(() {
-                          latestResult = result;
-                        });
+                ElevatedButton(
+                  onPressed: () async {
+                    final request = FllamaInferenceRequest(
+                      contextSize: 4096,
+                      maxTokens: 256,
+                      temperature: 1.0,
+                      topP: 1.0,
+                      input: _controller.text,
+                      ggmlMetalPath: null,
+                      numGpuLayers: 99,
+                      modelPath: modelPath!,
+                    );
+                    fllamaInferenceAsync(request, (String result, bool done) {
+                      setState(() {
+                        latestResult = result;
                       });
-                    },
-                    child: const Text('Run inference'),
-                  ),
+                    });
+                  },
+                  child: const Text('Run inference'),
+                ),
                 SelectableText(
                   latestResult,
                   style: textStyle,
@@ -98,7 +99,7 @@ class _MyAppState extends State<MyApp> {
       uniformTypeIdentifiers: [],
     );
     final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
-      ggufTypeGroup,
+      if (!Platform.isIOS) ggufTypeGroup,
     ]);
     if (file == null) {
       return;
