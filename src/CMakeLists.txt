@@ -21,7 +21,7 @@ endif()
 if(MSVC)
   # Hack because Windows compilers will put .dll files in
   # $CMAKE_BINARY_DIR/Debug/ folder.
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}>)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>")
 endif()
 
 add_subdirectory(llama.cpp)
@@ -45,3 +45,8 @@ if(ANDROID)
       ${LOG_LIB} # Add this to link against the log library for Android
     )
 endif()
+
+install(TARGETS fllama
+  LIBRARY DESTINATION lib
+  PUBLIC_HEADER DESTINATION include
+)
