@@ -11,13 +11,18 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 # This can be changed to accommodate different builds.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DIR}/shared")
 
+set_target_properties(fllama PROPERTIES
+    INSTALL_RPATH "$ORIGIN"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)
+
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
 # external build triggered from this build file.
-
 set(fllama_bundled_libraries
   # Defined in ../src/CMakeLists.txt.
   # This can be changed to accommodate different builds.
-  $<TARGET_FILE:fllama>
+  "$<TARGET_FILE:llama>"
+  "$<TARGET_FILE:fllama>"
   PARENT_SCOPE
 )
