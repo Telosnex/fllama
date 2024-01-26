@@ -132,7 +132,8 @@ void _fllama_inference_sync(fllama_inference_request request,
     if (model != NULL) {
       llama_free_model(model);
     }
-    throw std::runtime_error("[fllama] Unable to initialize model");
+      callback(/* response */ "Error: Unable to load model.", /* done */ true);
+    throw std::runtime_error("[fllama] Unable to load model.");
   }
 
   std::vector<llama_token> tokens_list;
@@ -156,6 +157,7 @@ void _fllama_inference_sync(fllama_inference_request request,
   if (llama_decode(ctx, batch) != 0) {
     LOG_TEE("%s: llama_decode() failed\n", __func__);
     // throw runtime error
+    callback(/* response */ "Error: decoding failed.", /* done */ true);
     throw std::runtime_error("[fllama] llama_decode() failed");
   }
 
@@ -234,6 +236,8 @@ void _fllama_inference_sync(fllama_inference_request request,
     // evaluate the current batch with the transformer model
     if (llama_decode(ctx, batch)) {
       fprintf(stderr, "%s : failed to eval, return code %d\n", __func__, 1);
+      std::strcpy(c_result, result.c_str());
+      callback(/* response */ c_result, /* done */ true);
       throw std::runtime_error("Inference failed");
     }
   }
