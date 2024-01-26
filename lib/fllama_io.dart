@@ -122,8 +122,6 @@ Future<SendPort> _helperIsolateSendPort = () async {
         return;
       }
       if (data is _IsolateInferenceResponse) {
-        print(
-            '[fllama inference isolate] [#${data.id}] received response. done? ${data.done}');
         final callback = _isolateInferenceCallbacks[data.id];
         if (callback != null) {
           callback(data.response, data.done);
