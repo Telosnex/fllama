@@ -165,21 +165,6 @@ void _fllama_inference_sync(fllama_inference_request request,
 #else
   params.n_gpu_layers = request.num_gpu_layers;
 #endif
-
-#ifdef __APPLE__
-  // setenv is unavailable on Windows, so this has to be flagged off.
-  // Metal is an Apple framework.
-  const char *metal_path = request.ggml_metal_path;
-  if (metal_path != nullptr) {
-    std::cout << "[fllama] Metal path: " << metal_path << std::endl;
-    setenv("GGML_METAL_PATH_RESOURCES", metal_path, 1);
-  } else {
-    std::cout << "[fllama] Metal path not provided; Metal not enabled. You "
-                 "should try to provide a path on macOS or iOS."
-              << std::endl;
-  }
-#endif
-
   llama_backend_init(params.numa);
   llama_model *model;
   llama_context *ctx;

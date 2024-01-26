@@ -37,8 +37,6 @@ final request = FllamaInferenceRequest(
                   topP: 1.0,
                   // Make sure to format input appropriately for the model, ex. ChatML
                   input: _controller.text,
-                  // Pass a path to ggml.metal if you want to use GPU inference on iOS on macOS. About 3x faster.
-                  ggmlMetalPath: null,
                   // 0 = CPU only. Functionally, maximum number of layers to run on GPU. 
                   // 99/100 are used in llama.cpp examples when intent is to run all layers 
                   // on GPU. Automatically set to 0 in obvious scenarios where it will be
@@ -69,12 +67,6 @@ fllamaInferenceAsync(request, (String result, bool done) {
 });
 ```
 ## Tips & Tricks
-### Enable Metal on iOS and macOS.
-  No longer required, plugin will handle it automatically.
-  ~Get ggml.metal from the src/llama.cpp subdirectory, add to your assets, and
-  include its path in the FllamaInferenceRequest.
-  If you get odd C++ build errors in the shader code, check your .xcodeproj
-  and remove it from any build phases that are not "Copy Bundle Resources".~
 ### file_selector plugin OOMs on Android
   The example app uses the `file_selector` plugin to select a GGUF file.
   It runs out of memory and crashes on Android with even the smallest model

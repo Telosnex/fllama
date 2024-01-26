@@ -99,12 +99,8 @@ fllama_inference_request _toNative(FllamaInferenceRequest dart) {
   // Convert the Dart string to a C string (null-terminated).
   Pointer<Utf8> inputCstr = dart.input.toNativeUtf8();
   Pointer<Utf8> modelPathCstr = dart.modelPath.toNativeUtf8();
-  Pointer<Utf8> ggmlMetalPathCstr =
-      dart.ggmlMetalPath?.toNativeUtf8() ?? nullptr;
   request.input = inputCstr.cast<Char>();
   request.model_path = modelPathCstr.cast<Char>();
-  request.ggml_metal_path =
-      dart.ggmlMetalPath == null ? nullptr : ggmlMetalPathCstr.cast<Char>();
   return request;
 }
 

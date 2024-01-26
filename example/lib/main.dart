@@ -67,7 +67,6 @@ class _MyAppState extends State<MyApp> {
                       temperature: 1.0,
                       topP: 1.0,
                       input: _controller.text,
-                      ggmlMetalPath: null,
                       numGpuLayers: 99,
                       modelPath: modelPath!,
                     );

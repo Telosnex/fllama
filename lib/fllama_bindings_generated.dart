@@ -55,9 +55,6 @@ final class fllama_inference_request extends ffi.Struct {
   @ffi.Int()
   external int context_size;
 
-  /// Optional: Path to ggml.metal
-  external ffi.Pointer<ffi.Char> ggml_metal_path;
-
   /// Required: input text
   external ffi.Pointer<ffi.Char> input;
 

@@ -1,6 +1,5 @@
 class FllamaInferenceRequest {
   int contextSize; // llama.cpp handled 0 fine. StableLM Zephyr became default (4096).
-  String? ggmlMetalPath;
   String input;
   int maxTokens;
   String modelPath;
@@ -9,7 +8,6 @@ class FllamaInferenceRequest {
   double topP;
 
   FllamaInferenceRequest({
-    this.ggmlMetalPath,
     required this.contextSize,
     required this.input,
     required this.maxTokens,

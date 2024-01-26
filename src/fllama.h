@@ -16,7 +16,6 @@ typedef void (*fllama_inference_callback)(const char *response, uint8_t done);
 struct fllama_inference_request
 {
     int context_size; // Required: context size
-    char *ggml_metal_path; // Optional: Path to ggml.metal
     char *input; // Required: input text
     int max_tokens; // Required: max tokens to generate
     char *model_path; // Required: .ggml model file path
