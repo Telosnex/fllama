@@ -1,45 +1,5 @@
 #include "fllama.h"
 
-#ifndef LOG_UTILS_H
-#define LOG_UTILS_H
-
-#include <iostream>
-#include <string>
-#include <thread>
-
-#if defined(__ANDROID__)
-#include <android/log.h>
-#define LOG_TAG "fllama"
-#elif defined(__APPLE__)
-#include <os/log.h>
-#endif
-
-inline void logd_impl(const std::string &message) {
-#if defined(__ANDROID__)
-  __android_log_write(ANDROID_LOG_DEBUG, LOG_TAG, message.c_str());
-#elif defined(__APPLE__)
-  os_log(OS_LOG_DEFAULT, "%{public}s", message.c_str());
-#else
-  std::cout << message << std::endl;
-#endif
-}
-
-// Variadic template to handle different numbers of arguments
-template <typename... Args>
-inline void logd(const std::string &format, Args... args) {
-  int size_s = snprintf(nullptr, 0, format.c_str(), args...) + 1; // +1 for '\0'
-  if (size_s <= 0) {
-    logd_impl("logd error during formatting.");
-    return;
-  }
-  auto size = static_cast<size_t>(size_s);
-  std::unique_ptr<char[]> buf(new char[size]);
-  snprintf(buf.get(), size, format.c_str(), args...);
-  logd_impl(std::string(buf.get(), buf.get() + size - 1)); // Exclude the '\0'
-}
-
-#endif // LOG_UTILS_H
-
 // LLaMA.cpp cross-platform support
 #ifdef __APPLE__
 #include <TargetConditionals.h>
@@ -51,14 +11,12 @@ inline void logd(const std::string &format, Args... args) {
 #include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml.h"
 #include "../ios/llama.cpp/llama.h"
-
 #elif TARGET_OS_OSX
 // macOS-specific includes
 #include "../macos/llama.cpp/common/common.h"
 #include "../macos/llama.cpp/common/sampling.h"
 #include "../macos/llama.cpp/ggml.h"
 #include "../macos/llama.cpp/llama.h"
-
 #else
 // Other platforms
 #include "common/common.h"
@@ -246,7 +204,8 @@ void _fllama_inference_sync(fllama_inference_request request,
       const llama_token new_token_id = llama_sample_token(ctx, &candidates_p);
 
       // is it an end of stream?
-      if (new_token_id == llama_token_eos(model) || n_gen == n_max_tokens) {
+      if (new_token_id == llama_token_eos(model)) {
+        fprintf(stderr, "%s: Finish. EOS token found\n", __func__);
         break;
       }
       result += llama_token_to_piece(ctx, new_token_id);
@@ -263,6 +222,11 @@ void _fllama_inference_sync(fllama_inference_request request,
 
       n_decode += 1;
       n_gen += 1;
+
+      if (n_gen == n_max_tokens) {
+        fprintf(stderr, "%s: Finish. Max tokens reached\n", __func__);
+        break;
+      }
     }
 
     n_cur += 1;
