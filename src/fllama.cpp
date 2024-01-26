@@ -170,9 +170,10 @@ void _fllama_inference_sync(fllama_inference_request request,
   const auto estimated_total_size = n_max_tokens * 10;
   std::string result;
   result.reserve(estimated_total_size);
-  char *c_result = (char *)malloc(estimated_total_size); // Allocate once with estimated size
+  char *c_result =
+      (char *)malloc(estimated_total_size); // Allocate once with estimated size
   while (n_gen <= n_max_tokens) {
-  {
+    {
       auto n_vocab = llama_n_vocab(model);
       auto *logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
 
@@ -210,9 +211,8 @@ void _fllama_inference_sync(fllama_inference_request request,
       }
       result += llama_token_to_piece(ctx, new_token_id);
 
-        std::strcpy(c_result, result.c_str());
-        callback(c_result, false);
-
+      std::strcpy(c_result, result.c_str());
+      callback(c_result, false);
 
       // prepare the next batch
       llama_batch_clear(batch);
@@ -241,7 +241,7 @@ void _fllama_inference_sync(fllama_inference_request request,
   std::strcpy(c_result, result.c_str());
   callback(/* response */ c_result, /* done */ true);
 
-    // Log finished
+  // Log finished
   const auto t_main_end = ggml_time_us();
   const auto t_main = t_main_end - t_main_start;
   fprintf(stderr, "main loop: %f ms\n", t_main / 1000.0f);
@@ -249,7 +249,6 @@ void _fllama_inference_sync(fllama_inference_request request,
           n_decode, (t_main_end - t_main_start) / 1000000.0f,
           n_decode / ((t_main_end - t_main_start) / 1000000.0f));
   llama_print_timings(ctx);
-
 
   // Free everything. Model loading time is negligible, especially when
   // compared to amount of RAM consumed by leaving model in memory
