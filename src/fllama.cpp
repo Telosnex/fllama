@@ -45,39 +45,7 @@
 
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback);
-// Current implementation based on llama.cpp/examples/simple/simple.cpp combined
-// with handling sampling manually via top_p and temp functions.
-//
-// The other route you'll see is setting up a sampling context, but it doesn't
-// work well without a lot of hand-holding - ex. manually specifying the exact
-// samplers you want to use. If you just use it straight-up, one of the other 6
-// techniques outside top-P and temperature overrides temperature, somehow.
-//
-// It's incompatible with what seems to be the "new batch API", which it seems
-// simple.cpp used. But who knows, that'd require some semblance of
-// documentation.
-//
-// macOS and iOS based on intuition that:
-// - it will be difficult to get llama.cpp building as a CMakeLists library.
-// - a .podspec is a pseudo-CMakeLists file.
-// - creating a seperate llama.cpp .podspec is not ideal as llama.cpp
-// support
-//   is necessarily opinionated - ex. whether or not to pursue Metal
-//   support.
-//
-// Thus, integrating by copying the llama.cpp source to
-// {ios/macos}/Classes/llama.cpp was the best option. After repeatedly
-// building and fixing errors requiring relative imports, you then have a
-// llama.cpp library that can be used in the iOS and macOS.
-//
-// Due to the copying, the build is entirely contained within the codebase.
-// Updating versions required updating the submodule _and_ copying the files
-// to the iOS and macOS directories, and then fixing relative imports. This
-// takes about 20 minutes, tops.
-// 3 files:
-// - llama.cpp/common/common.h
-// - llama.cpp/common/grammar-parser.h
-// - llama.cpp/common/sampling.h
+
 FFI_PLUGIN_EXPORT extern "C" void
 fllama_inference(fllama_inference_request request,
                  fllama_inference_callback callback) {
@@ -94,6 +62,34 @@ fllama_inference(fllama_inference_request request,
     }
   });
   inference_thread.detach();
+}
+
+FFI_PLUGIN_EXPORT extern "C" void fllama_tokenize(struct fllama_tokenize_request request, fllama_tokenize_callback callback) {
+  gpt_params params;
+  params.n_ctx = 0;
+  params.n_batch = 0;
+  params.n_predict = 0;
+  params.sparams.temp = 0;
+  params.sparams.samplers_sequence = "pt";
+  params.sparams.top_p = 0;
+  params.model = request.model_path;
+  params.n_gpu_layers = 0;
+  llama_backend_init(params.numa);
+  llama_model *model;
+  llama_context *ctx;
+  std::tie(model, ctx) = llama_init_from_gpt_params(params);
+  if (model == NULL || ctx == NULL) {
+    std::cout << "[fllama] Unable to load model." << std::endl;
+    if (model != NULL) {
+      llama_free_model(model);
+    }
+    throw std::runtime_error("[fllama] Unable to load model.");
+  }
+  std::vector<llama_token> tokens_list;
+  tokens_list = ::llama_tokenize(model, request.input, true);
+  std::cout << "[fllama] Input token count: " << tokens_list.size()
+            << std::endl;
+  callback(tokens_list.size());
 }
 
 void _fllama_inference_sync(fllama_inference_request request,

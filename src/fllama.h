@@ -24,12 +24,16 @@ struct fllama_inference_request
     float top_p; // Optional: 0 < top_p <= 1. Defaults to 1. (llama.cpp behavior)
 };
 
-// A longer lived native function, which occupies the thread calling it.
-//
-// Do not call these kind of native functions in the main isolate. They will
-// block Dart execution. This will cause dropped frames in Flutter applications.
-// Instead, call these native functions on a separate isolate.
+typedef void (*fllama_tokenize_callback)(int count);
+
+struct fllama_tokenize_request
+{
+    char *input; // Required: input text
+    char *model_path; // Required: .ggml model file path
+};
+
 FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request, fllama_inference_callback callback);
+FFI_PLUGIN_EXPORT void fllama_tokenize(struct fllama_tokenize_request request, fllama_tokenize_callback callback);
 
 #ifdef __cplusplus
 }
