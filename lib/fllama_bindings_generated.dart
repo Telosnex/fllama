@@ -27,11 +27,6 @@ class FllamaBindings {
           lookup)
       : _lookup = lookup;
 
-  /// A longer lived native function, which occupies the thread calling it.
-  ///
-  /// Do not call these kind of native functions in the main isolate. They will
-  /// block Dart execution. This will cause dropped frames in Flutter applications.
-  /// Instead, call these native functions on a separate isolate.
   void fllama_inference(
     fllama_inference_request request,
     fllama_inference_callback callback,
@@ -48,6 +43,23 @@ class FllamaBindings {
               fllama_inference_callback)>>('fllama_inference');
   late final _fllama_inference = _fllama_inferencePtr.asFunction<
       void Function(fllama_inference_request, fllama_inference_callback)>();
+
+  void fllama_tokenize(
+    fllama_tokenize_request request,
+    fllama_tokenize_callback callback,
+  ) {
+    return _fllama_tokenize(
+      request,
+      callback,
+    );
+  }
+
+  late final _fllama_tokenizePtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(fllama_tokenize_request,
+              fllama_tokenize_callback)>>('fllama_tokenize');
+  late final _fllama_tokenize = _fllama_tokenizePtr.asFunction<
+      void Function(fllama_tokenize_request, fllama_tokenize_callback)>();
 }
 
 final class fllama_inference_request extends ffi.Struct {
@@ -78,6 +90,16 @@ final class fllama_inference_request extends ffi.Struct {
   external double top_p;
 }
 
+final class fllama_tokenize_request extends ffi.Struct {
+  /// Required: input text
+  external ffi.Pointer<ffi.Char> input;
+
+  /// Required: .ggml model file path
+  external ffi.Pointer<ffi.Char> model_path;
+}
+
 typedef fllama_inference_callback = ffi.Pointer<
     ffi.NativeFunction<
         ffi.Void Function(ffi.Pointer<ffi.Char> response, ffi.Uint8 done)>>;
+typedef fllama_tokenize_callback
+    = ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Int count)>>;
