@@ -22,6 +22,7 @@ struct fllama_inference_request
     int num_gpu_layers; // Required: number of GPU layers. 0 for CPU only. 99 for all layers. Automatically 0 on iOS simulator.
     float temperature; // Optional: temperature. Defaults to 0. (llama.cpp behavior)
     float top_p; // Optional: 0 < top_p <= 1. Defaults to 1. (llama.cpp behavior)
+    char *grammar; // Optional: BNF-like grammar to constrain sampling. Defaults to "" (llama.cpp behavior). See https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
 };
 
 typedef void (*fllama_tokenize_callback)(int count);

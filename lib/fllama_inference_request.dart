@@ -6,6 +6,7 @@ class FllamaInferenceRequest {
   int numGpuLayers;
   double temperature;
   double topP;
+  String? grammar;
 
   FllamaInferenceRequest({
     required this.contextSize,
@@ -15,5 +16,6 @@ class FllamaInferenceRequest {
     required this.numGpuLayers,
     required this.temperature,
     required this.topP,
+    this.grammar,
   });
 }

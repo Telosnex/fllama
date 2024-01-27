@@ -81,6 +81,10 @@ fllama_inference_request _toNative(FllamaInferenceRequest dart) {
   Pointer<Utf8> modelPathCstr = dart.modelPath.toNativeUtf8();
   request.input = inputCstr.cast<Char>();
   request.model_path = modelPathCstr.cast<Char>();
+  if (dart.grammar != null && dart.grammar?.isNotEmpty == true) {
+    Pointer<Utf8> grammarCstr = dart.grammar!.toNativeUtf8();
+    request.grammar = grammarCstr.cast<Char>();
+  }
   return request;
 }
 

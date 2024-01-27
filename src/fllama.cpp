@@ -140,6 +140,10 @@ void _fllama_inference_sync(fllama_inference_request request,
   params.sparams.temp = request.temperature;
   params.sparams.samplers_sequence = "pt";
   params.sparams.top_p = request.top_p;
+  if (request.grammar != NULL) {
+    std::cout << "[fllama] Grammar: " << request.grammar << std::endl;
+    params.sparams.grammar = std::string(request.grammar);
+  }
   params.model = request.model_path;
 // Force CPU if iOS simulator: no GPU support available, hangs.
 #if TARGET_IPHONE_SIMULATOR

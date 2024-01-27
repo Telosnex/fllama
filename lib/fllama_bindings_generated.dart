@@ -88,6 +88,9 @@ final class fllama_inference_request extends ffi.Struct {
   /// Optional: 0 < top_p <= 1. Defaults to 1. (llama.cpp behavior)
   @ffi.Float()
   external double top_p;
+
+  /// Optional: BNF-like grammar to constrain sampling. Defaults to "" (llama.cpp behavior). See https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
+  external ffi.Pointer<ffi.Char> grammar;
 }
 
 final class fllama_tokenize_request extends ffi.Struct {
