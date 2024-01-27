@@ -134,16 +134,33 @@ Future<SendPort> _helperIsolateSendPort = () async {
           late final NativeCallable<NativeInferenceCallback> callback;
           void onResponse(Pointer<Char> responsePointer, int done) {
             // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
-            // order to allow malformed UTF-8.
+            // order to allow only valid UTF-8.
             final codeUnits = responsePointer.cast<Uint8>();
             var length = 0;
             while (codeUnits[length] != 0) {
               length++;
             }
-            final partial = utf8.decode(codeUnits.asTypedList(length),
-                allowMalformed: true);
+
+            var decodedString = '';
+            while (length > 0) {
+              try {
+                decodedString = utf8.decode(codeUnits.asTypedList(length),
+                    allowMalformed: false);
+                // if the decode succeeds, exit the loop
+                break;
+              } catch (e) {
+                // If an exception is caught, try with one less byte
+                length--;
+              }
+            }
+
+            // If length becomes zero, it means decoding failed at every attempt - use an empty string
+            if (length == 0) {
+              decodedString = '';
+            }
+
             final _IsolateInferenceResponse response =
-                _IsolateInferenceResponse(data.id, partial, done == 1);
+                _IsolateInferenceResponse(data.id, decodedString, done == 1);
             sendPort.send(response);
           }
 

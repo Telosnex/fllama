@@ -238,6 +238,10 @@ void _fllama_inference_sync(fllama_inference_request request,
     }
   }
 
+  // Can't free this: the threading behavior is such that the Dart function will
+  // get the pointer at some point in the future. Infrequently, 1 / 20 times,
+  // this will be _after_ this function returns. In that case, the final output
+  // is a bunch of null characters: they look like 6 vertical lines stacked.
   std::strcpy(c_result, result.c_str());
   callback(/* response */ c_result, /* done */ true);
 
@@ -253,7 +257,6 @@ void _fllama_inference_sync(fllama_inference_request request,
   // Free everything. Model loading time is negligible, especially when
   // compared to amount of RAM consumed by leaving model in memory
   // (~= size of model on disk)
-  free(c_result);
   llama_batch_free(batch);
   llama_free_model(model);
   llama_free(ctx);
