@@ -1,14 +1,6 @@
 Current implementation based on llama.cpp/examples/simple/simple.cpp combined
-with handling sampling manually via top_p and temp functions.
-
-The other route you'll see is setting up a sampling context, but it doesn't
-work well without a lot of hand-holding - ex. manually specifying the exact
-samplers you want to use. If you just use it straight-up, one of the other 6
-techniques outside top-P and temperature overrides temperature, somehow.
-
-It's incompatible with what seems to be the "new batch API", which it seems
-simple.cpp used. But who knows, that'd require some semblance of
-documentation.
+with handling sampling manually via top_p and temp functions. Then, switched
+to sampling function using https://github.com/Mozilla-Ocho/llamafile/blob/e34b35c339405d5fd9b492c45bc3646730c5d937/llamafile/simple.cpp#L77 to work through previous issues.
 
 macOS and iOS based on intuition that:
 - it will be difficult to get llama.cpp building as a CMakeLists library.
