@@ -48,18 +48,18 @@ String convertToJsonGrammar(String jsonSchema) {
       var props = schema['properties'] as Map<String, dynamic>;
       int i = 0;
       props.forEach((propName, propSchema) {
-        String propRuleName = visit(propSchema, '$name-${propName}');
+        String propRuleName = visit(propSchema, '$name-$propName');
         if (i++ > 0) {
           rule += ' "," space';
         }
-        rule += ' ${formatLiteral(propName)} ":" space ${propRuleName}';
+        rule += ' ${formatLiteral(propName)} ":" space $propRuleName';
       });
       rule += ' "}" space';
       return addRule(ruleName, rule);
     } else if (schemaType == 'array' && schema.containsKey('items')) {
       String itemRuleName = visit(schema['items'], '$name-item');
       String rule =
-          ' "[" space (${itemRuleName} ("," space $itemRuleName)*)? "]" space';
+          ' "[" space ($itemRuleName ("," space $itemRuleName)*)? "]" space';
       return addRule(ruleName, rule);
     } else {
       assert(_primitiveRules.containsKey(schemaType),
