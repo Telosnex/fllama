@@ -191,8 +191,9 @@ void _fllama_inference_sync(fllama_inference_request request,
   struct llama_sampling_context *ctx_sampling =
       llama_sampling_init(params.sparams);
 
-  const char *eos_token = fflama_get_eos_token(request.model_path);
-  bool has_valid_eos_token = strlen(eos_token) > 0;
+  const std::string eos_token =
+      std::string(fflama_get_eos_token(request.model_path));
+  bool has_valid_eos_token = eos_token.length() > 0;
   const auto t_main_start = ggml_time_us();
 
   // 3. Generate tokens.
@@ -211,35 +212,70 @@ void _fllama_inference_sync(fllama_inference_request request,
   fprintf(stderr, "%s\n", orderPrintOutput.c_str());
 
   int n_gen = 0;
+  bool potentially_eos =
+      false; // Flag to indicate that we're potentially forming an EOS token
+  std::string buffer; // Buffer to accumulate potential EOS token sequences
+
   while (true) {
     const llama_token new_token_id =
         llama_sampling_sample(ctx_sampling, ctx, NULL);
     llama_sampling_accept(ctx_sampling, ctx, new_token_id, true);
 
-    // is it an end of stream?
+    // Identify EOS token from the model
     bool is_eos_model_token = new_token_id == llama_token_eos(model);
 
-    // Check if the generated string contains the eos_token - it's strange, but
-    // possible. ex. OpenHermes 2.5 Mistral 7B
-    size_t eos_pos = std::string::npos;
-    if (has_valid_eos_token) {
-      eos_pos = result.find(eos_token);
-    }
-    bool contains_eos_token =
-        has_valid_eos_token && eos_pos != std::string::npos;
+    // Get the token as a string piece
+    std::string token_piece = llama_token_to_piece(ctx, new_token_id);
 
-    if (contains_eos_token) {
-      // Remove the eos_token from the result string
-      result.erase(eos_pos, strlen(eos_token));
+    // If we're potentially forming an EOS token, check if this continues that
+    // sequence
+    if (potentially_eos) {
+      buffer += token_piece;
+
+      // Check if the buffer so far matches the start of the eos_token
+      if (eos_token.substr(0, buffer.size()) == buffer) {
+        // If the buffer is exactly the eos_token, stop the generation
+        if (buffer == eos_token) {
+          fprintf(stderr, "%s: Finish. EOS token formed\n", __func__);
+          break;
+        }
+        // Otherwise, continue accumulating
+      } else {
+        // It's now clear that we won't form an EOS token
+        result += buffer; // Append whatever was in the buffer to the result
+        result += buffer;
+        // Call the callback with what we had in the buffer except the last part
+        // (which will be rechecked)
+        std::strcpy(c_result, result.c_str());
+        callback(c_result, false);
+        n_gen += buffer.size();
+
+        // Clear the buffer and reset flag
+        buffer.clear();
+        potentially_eos = false;
+      }
+    } else {
+      auto starts_with = [](const std::string &str,
+                            const std::string &prefix) -> bool {
+        return str.size() >= prefix.size() &&
+               str.compare(0, prefix.size(), prefix) == 0;
+      };
+      // If the token piece is the beginning of the eos_token, start buffering
+      if (starts_with(eos_token, token_piece)) {
+        buffer += token_piece;
+        potentially_eos = true;
+      } else {
+        // Otherwise, we can safely append the piece to the result and invoke
+        // the callback
+        result += token_piece;
+        std::strcpy(c_result, result.c_str());
+        callback(c_result, false);
+        n_gen += token_piece.size();
+      }
     }
-    if (is_eos_model_token || contains_eos_token) {
-      fprintf(stderr, "%s: Finish. EOS token found\n", __func__);
-      break;
-    }
-    result += llama_token_to_piece(ctx, new_token_id);
-    std::strcpy(c_result, result.c_str());
-    callback(c_result, false);
-    n_gen += 1;
+
+    // If we reach the maximum number of tokens or an eval fails, we should also
+    // finish
     if (n_gen >= n_max_tokens) {
       fprintf(stderr, "%s: Finish. Max tokens reached\n", __func__);
       break;
@@ -247,6 +283,12 @@ void _fllama_inference_sync(fllama_inference_request request,
 
     if (!eval_id(ctx, new_token_id, &n_past)) {
       fprintf(stderr, "%s: Finish. Eval failed\n", __func__);
+      break;
+    }
+
+    // Check for EOS on model tokens
+    if (is_eos_model_token) {
+      fprintf(stderr, "%s: Finish. Model EOS token found\n", __func__);
       break;
     }
   }
