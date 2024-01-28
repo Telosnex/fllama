@@ -243,7 +243,6 @@ void _fllama_inference_sync(fllama_inference_request request,
       } else {
         // It's now clear that we won't form an EOS token
         result += buffer; // Append whatever was in the buffer to the result
-        result += buffer;
         // Call the callback with what we had in the buffer except the last part
         // (which will be rechecked)
         std::strcpy(c_result, result.c_str());
