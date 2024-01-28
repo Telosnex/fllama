@@ -191,6 +191,8 @@ void _fllama_inference_sync(fllama_inference_request request,
   struct llama_sampling_context *ctx_sampling =
       llama_sampling_init(params.sparams);
 
+  const char *eos_token = fflama_get_eos_token(request.model_path);
+  bool has_valid_eos_token = strlen(eos_token) > 0;
   const auto t_main_start = ggml_time_us();
 
   // 3. Generate tokens.
@@ -210,13 +212,27 @@ void _fllama_inference_sync(fllama_inference_request request,
 
   int n_gen = 0;
   while (true) {
-
     const llama_token new_token_id =
         llama_sampling_sample(ctx_sampling, ctx, NULL);
     llama_sampling_accept(ctx_sampling, ctx, new_token_id, true);
 
     // is it an end of stream?
-    if (new_token_id == llama_token_eos(model)) {
+    bool is_eos_model_token = new_token_id == llama_token_eos(model);
+
+    // Check if the generated string contains the eos_token - it's strange, but
+    // possible. ex. OpenHermes 2.5 Mistral 7B
+    size_t eos_pos = std::string::npos;
+    if (has_valid_eos_token) {
+      eos_pos = result.find(eos_token);
+    }
+    bool contains_eos_token =
+        has_valid_eos_token && eos_pos != std::string::npos;
+
+    if (contains_eos_token) {
+      // Remove the eos_token from the result string
+      result.erase(eos_pos, strlen(eos_token));
+    }
+    if (is_eos_model_token || contains_eos_token) {
       fprintf(stderr, "%s: Finish. EOS token found\n", __func__);
       break;
     }
@@ -299,7 +315,6 @@ const char *fflama_get_chat_template(const char *fname) {
   return ""; // Just to avoid compiler warning.
 }
 
-
 static int gguf_data_to_int(enum gguf_type type, const void *data, int i) {
   switch (type) {
   case GGUF_TYPE_UINT8:
@@ -313,35 +328,41 @@ static int gguf_data_to_int(enum gguf_type type, const void *data, int i) {
   case GGUF_TYPE_UINT32:
     // Check if the uint32_t value can fit in an int, otherwise return INT_MIN
     {
-        uint32_t val = ((const uint32_t *)data)[i];
-        return val <= static_cast<uint32_t>(INT_MAX) ? static_cast<int>(val) : INT_MIN;
+      uint32_t val = ((const uint32_t *)data)[i];
+      return val <= static_cast<uint32_t>(INT_MAX) ? static_cast<int>(val)
+                                                   : INT_MIN;
     }
   case GGUF_TYPE_INT32:
     return static_cast<int>(((const int32_t *)data)[i]);
   case GGUF_TYPE_UINT64:
   case GGUF_TYPE_INT64:
-    // For both 64-bit integer types, converting directly to int could lead to significant data loss.
-    // This logic limits the conversion to IN_MIN if out of the `int` range.
+    // For both 64-bit integer types, converting directly to int could lead to
+    // significant data loss. This logic limits the conversion to IN_MIN if out
+    // of the `int` range.
     {
-        int64_t val = type == GGUF_TYPE_UINT64 ?
-                      static_cast<int64_t>(((const uint64_t *)data)[i]) :
-                      ((const int64_t *)data)[i];
-        if (val >= static_cast<int64_t>(INT_MIN) && val <= static_cast<int64_t>(INT_MAX)) {
-            return static_cast<int>(val);
-        } else {
-            return INT_MIN;
-        }
+      int64_t val = type == GGUF_TYPE_UINT64
+                        ? static_cast<int64_t>(((const uint64_t *)data)[i])
+                        : ((const int64_t *)data)[i];
+      if (val >= static_cast<int64_t>(INT_MIN) &&
+          val <= static_cast<int64_t>(INT_MAX)) {
+        return static_cast<int>(val);
+      } else {
+        return INT_MIN;
+      }
     }
   case GGUF_TYPE_FLOAT32:
-    // For float, we attempt to cast to int directly, but large values could cause undefined behavior.
+    // For float, we attempt to cast to int directly, but large values could
+    // cause undefined behavior.
     return static_cast<int>(((const float *)data)[i]);
   case GGUF_TYPE_FLOAT64:
-    // Similar to float, casting directly from double to int, with potential for large value issues.
+    // Similar to float, casting directly from double to int, with potential for
+    // large value issues.
     return static_cast<int>(((const double *)data)[i]);
   case GGUF_TYPE_BOOL:
     return ((const bool *)data)[i] ? 1 : 0;
   default:
-    return INT_MIN; // Sentinel value indicating "not a number-y type" or "error"
+    return INT_MIN; // Sentinel value indicating "not a number-y type" or
+                    // "error"
   }
 }
 
@@ -375,8 +396,9 @@ const char *fflama_get_eos_token(const char *fname) {
     return ""; // Key not found.
   }
 
-  const void* eos_id_val_data = gguf_get_val_data(ctx, eos_id_idx);
-  const int eos_id_index = gguf_data_to_int(gguf_get_kv_type(ctx, eos_id_idx), eos_id_val_data, 0);
+  const void *eos_id_val_data = gguf_get_val_data(ctx, eos_id_idx);
+  const int eos_id_index =
+      gguf_data_to_int(gguf_get_kv_type(ctx, eos_id_idx), eos_id_val_data, 0);
   if (eos_id_index == INT_MIN) {
     printf("%s: eos_id_val is INT_MIN, indicating an error.\n", __func__);
     return ""; // Key not found.
@@ -391,11 +413,11 @@ const char *fflama_get_eos_token(const char *fname) {
 
   std::string word = gguf_get_arr_str(ctx, tokens_idx, eos_id_index);
   printf("%s: word: %s\n", __func__, word.c_str());
-  char* heapWord = new char[word.length() + 1]; // +1 for the null terminator
-  
+  char *heapWord = new char[word.length() + 1]; // +1 for the null terminator
+
   // Copy the contents of `word` to the allocated memory.
   std::strcpy(heapWord, word.c_str());
-  
+
   // Return the pointer to the caller. The caller must `delete[]` this memory.
   return heapWord;
 }
