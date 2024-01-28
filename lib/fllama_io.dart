@@ -1,11 +1,14 @@
-// ignore_for_file: avoid_print
-export 'fllama_io_inference.dart';
-export 'fllama_io_tokenize.dart';
+export 'fns/fllama_io_chat_template.dart';
+export 'fns/fllama_io_chat_completion.dart';
+export 'fns/fllama_io_inference.dart';
+export 'fns/fllama_io_tokenize.dart';
 
 import 'dart:ffi';
 import 'dart:io';
 
 import 'package:fllama/fllama_bindings_generated.dart';
+
+typedef FllamaInferenceCallback = void Function(String response, bool done);
 
 const String fllamaLibName = 'fllama';
 

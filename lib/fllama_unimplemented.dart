@@ -6,3 +6,11 @@ Future<String> fllamaInferenceAsync(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   throw UnimplementedError();
 }
+
+String fllamaGetChatTemplate(String modelPath) {
+  throw UnimplementedError();
+}
+
+String fllamaGetEosToken(String modelPath) {
+  throw UnimplementedError();
+}

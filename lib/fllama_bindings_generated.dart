@@ -60,6 +60,36 @@ class FllamaBindings {
               fllama_tokenize_callback)>>('fllama_tokenize');
   late final _fllama_tokenize = _fllama_tokenizePtr.asFunction<
       void Function(fllama_tokenize_request, fllama_tokenize_callback)>();
+
+  ffi.Pointer<ffi.Char> fflama_get_chat_template(
+    ffi.Pointer<ffi.Char> fname,
+  ) {
+    return _fflama_get_chat_template(
+      fname,
+    );
+  }
+
+  late final _fflama_get_chat_templatePtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(
+              ffi.Pointer<ffi.Char>)>>('fflama_get_chat_template');
+  late final _fflama_get_chat_template = _fflama_get_chat_templatePtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
+
+  ffi.Pointer<ffi.Char> fflama_get_eos_token(
+    ffi.Pointer<ffi.Char> fname,
+  ) {
+    return _fflama_get_eos_token(
+      fname,
+    );
+  }
+
+  late final _fflama_get_eos_tokenPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(
+              ffi.Pointer<ffi.Char>)>>('fflama_get_eos_token');
+  late final _fflama_get_eos_token = _fflama_get_eos_tokenPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 }
 
 final class fllama_inference_request extends ffi.Struct {
@@ -88,6 +118,14 @@ final class fllama_inference_request extends ffi.Struct {
   /// Optional: 0 < top_p <= 1. Defaults to 1. (llama.cpp behavior)
   @ffi.Float()
   external double top_p;
+
+  /// Optional: 0 <= penalty_freq <= 1. Defaults to 0.0, which means disabled. (llama.cpp behavior)
+  @ffi.Float()
+  external double penalty_freq;
+
+  /// Optional: 0 <= penalty_repeat <= 1. Defaults to 1.0, which means disabled. (llama.cpp behavior)
+  @ffi.Float()
+  external double penalty_repeat;
 
   /// Optional: BNF-like grammar to constrain sampling. Defaults to "" (llama.cpp behavior). See https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
   external ffi.Pointer<ffi.Char> grammar;

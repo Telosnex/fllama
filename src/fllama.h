@@ -22,6 +22,8 @@ struct fllama_inference_request
     int num_gpu_layers; // Required: number of GPU layers. 0 for CPU only. 99 for all layers. Automatically 0 on iOS simulator.
     float temperature; // Optional: temperature. Defaults to 0. (llama.cpp behavior)
     float top_p; // Optional: 0 < top_p <= 1. Defaults to 1. (llama.cpp behavior)
+    float penalty_freq; // Optional: 0 <= penalty_freq <= 1. Defaults to 0.0, which means disabled. (llama.cpp behavior)
+    float penalty_repeat; // Optional: 0 <= penalty_repeat <= 1. Defaults to 1.0, which means disabled. (llama.cpp behavior)
     char *grammar; // Optional: BNF-like grammar to constrain sampling. Defaults to "" (llama.cpp behavior). See https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
 };
 
@@ -35,6 +37,8 @@ struct fllama_tokenize_request
 
 FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request, fllama_inference_callback callback);
 FFI_PLUGIN_EXPORT void fllama_tokenize(struct fllama_tokenize_request request, fllama_tokenize_callback callback);
+FFI_PLUGIN_EXPORT const char *fflama_get_chat_template(const char *fname);
+FFI_PLUGIN_EXPORT const char *fflama_get_eos_token(const char *fname);
 
 #ifdef __cplusplus
 }

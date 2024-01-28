@@ -5,7 +5,6 @@ import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 import 'package:fllama/fllama_io.dart';
-import 'package:fllama/fllama_unimplemented.dart';
 import 'package:fllama/fllama_bindings_generated.dart';
 import 'package:fllama/fllama_inference_request.dart';
 
@@ -75,6 +74,8 @@ fllama_inference_request _toNative(FllamaInferenceRequest dart) {
   request.num_gpu_layers = dart.numGpuLayers;
   request.temperature = dart.temperature;
   request.top_p = dart.topP;
+  request.penalty_freq = dart.penaltyFrequency;
+  request.penalty_repeat = dart.penaltyRepeat;
 
   // Convert the Dart string to a C string (null-terminated).
   Pointer<Utf8> inputCstr = dart.input.toNativeUtf8();

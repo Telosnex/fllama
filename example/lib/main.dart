@@ -61,16 +61,17 @@ class _MyAppState extends State<MyApp> {
                 ),
                 ElevatedButton(
                   onPressed: () async {
-                    final request = FllamaInferenceRequest(
-                      contextSize: 4096,
+                    final request = OpenAiRequest(
                       maxTokens: 256,
-                      temperature: 1.0,
-                      topP: 1.0,
-                      input: _controller.text,
+                      messages: [
+                        Message(Role.user, _controller.text),
+                      ],
                       numGpuLayers: 99,
                       modelPath: modelPath!,
+          
                     );
-                    fllamaInferenceAsync(request, (String result, bool done) {
+
+                    fllamaChatCompletionAsync(request, (String result, bool done) {
                       setState(() {
                         latestResult = result;
                       });

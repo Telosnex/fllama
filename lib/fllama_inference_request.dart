@@ -5,6 +5,8 @@ class FllamaInferenceRequest {
   String modelPath;
   int numGpuLayers;
   double temperature;
+  double penaltyFrequency;
+  double penaltyRepeat;
   double topP;
   String? grammar;
 
@@ -14,6 +16,8 @@ class FllamaInferenceRequest {
     required this.maxTokens,
     required this.modelPath,
     required this.numGpuLayers,
+    required this.penaltyFrequency,
+    required this.penaltyRepeat,
     required this.temperature,
     required this.topP,
     this.grammar,
