@@ -267,7 +267,6 @@ void _fllama_inference_sync(fllama_inference_request request,
         result += token_piece;
         std::strcpy(c_result, result.c_str());
         callback(c_result, false);
-        n_gen += token_piece.size();
       }
     }
 
