@@ -220,7 +220,7 @@ void _fllama_inference_sync(fllama_inference_request request,
     const llama_token new_token_id =
         llama_sampling_sample(ctx_sampling, ctx, NULL);
     llama_sampling_accept(ctx_sampling, ctx, new_token_id, true);
-
+    n_gen += 1;
     // Identify EOS token from the model
     bool is_eos_model_token = new_token_id == llama_token_eos(model);
 
@@ -247,8 +247,6 @@ void _fllama_inference_sync(fllama_inference_request request,
         // (which will be rechecked)
         std::strcpy(c_result, result.c_str());
         callback(c_result, false);
-        n_gen += buffer.size();
-
         // Clear the buffer and reset flag
         buffer.clear();
         potentially_eos = false;
