@@ -1,4 +1,4 @@
-import 'fllama_inference_request.dart';
+import 'package:fllama/fllama.dart';
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
 
@@ -12,5 +12,10 @@ String fllamaGetChatTemplate(String modelPath) {
 }
 
 String fllamaGetEosToken(String modelPath) {
+  throw UnimplementedError();
+}
+
+Future<String> fllamaChatCompletionAsync(
+    OpenAiRequest openAiRequest, FllamaInferenceCallback callback) async {
   throw UnimplementedError();
 }

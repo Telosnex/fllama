@@ -6,8 +6,21 @@ import 'package:jinja/jinja.dart';
 Future<String> fllamaChatCompletionAsync(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
   final text = fllamaApplyChatTemplate(request);
+  final String grammar;
+  if (request.tools.isNotEmpty) {
+    if (request.tools.length > 1) {
+      // ignore: avoid_print
+      print(
+          '[fllama] WARNING: More than one tool was specified. No grammar will be enforced. (via fllamaChatCompletionAsync)');
+      grammar = '';
+    } else {
+      grammar = request.tools.first.grammar;
+    }
+  } else {
+    grammar = '';
+  }
   final inferenceRequest = FllamaInferenceRequest(
-    contextSize: 2048,
+    contextSize: request.contextSize,
     input: text,
     maxTokens: request.maxTokens,
     modelPath: request.modelPath,
@@ -16,6 +29,7 @@ Future<String> fllamaChatCompletionAsync(
     penaltyRepeat: request.presencePenalty,
     temperature: request.temperature,
     topP: request.topP,
+    grammar: grammar,
   );
   return fllamaInferenceAsync(inferenceRequest, callback);
 }
@@ -43,6 +57,19 @@ String fllamaApplyChatTemplate(OpenAiRequest request) {
     jsonMessages.add({
       'role': message.role.openAiName,
       'content': message.text,
+    });
+  }
+  for (final tool in request.tools) {
+    jsonMessages.add({
+      'role': Role.user,
+      'content': tool.typescriptDefinition,
+    });
+  }
+  if (request.tools.isNotEmpty) {
+    jsonMessages.add({
+      'role': Role.user,
+      'content':
+          'The above are the typescript definitions of the tools.\nPlease pick one and provide a JSON object to call the tool with:',
     });
   }
 

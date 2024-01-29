@@ -70,7 +70,6 @@ class _MyAppState extends State<MyApp> {
                       modelPath: modelPath!,
           
                     );
-
                     fllamaChatCompletionAsync(request, (String result, bool done) {
                       setState(() {
                         latestResult = result;

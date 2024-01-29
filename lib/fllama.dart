@@ -4,3 +4,4 @@ export 'fllama_unimplemented.dart'
 export 'fllama_inference_request.dart';
 export 'gbnf.dart';
 export 'model/openai.dart';
+export 'model/openai_tool.dart';
