@@ -38,12 +38,15 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
+#include <condition_variable>
+#include <queue>
+#include <functional>
 
 #if defined(_MSC_VER)
 #pragma warning(disable : 4244 4267) // possible loss of data
 #endif
 
-static bool eval_tokens(struct llama_context *ctx_llama,
+static bool add_tokens_to_context(struct llama_context *ctx_llama,
                         std::vector<llama_token> tokens, int n_batch,
                         int *n_past) {
   int N = (int)tokens.size();
@@ -60,76 +63,28 @@ static bool eval_tokens(struct llama_context *ctx_llama,
   return true;
 }
 
-static bool eval_id(struct llama_context *ctx_llama, int id, int *n_past) {
+static bool add_token_to_context(struct llama_context *ctx_llama, int id, int *n_past) {
   std::vector<llama_token> tokens;
   tokens.push_back(id);
-  return eval_tokens(ctx_llama, tokens, 1, n_past);
+  return add_tokens_to_context(ctx_llama, tokens, 1, n_past);
 }
 
-static bool eval_string(struct llama_context *ctx_llama, const char *str,
+static bool add_string_to_context(struct llama_context *ctx_llama, const char *str,
                         int n_batch, int *n_past, bool add_bos) {
   std::string str2 = str;
   std::vector<llama_token> embd_inp =
       ::llama_tokenize(ctx_llama, str2, add_bos);
   fprintf(stderr, "%s: eval_string: %s\n", __func__, str);
-  return eval_tokens(ctx_llama, embd_inp, n_batch, n_past);
+  return add_tokens_to_context(ctx_llama, embd_inp, n_batch, n_past);
 }
 
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback);
 
-FFI_PLUGIN_EXPORT extern "C" void
-fllama_inference(fllama_inference_request request,
-                 fllama_inference_callback callback) {
-  std::cout << "[fllama] Hello from fllama.cpp!" << std::endl;
-  // Run on a thread.
-  // A non-blocking method ensures that the callback can be on the caller
-  // thread. This significantly simplifies the implementation of the caller,
-  // particularly in Dart.
-  std::thread inference_thread([request, callback]() {
-    try {
-      _fllama_inference_sync(request, callback);
-    } catch (const std::exception &e) {
-      std::cout << "[fllama] Exception: " << e.what() << std::endl;
-    }
-  });
-  inference_thread.detach();
-}
-
-FFI_PLUGIN_EXPORT extern "C" void
-fllama_tokenize(struct fllama_tokenize_request request,
-                fllama_tokenize_callback callback) {
-  gpt_params params;
-  params.n_ctx = 0;
-  params.n_batch = 0;
-  params.n_predict = 0;
-  params.sparams.temp = 0;
-  params.sparams.samplers_sequence = "pt";
-  params.sparams.top_p = 0;
-  params.model = request.model_path;
-  params.n_gpu_layers = 0;
-  llama_backend_init(params.numa);
-  llama_model *model;
-  llama_context *ctx;
-  std::tie(model, ctx) = llama_init_from_gpt_params(params);
-  if (model == NULL || ctx == NULL) {
-    std::cout << "[fllama] Unable to load model." << std::endl;
-    if (model != NULL) {
-      llama_free_model(model);
-    }
-    throw std::runtime_error("[fllama] Unable to load model.");
-  }
-  std::vector<llama_token> tokens_list;
-  tokens_list = ::llama_tokenize(model, request.input, true);
-  std::cout << "[fllama] Input token count: " << tokens_list.size()
-            << std::endl;
-  callback(tokens_list.size());
-}
-
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback) {
   // 1. Setup parameters, then load the model and create a context.
-  std::cout << "[fllama] Inference thread started." << std::endl;
+  std::cout << "[fllama] Inference thread start @ " << ggml_time_us() << std::endl;
   gpt_params params;
   std::cout << "[fllama] Initializing params." << std::endl;
   params.n_ctx = request.context_size;
@@ -156,8 +111,11 @@ void _fllama_inference_sync(fllama_inference_request request,
 // Otherwise, for physical iOS devices and other platforms
 #else
   params.n_gpu_layers = request.num_gpu_layers;
+  std::cout << "[fllama] Number of GPU layers: " << params.n_gpu_layers
+            << std::endl;
 #endif
   llama_backend_init(params.numa);
+  std::cout << "[fllama] Backend initialized." << std::endl;
   llama_model *model;
   llama_context *ctx;
   std::tie(model, ctx) = llama_init_from_gpt_params(params);
@@ -167,8 +125,9 @@ void _fllama_inference_sync(fllama_inference_request request,
       llama_free_model(model);
     }
     callback(/* response */ "Error: Unable to load model.", /* done */ true);
-    throw std::runtime_error("[fllama] Unable to load model.");
+    return;
   }
+  std::cout << "[fllama] Model loaded." << std::endl;
 
   std::vector<llama_token> tokens_list;
   tokens_list = ::llama_tokenize(model, request.input, true);
@@ -186,7 +145,7 @@ void _fllama_inference_sync(fllama_inference_request request,
   // 2. Load the prompt into the context.
   int n_past = 0;
   bool add_bos = llama_should_add_bos_token(model);
-  eval_string(ctx, request.input, params.n_batch, &n_past, add_bos);
+  add_string_to_context(ctx, request.input, params.n_batch, &n_past, add_bos);
 
   struct llama_sampling_context *ctx_sampling =
       llama_sampling_init(params.sparams);
@@ -227,48 +186,27 @@ void _fllama_inference_sync(fllama_inference_request request,
     // Get the token as a string piece
     std::string token_piece = llama_token_to_piece(ctx, new_token_id);
 
-    // If we're potentially forming an EOS token, check if this continues that
-    // sequence
-    if (potentially_eos) {
-      buffer += token_piece;
+    // Add the current token piece to buffer to check for eos_token
+    buffer += token_piece;
 
-      // Check if the buffer so far matches the start of the eos_token
-      if (eos_token.substr(0, buffer.size()) == buffer) {
-        // If the buffer is exactly the eos_token, stop the generation
-        if (buffer == eos_token) {
-          fprintf(stderr, "%s: Finish. EOS token formed\n", __func__);
-          break;
-        }
-        // Otherwise, continue accumulating
-      } else {
-        // It's now clear that we won't form an EOS token
-        result += buffer; // Append whatever was in the buffer to the result
-        // Call the callback with what we had in the buffer except the last part
-        // (which will be rechecked)
-        std::strcpy(c_result, result.c_str());
-        callback(c_result, false);
-        // Clear the buffer and reset flag
-        buffer.clear();
-        potentially_eos = false;
-      }
-    } else {
-      auto starts_with = [](const std::string &str,
-                            const std::string &prefix) -> bool {
-        return str.size() >= prefix.size() &&
-               str.compare(0, prefix.size(), prefix) == 0;
-      };
-      // If the token piece is the beginning of the eos_token, start buffering
-      if (starts_with(eos_token, token_piece)) {
-        buffer += token_piece;
-        potentially_eos = true;
-      } else {
-        // Otherwise, we can safely append the piece to the result and invoke
-        // the callback
-        result += token_piece;
-        std::strcpy(c_result, result.c_str());
-        callback(c_result, false);
-      }
+    // Search for the eos_token in the buffer
+    size_t eos_pos = buffer.find(eos_token);
+    if (eos_pos != std::string::npos) {
+      // If eos_token is found, append content before eos_token to result and
+      // end generation
+      result += buffer.substr(0, eos_pos);
+      break;
     }
+
+    // If the buffer length exceeds the eos_token length, it means the start of
+    // the buffer cannot be part of an eos_token. Move such content to result.
+    if (buffer.length() > eos_token.length()) {
+      result += buffer.substr(0, buffer.length() - eos_token.length());
+      buffer.erase(0, buffer.length() - eos_token.length());
+    }
+
+    std::strcpy(c_result, result.c_str());
+    callback(/* response */ c_result, /* done */ false);
 
     // If we reach the maximum number of tokens or an eval fails, we should also
     // finish
@@ -277,7 +215,7 @@ void _fllama_inference_sync(fllama_inference_request request,
       break;
     }
 
-    if (!eval_id(ctx, new_token_id, &n_past)) {
+    if (!add_token_to_context(ctx, new_token_id, &n_past)) {
       fprintf(stderr, "%s: Finish. Eval failed\n", __func__);
       break;
     }
@@ -308,10 +246,106 @@ void _fllama_inference_sync(fllama_inference_request request,
   // Free everything. Model loading time is negligible, especially when
   // compared to amount of RAM consumed by leaving model in memory
   // (~= size of model on disk)
+  std::cout << "[fllama] freeing start @ " << ggml_time_us() << std::endl;
   llama_free_model(model);
   llama_sampling_free(ctx_sampling);
   llama_free(ctx);
   llama_backend_free();
+  std::cout << "[fllama] freeing and thread end @ " << ggml_time_us() << std::endl;
+}
+
+
+class InferenceQueue {
+public:
+    InferenceQueue() : done(false), worker(&InferenceQueue::process_inference, this) {}
+    
+    ~InferenceQueue() {
+        // Signal termination and cleanup
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            done = true;
+        }
+        cond_var.notify_one();
+        if (worker.joinable()) {
+            worker.join();
+        }
+    }
+
+    void enqueue(fllama_inference_request request, fllama_inference_callback callback) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            tasks.emplace([request, callback]() {
+                _fllama_inference_sync(request, callback);
+            });
+        }
+        cond_var.notify_one();
+    }
+
+private:
+    void process_inference() {
+        while (true) {
+            std::function<void()> task;
+            {
+                std::unique_lock<std::mutex> lock(mutex);
+                cond_var.wait(lock, [this] { return !tasks.empty() || done; });
+                if (done && tasks.empty()) break;
+                task = std::move(tasks.front());
+                tasks.pop();
+            }
+            try {
+                task();
+            } catch (const std::exception &e) {
+                std::cout << "[fllama] Exception: " << e.what() << std::endl;
+            }
+        }
+    }
+
+    std::thread worker;
+    std::mutex mutex;
+    std::condition_variable cond_var;
+    std::queue<std::function<void()>> tasks;
+    bool done;
+};
+
+// Global queue instance
+static InferenceQueue global_inference_queue;
+
+FFI_PLUGIN_EXPORT extern "C" void
+fllama_inference(fllama_inference_request request,
+                 fllama_inference_callback callback) {
+    std::cout << "[fllama] Hello from fllama.cpp!" << std::endl;
+    global_inference_queue.enqueue(request, callback);
+}
+
+FFI_PLUGIN_EXPORT extern "C" void
+fllama_tokenize(struct fllama_tokenize_request request,
+                fllama_tokenize_callback callback) {
+  gpt_params params;
+  params.n_ctx = 0;
+  params.n_batch = 0;
+  params.n_predict = 0;
+  params.sparams.temp = 0;
+  params.sparams.samplers_sequence = "pt";
+  params.sparams.top_p = 0;
+  params.model = request.model_path;
+  params.n_gpu_layers = 0;
+  llama_backend_init(params.numa);
+  llama_model *model;
+  llama_context *ctx;
+  std::tie(model, ctx) = llama_init_from_gpt_params(params);
+  if (model == NULL || ctx == NULL) {
+    std::cout << "[fllama] Unable to load model." << std::endl;
+    if (model != NULL) {
+      llama_free_model(model);
+    }
+    callback(-1);
+    return;
+  }
+  std::vector<llama_token> tokens_list;
+  tokens_list = ::llama_tokenize(model, request.input, true);
+  std::cout << "[fllama] Input token count: " << tokens_list.size()
+            << std::endl;
+  callback(tokens_list.size());
 }
 
 const char *fflama_get_chat_template(const char *fname) {
