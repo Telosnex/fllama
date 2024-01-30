@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:fllama/fllama.dart';
@@ -97,9 +99,25 @@ class _MyAppState extends State<MyApp> {
       // UTIs are required for iOS, which does not support local LLMs.
       uniformTypeIdentifiers: [],
     );
+    if (!kIsWeb && Platform.isAndroid) {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+      );
+
+      final file = result?.files.first;
+      if (file == null) {
+        return;
+      }
+      final filePath = file.path;
+      setState(() {
+        modelPath = filePath;
+      });
+    } else {
     final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
       if (!Platform.isIOS) ggufTypeGroup,
     ]);
+
+
     if (file == null) {
       return;
     }
@@ -107,5 +125,7 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       modelPath = filePath;
     });
+    }
+
   }
 }

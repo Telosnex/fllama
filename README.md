@@ -67,10 +67,6 @@ fllamaInferenceAsync(request, (String result, bool done) {
 });
 ```
 ## Tips & Tricks
-### file_selector plugin OOMs on Android
-  The example app uses the `file_selector` plugin to select a GGUF file.
-  It runs out of memory and crashes on Android with even the smallest model
-  files. This is a known issue with the plugin.
 ### Recommended models
 
   3 top-tier open models are in the [fllama HuggingFace repo](https://huggingface.co/telosnex/fllama/tree/main).
@@ -87,7 +83,6 @@ fllamaInferenceAsync(request, (String result, bool done) {
   Roughly: you'll need as much RAM as the model file size.
   If inference runs on CPU, that much regular RAM is required.
   If inference runs on GPU, that much GPU RAM is required.
-
 ### Download files from HuggingFace at runtime
   HuggingFace, among many things, can be thought of as GitHub for AI models.
   You can download a model from HuggingFace and use it with fllama.
