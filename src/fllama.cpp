@@ -215,6 +215,9 @@ void _fllama_inference_sync(fllama_inference_request request,
       break;
     }
 
+    fprintf(stderr, "%s: Input token count: %d. Generated token count: %d\n",
+            __func__, tokens_list.size(), n_gen);
+
     if (!add_token_to_context(ctx, new_token_id, &n_past)) {
       fprintf(stderr, "%s: Finish. Eval failed\n", __func__);
       break;
@@ -313,19 +316,8 @@ static InferenceQueue global_inference_queue;
 FFI_PLUGIN_EXPORT extern "C" void
 fllama_inference(fllama_inference_request request,
                  fllama_inference_callback callback) {
-  std::cout << "[fllama] Hello from fllama.cpp!" << std::endl;
-  // Run on a thread.
-  // A non-blocking method ensures that the callback can be on the caller
-  // thread. This significantly simplifies the implementation of the caller,
-  // particularly in Dart.
-  std::thread inference_thread([request, callback]() {
-    try {
-      _fllama_inference_sync(request, callback);
-    } catch (const std::exception &e) {
-      std::cout << "[fllama] Exception: " << e.what() << std::endl;
-    }
-  });
-  inference_thread.detach();
+    std::cout << "[fllama] Hello from fllama.cpp! Queueing your request." << std::endl;
+    global_inference_queue.enqueue(request, callback);
 }
 
 FFI_PLUGIN_EXPORT extern "C" void
