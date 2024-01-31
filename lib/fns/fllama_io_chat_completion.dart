@@ -39,7 +39,12 @@ String fllamaApplyChatTemplate(OpenAiRequest request) {
 
   final String chatTemplate;
   if (builtInChatTemplate.isNotEmpty) {
-    chatTemplate = builtInChatTemplate;
+    // First observed with https://huggingface.co/brittlewis12/Memphis-CoT-3B-GGUF
+    // Replacing with trim() did not work. That was unexpected because the Jinja
+    // package seems to indicate Dart instance methods are available.
+    chatTemplate = builtInChatTemplate.replaceAll('.strip()', '');
+    print('[fllama] Using built-in chat template.');
+    print('[fllama] template: $chatTemplate');
   } else {
     // Assume models without one specified intend ChatML.
     // This is the case for Mistral 7B via OpenHermes.
