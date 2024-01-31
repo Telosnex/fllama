@@ -215,9 +215,6 @@ void _fllama_inference_sync(fllama_inference_request request,
       break;
     }
 
-    fprintf(stderr, "%s: Input token count: %d. Generated token count: %d\n",
-            __func__, tokens_list.size(), n_gen);
-
     if (!add_token_to_context(ctx, new_token_id, &n_past)) {
       fprintf(stderr, "%s: Finish. Eval failed\n", __func__);
       break;
