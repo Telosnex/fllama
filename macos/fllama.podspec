@@ -30,6 +30,7 @@ A new Flutter FFI plugin project.
                    'llama.cpp/common/build-info.cpp', 
                    'llama.cpp/common/grammar-parser.cpp', 
                    'llama.cpp/common/sampling.cpp', 
+                   'llama.cpp/common/stb_image.h', 
                    'llama.cpp/ggml-metal.m'
   s.frameworks = 'Foundation', 'Metal', 'MetalKit'
   s.platform = :osx, '10.11'

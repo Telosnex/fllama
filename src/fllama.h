@@ -19,6 +19,7 @@ struct fllama_inference_request
     char *input; // Required: input text
     int max_tokens; // Required: max tokens to generate
     char *model_path; // Required: .ggml model file path
+    char *model_mmproj_path; // Optional: .mmproj file for multimodal models.
     int num_gpu_layers; // Required: number of GPU layers. 0 for CPU only. 99 for all layers. Automatically 0 on iOS simulator.
     float temperature; // Optional: temperature. Defaults to 0. (llama.cpp behavior)
     float top_p; // Optional: 0 < top_p <= 1. Defaults to 1. (llama.cpp behavior)

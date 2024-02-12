@@ -1,4 +1,6 @@
 #include "fllama.h"
+#include "clip.h"
+#include "llava.h"
 
 // LLaMA.cpp cross-platform support
 #ifdef __APPLE__
@@ -7,18 +9,22 @@
 
 #if TARGET_OS_IOS
 // iOS-specific includes
+#include "../ios/llama.cpp/common/base64.hpp"
 #include "../ios/llama.cpp/common/common.h"
 #include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml.h"
 #include "../ios/llama.cpp/llama.h"
+
 #elif TARGET_OS_OSX
 // macOS-specific includes
+#include "../macos/llama.cpp/common/base64.hpp"
 #include "../macos/llama.cpp/common/common.h"
 #include "../macos/llama.cpp/common/sampling.h"
 #include "../macos/llama.cpp/ggml.h"
 #include "../macos/llama.cpp/llama.h"
 #else
 // Other platforms
+#include "base64.hpp"
 #include "common/common.h"
 #include "ggml.h"
 #include "llama.h"
@@ -46,6 +52,20 @@
 #pragma warning(disable : 4244 4267) // possible loss of data
 #endif
 
+// Multimodal stuff that needs to be pre-declared up top so there aren't
+// compilation errors due to method order.
+struct llava_context {
+  struct clip_ctx *ctx_clip = NULL;
+  struct llama_context *ctx_llama = NULL;
+  struct llama_model *model = NULL;
+};
+static bool prompt_contains_image(const std::string &prompt);
+static std::string remove_image_from_prompt(const std::string &prompt,
+                                            const char *replacement = "");
+static struct llava_image_embed *load_image(llava_context *ctx_llava,
+                                            std::string prompt);
+// End of pre-declared multimodal stuff
+
 static bool add_tokens_to_context(struct llama_context *ctx_llama,
                                   std::vector<llama_token> tokens, int n_batch,
                                   int *n_past) {
@@ -57,6 +77,37 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
     if (llama_decode(ctx_llama,
                      llama_batch_get_one(&tokens[i], n_eval, *n_past, 0))) {
       return false; // probably ran out of context
+    }
+    *n_past += n_eval;
+  }
+  return true;
+}
+
+static bool add_image_embed_to_context(struct llama_context *ctx_llama,
+                                       llava_image_embed *image_embed,
+                                       int n_batch, int *n_past) {
+  int n_embd = llama_n_embd(llama_get_model(ctx_llama));
+
+  for (int i = 0; i < image_embed->n_image_pos; i += n_batch) {
+    int n_eval = image_embed->n_image_pos - i;
+    if (n_eval > n_batch) {
+      n_eval = n_batch;
+    }
+    llama_batch batch = {
+        int32_t(n_eval),
+        nullptr,
+        (image_embed->embed + i * n_embd),
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        *n_past,
+        1,
+        0,
+    };
+    if (llama_decode(ctx_llama, batch)) {
+      fprintf(stderr, "%s : failed to eval\n", __func__);
+      return false;
     }
     *n_past += n_eval;
   }
@@ -118,6 +169,22 @@ void _fllama_inference_sync(fllama_inference_request request,
 #endif
   llama_backend_init(params.numa);
   std::cout << "[fllama] Backend initialized." << std::endl;
+  // !!! Specific to multimodal
+  bool prompt_contains_img = prompt_contains_image(request.input);
+  bool should_load_clip = false;
+  if (prompt_contains_img) {
+    std::string mmproj = request.model_mmproj_path;
+    if (mmproj.empty()) {
+      std::cout << "[fllama] Warning: prompt contains images, but inference "
+                   "request doesn't specify model_mmproj_path. Multimodal "
+                   "model requires a .mmproj file."
+                << std::endl;
+    } else {
+      params.mmproj = mmproj;
+      auto ctx_clip = clip_model_load(mmproj.c_str(), /*verbosity=*/1);
+      should_load_clip = true;
+    }
+  }
   llama_model *model;
   llama_context *ctx;
   std::tie(model, ctx) = llama_init_from_gpt_params(params);
@@ -129,13 +196,33 @@ void _fllama_inference_sync(fllama_inference_request request,
     callback(/* response */ "Error: Unable to load model.", /* done */ true);
     return;
   }
+
+  std::string final_request_input = request.input;
+  // !!! Specific to multimodal
+  llava_image_embed *image_embedding = NULL;
+  if (should_load_clip) {
+    auto ctx_llava = (struct llava_context *)malloc(sizeof(llava_context));
+    auto ctx_clip = clip_model_load(params.mmproj.c_str(), /*verbosity=*/1);
+    ctx_llava->ctx_llama = ctx;
+    ctx_llava->ctx_clip = ctx_clip;
+    ctx_llava->model = model;
+    image_embedding = load_image(ctx_llava, final_request_input);
+    if (image_embedding == NULL) {
+      std::cout << "[fllama] Unable to load image, removing from prompt anyway."
+                << std::endl;
+      final_request_input = remove_image_from_prompt(request.input);
+    } else {
+      std::cout << "[fllama] Image loaded." << std::endl;
+    }
+  }
+
   int64_t model_load_end = ggml_time_ms();
   int64_t model_load_duration_ms = model_load_end - start;
-  std::cout << "[fllama] Model loaded. Took " << model_load_duration_ms << " ms."
-            << std::endl;
+  std::cout << "[fllama] Model loaded. Took " << model_load_duration_ms
+            << " ms." << std::endl;
 
   std::vector<llama_token> tokens_list;
-  tokens_list = ::llama_tokenize(model, request.input, true);
+  tokens_list = ::llama_tokenize(model, final_request_input, true);
   std::cout << "[fllama] Input token count: " << tokens_list.size()
             << std::endl;
   std::cout << "[fllama] Output tokens requested: " << params.n_predict
@@ -150,7 +237,18 @@ void _fllama_inference_sync(fllama_inference_request request,
   // 2. Load the prompt into the context.
   int n_past = 0;
   bool add_bos = llama_should_add_bos_token(model);
-  add_string_to_context(ctx, request.input, params.n_batch, &n_past, add_bos);
+  if (image_embedding != NULL) {
+    auto success = add_image_embed_to_context(ctx, image_embedding,
+                                              params.n_batch, &n_past);
+    if (!success) {
+      std::cout << "[fllama] Unable to add image to context. Continuing to run "
+                   "inference anyway."
+                << std::endl;
+    }
+  }
+
+  add_string_to_context(ctx, final_request_input.c_str(), params.n_batch,
+                        &n_past, add_bos);
 
   struct llama_sampling_context *ctx_sampling =
       llama_sampling_init(params.sparams);
@@ -158,9 +256,9 @@ void _fllama_inference_sync(fllama_inference_request request,
   const std::string eos_token_as_string =
       std::string(fflama_get_eos_token(request.model_path));
   bool has_valid_eos_token = eos_token_as_string.length() > 0;
-  const auto t_main_start = ggml_time_us();
+  const int64_t context_setup_complete = ggml_time_ms();
   std::cout << "[fllama] context setup complete & input added to context. Took "
-            << (t_main_start - start) / 1000 << " ms." << std::endl;
+            << (context_setup_complete - start) << " ms." << std::endl;
 
   // 3. Generate tokens.
   // Reserve result string once to avoid an allocation in loop.
@@ -284,12 +382,12 @@ void _fllama_inference_sync(fllama_inference_request request,
   callback(/* response */ c_result, /* done */ true);
 
   // Log finished
-  const auto t_main_end = ggml_time_us();
-  const auto t_main = t_main_end - t_main_start;
-  fprintf(stderr, "main loop: %f ms\n", t_main / 1000.0f);
+  const auto t_main_end = ggml_time_ms();
+  const auto t_main = t_main_end - context_setup_complete;
+  fprintf(stderr, "[fllama] main loop took %f ms\n", t_main);
   LOG_TEE("%s: generated %d tokens in %.2f s, speed: %.2f t/s\n", __func__,
-          n_gen, (t_main_end - t_main_start) / 1000000.0f,
-          n_gen / ((t_main_end - t_main_start) / 1000000.0f));
+          n_gen, t_main / 1000.0,
+          n_gen / ((t_main_end - context_setup_complete) / 1000.0));
   llama_print_timings(ctx);
 
   // Free everything. Model loading time is negligible, especially when
@@ -544,4 +642,109 @@ const char *fflama_get_eos_token(const char *fname) {
 
   // Return the pointer to the caller. The caller must `delete[]` this memory.
   return heapWord;
+}
+
+#pragma mark - Images
+// Via
+// https://github.com/ggerganov/llama.cpp/blob/master/examples/llava/llava-cli.cpp
+static const char *IMG_BASE64_TAG_BEGIN = "<img src=\"data:image/jpeg;base64,";
+static const char *IMG_BASE64_TAG_END = "\">";
+
+static void find_image_tag_in_prompt(const std::string &prompt,
+                                     size_t &begin_out, size_t &end_out) {
+  begin_out = prompt.find(IMG_BASE64_TAG_BEGIN);
+  end_out = prompt.find(IMG_BASE64_TAG_END,
+                        (begin_out == std::string::npos) ? 0UL : begin_out);
+}
+
+static bool prompt_contains_image(const std::string &prompt) {
+  size_t begin, end;
+  find_image_tag_in_prompt(prompt, begin, end);
+  return (begin != std::string::npos);
+}
+
+static std::vector<unsigned char>
+decode_base64_image(const std::string &base64_str) {
+  std::vector<unsigned char> img_bytes;
+  base64::decode(base64_str.begin(), base64_str.end(), img_bytes.begin());
+  return img_bytes;
+}
+
+static std::vector<unsigned char>
+extract_and_decode_image(const std::string &prompt) {
+  size_t img_base64_start, img_base64_end;
+  find_image_tag_in_prompt(prompt, img_base64_start, img_base64_end);
+  auto base64_str_start = img_base64_start + strlen(IMG_BASE64_TAG_BEGIN);
+  auto base64_str =
+      prompt.substr(base64_str_start, img_base64_end - base64_str_start);
+  return decode_base64_image(base64_str);
+}
+
+// replaces the base64 image tag in the prompt with `replacement`
+static llava_image_embed *llava_image_embed_make_with_prompt_base64(
+    struct clip_ctx *ctx_clip, int n_threads, const std::string &prompt) {
+  size_t img_base64_str_start, img_base64_str_end;
+  find_image_tag_in_prompt(prompt, img_base64_str_start, img_base64_str_end);
+  if (img_base64_str_start == std::string::npos ||
+      img_base64_str_end == std::string::npos) {
+    fprintf(stderr,
+            "%s: invalid base64 image tag. must be %s<base64 byte string>%s\n",
+            __func__, IMG_BASE64_TAG_BEGIN, IMG_BASE64_TAG_END);
+    return NULL;
+  }
+
+  auto base64_bytes_start = img_base64_str_start + strlen(IMG_BASE64_TAG_BEGIN);
+  auto base64_bytes_count = img_base64_str_end - base64_bytes_start;
+  auto base64_str = prompt.substr(base64_bytes_start, base64_bytes_count);
+
+  auto required_bytes = base64::required_encode_size(base64_str.size());
+  auto img_bytes = std::vector<unsigned char>(required_bytes);
+  base64::decode(base64_str.begin(), base64_str.end(), img_bytes.begin());
+
+  auto embed = llava_image_embed_make_with_bytes(
+      ctx_clip, n_threads, img_bytes.data(), img_bytes.size());
+  if (!embed) {
+    fprintf(stderr, "%s: could not load image from base64 string.\n", __func__);
+    return NULL;
+  }
+
+  return embed;
+}
+
+static std::string remove_image_from_prompt(const std::string &prompt,
+                                            const char *replacement) {
+  size_t begin, end;
+  find_image_tag_in_prompt(prompt, begin, end);
+  if (begin == std::string::npos || end == std::string::npos) {
+    return prompt;
+  }
+  auto pre = prompt.substr(0, begin);
+  auto post = prompt.substr(end + strlen(IMG_BASE64_TAG_END));
+  return pre + replacement + post;
+}
+
+static struct llava_image_embed *load_image(llava_context *ctx_llava,
+                                            std::string prompt) {
+  // load and preprocess the image
+  llava_image_embed *embed = NULL;
+  if (prompt_contains_image(prompt)) {
+    embed = llava_image_embed_make_with_prompt_base64(
+        ctx_llava->ctx_clip, 1 /* used to be params->n_threads*/, prompt);
+    if (!embed) {
+      fprintf(stderr, "%s: can't load image from prompt\n", __func__);
+      return NULL;
+    }
+  }
+  return embed;
+}
+
+static void llava_free(struct llava_context *ctx_llava) {
+  if (ctx_llava->ctx_clip) {
+    clip_free(ctx_llava->ctx_clip);
+    ctx_llava->ctx_clip = NULL;
+  }
+
+  llama_free(ctx_llava->ctx_llama);
+  llama_free_model(ctx_llava->model);
+  llama_backend_free();
 }
