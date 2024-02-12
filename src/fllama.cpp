@@ -76,7 +76,6 @@ static bool add_string_to_context(struct llama_context *ctx_llama,
   std::string str2 = str;
   std::vector<llama_token> embd_inp =
       ::llama_tokenize(ctx_llama, str2, add_bos);
-  fprintf(stderr, "%s: eval_string: %s\n", __func__, str);
   return add_tokens_to_context(ctx_llama, embd_inp, n_batch, n_past);
 }
 
@@ -86,8 +85,8 @@ void _fllama_inference_sync(fllama_inference_request request,
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback) {
   // 1. Setup parameters, then load the model and create a context.
-  std::cout << "[fllama] Inference thread start @ " << ggml_time_us()
-            << std::endl;
+  int64_t start = ggml_time_ms();
+  std::cout << "[fllama] Inference thread start" << std::endl;
   gpt_params params;
   std::cout << "[fllama] Initializing params." << std::endl;
   params.n_ctx = request.context_size;
@@ -130,7 +129,10 @@ void _fllama_inference_sync(fllama_inference_request request,
     callback(/* response */ "Error: Unable to load model.", /* done */ true);
     return;
   }
-  std::cout << "[fllama] Model loaded." << std::endl;
+  int64_t model_load_end = ggml_time_ms();
+  int64_t model_load_duration_ms = model_load_end - start;
+  std::cout << "[fllama] Model loaded. Took " << model_load_duration_ms << " ms."
+            << std::endl;
 
   std::vector<llama_token> tokens_list;
   tokens_list = ::llama_tokenize(model, request.input, true);
@@ -157,6 +159,8 @@ void _fllama_inference_sync(fllama_inference_request request,
       std::string(fflama_get_eos_token(request.model_path));
   bool has_valid_eos_token = eos_token_as_string.length() > 0;
   const auto t_main_start = ggml_time_us();
+  std::cout << "[fllama] context setup complete & input added to context. Took "
+            << (t_main_start - start) / 1000 << " ms." << std::endl;
 
   // 3. Generate tokens.
   // Reserve result string once to avoid an allocation in loop.
@@ -211,16 +215,10 @@ void _fllama_inference_sync(fllama_inference_request request,
     if (eos_pos != std::string::npos) {
       // If eos_token is found, append content before eos_token to result and
       // end generation
-      fprintf(stderr, "eos_token found at position: %zu\n", eos_pos);
       result += buffer.substr(0, eos_pos);
       buffer.erase(0, eos_pos + eos_token_as_string.length());
       break;
-    } else {
-      fprintf(stderr, "eos_token not found in buffer\n");
-      fprintf(stderr, "buffer: %s\n", buffer.c_str());
-      fprintf(stderr, "eos_token: %s\n", eos_token_as_string.c_str());
     }
-
     // If the buffer length exceeds the eos_token length, it means the start of
     // the buffer cannot be part of an eos_token. Move such content to result.
     if (buffer.length() > eos_token_as_string.length()) {
