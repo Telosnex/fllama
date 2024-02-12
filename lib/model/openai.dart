@@ -34,6 +34,7 @@ class OpenAiRequest {
   final double presencePenalty;
   // Not in OpenAI, but used by llama.
   final String modelPath;
+  final String? mmprojPath;
   final int numGpuLayers;
   final int contextSize;
 
@@ -56,8 +57,10 @@ class OpenAiRequest {
     // Following arguments aren't actually in OpenAI, but are used by Fllama.
     //
     //
-    // Path to model.
+    // Path to model's gguf.
     required this.modelPath,
+    // Path to mmproj's gguf. (optional, only used for multimodal models)
+    this.mmprojPath,
     // Number of layers to run on GPU. 0 means all layers on CPU. 99 means all
     // layers on GPU.
     this.numGpuLayers = 0,

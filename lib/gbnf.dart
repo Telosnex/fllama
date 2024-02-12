@@ -107,7 +107,7 @@ String _escapeGrammarLiteral(String input) {
   });
 }
 
-final String gbnfAnyJson = r'''
+const String gbnfAnyJson = r'''
 root   ::= object
 value  ::= object | array | string | number | ("true" | "false" | "null") ws
 

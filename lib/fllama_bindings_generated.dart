@@ -107,6 +107,9 @@ final class fllama_inference_request extends ffi.Struct {
   /// Required: .ggml model file path
   external ffi.Pointer<ffi.Char> model_path;
 
+  /// Optional: .mmproj file for multimodal models.
+  external ffi.Pointer<ffi.Char> model_mmproj_path;
+
   /// Required: number of GPU layers. 0 for CPU only. 99 for all layers. Automatically 0 on iOS simulator.
   @ffi.Int()
   external int num_gpu_layers;

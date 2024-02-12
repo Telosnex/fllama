@@ -77,6 +77,7 @@ fllama_inference_request _toNative(FllamaInferenceRequest dart) {
   request.penalty_freq = dart.penaltyFrequency;
   request.penalty_repeat = dart.penaltyRepeat;
 
+
   // Convert the Dart string to a C string (null-terminated).
   Pointer<Utf8> inputCstr = dart.input.toNativeUtf8();
   Pointer<Utf8> modelPathCstr = dart.modelPath.toNativeUtf8();
@@ -85,6 +86,11 @@ fllama_inference_request _toNative(FllamaInferenceRequest dart) {
   if (dart.grammar != null && dart.grammar?.isNotEmpty == true) {
     Pointer<Utf8> grammarCstr = dart.grammar!.toNativeUtf8();
     request.grammar = grammarCstr.cast<Char>();
+  }
+  if (dart.modelMmprojPath != null &&
+      dart.modelMmprojPath?.isNotEmpty == true) {
+    Pointer<Utf8> mmprojPathCstr = dart.modelMmprojPath!.toNativeUtf8();
+    request.model_mmproj_path = mmprojPathCstr.cast<Char>();
   }
   return request;
 }

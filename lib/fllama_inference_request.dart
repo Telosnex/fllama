@@ -3,6 +3,7 @@ class FllamaInferenceRequest {
   String input;
   int maxTokens;
   String modelPath;
+  String? modelMmprojPath;
   int numGpuLayers;
   double temperature;
   double penaltyFrequency;
@@ -21,5 +22,6 @@ class FllamaInferenceRequest {
     required this.temperature,
     required this.topP,
     this.grammar,
+    this.modelMmprojPath,
   });
 }

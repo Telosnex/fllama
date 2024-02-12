@@ -947,6 +947,7 @@ struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
         for (int i = 0; i < n_tensors; ++i) {
             const char * name = gguf_get_tensor_name(ctx, i);
             struct ggml_tensor * cur = ggml_get_tensor(new_clip->ctx_data, name);
+            ggml_allocr_alloc(alloc, cur);
             const size_t offset = gguf_get_data_offset(ctx) + gguf_get_tensor_offset(ctx, i);
             fin.seekg(offset, std::ios::beg);
             if (!fin) {

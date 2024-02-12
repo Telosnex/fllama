@@ -153,7 +153,7 @@ void _fllama_inference_sync(fllama_inference_request request,
   params.sparams.penalty_repeat = request.penalty_repeat;
   params.sparams.samplers_sequence = "pt";
   params.sparams.top_p = request.top_p;
-  if (request.grammar != NULL) {
+  if (request.grammar != NULL && strlen(request.grammar) > 0) {
     std::cout << "[fllama] Grammar: " << request.grammar << std::endl;
     params.sparams.grammar = std::string(request.grammar);
   }
@@ -173,7 +173,8 @@ void _fllama_inference_sync(fllama_inference_request request,
   bool prompt_contains_img = prompt_contains_image(request.input);
   bool should_load_clip = false;
   if (prompt_contains_img) {
-    std::string mmproj = request.model_mmproj_path;
+    std::string mmproj =
+        request.model_mmproj_path == NULL ? "" : request.model_mmproj_path;
     if (mmproj.empty()) {
       std::cout << "[fllama] Warning: prompt contains images, but inference "
                    "request doesn't specify model_mmproj_path. Multimodal "
@@ -181,7 +182,8 @@ void _fllama_inference_sync(fllama_inference_request request,
                 << std::endl;
     } else {
       params.mmproj = mmproj;
-      auto ctx_clip = clip_model_load(mmproj.c_str(), /*verbosity=*/1);
+      std::cout << "[fllama] Multimodal model passed as parameter: " << mmproj
+                << std::endl;
       should_load_clip = true;
     }
   }
@@ -201,19 +203,34 @@ void _fllama_inference_sync(fllama_inference_request request,
   // !!! Specific to multimodal
   llava_image_embed *image_embedding = NULL;
   if (should_load_clip) {
+    std::cout << "[fllama] Loading multimodal model: " << params.mmproj
+              << std::endl;
+    const char *mmproj_path = params.mmproj.c_str();
     auto ctx_llava = (struct llava_context *)malloc(sizeof(llava_context));
-    auto ctx_clip = clip_model_load(params.mmproj.c_str(), /*verbosity=*/1);
+    auto ctx_clip = clip_model_load(mmproj_path, /*verbosity=*/1);
+    std::cout << "[fllama] Loaded model" << std::endl;
     ctx_llava->ctx_llama = ctx;
     ctx_llava->ctx_clip = ctx_clip;
     ctx_llava->model = model;
     image_embedding = load_image(ctx_llava, final_request_input);
+  }
+
+  // It is important that this runs regardless of whether CLIP needs to be
+  // loaded. For example, for an errorneus request that doesn't provide the CLIP
+  // model path. Otherwise, inference has to tokenize the base64 image string,
+  // which is not a good idea. (O(100,000K) tokens)
+  if (prompt_contains_img) {
     if (image_embedding == NULL) {
-      std::cout << "[fllama] Unable to load image, removing from prompt anyway."
+      std::cout << "[fllama] Unable to create image embedding, removing image "
+                   "data from prompt."
                 << std::endl;
-      final_request_input = remove_image_from_prompt(request.input);
+
     } else {
-      std::cout << "[fllama] Image loaded." << std::endl;
+      std::cout << "[fllama] Image loaded, replacing image data in prompt with "
+                   "clip output"
+                << std::endl;
     }
+    final_request_input = remove_image_from_prompt(request.input);
   }
 
   int64_t model_load_end = ggml_time_ms();

@@ -1,6 +1,8 @@
+import 'dart:convert';
+
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -19,8 +21,12 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  String? modelPath;
+  String? _modelPath;
+  // This is only required for multimodal models.
+  // Multimodal models are rare.
+  String? _mmprojPath;
   String latestResult = '';
+  Uint8List? _imageBytes;
   final TextEditingController _controller = TextEditingController();
 
   @override
@@ -43,36 +49,73 @@ class _MyAppState extends State<MyApp> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ElevatedButton.icon(
-                  onPressed: _openGgufPressed,
-                  icon: const Icon(Icons.file_open),
-                  label: const Text('Open .gguf'),
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _openGgufPressed,
+                      icon: const Icon(Icons.file_open),
+                      label: const Text('Open .gguf'),
+                    ),
+                    if (_modelPath != null)
+                      SelectableText(
+                        _modelPath!,
+                        style: textStyle,
+                      ),
+                  ],
                 ),
-                if (modelPath != null)
-                  SelectableText(
-                    'Model path: $modelPath',
-                    style: textStyle,
-                  ),
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _openMmprojGgufPressed,
+                      icon: const Icon(Icons.file_open),
+                      label: const Text('Open mmproj'),
+                    ),
+                    if (_mmprojPath != null)
+                      SelectableText(
+                        _mmprojPath!,
+                        style: textStyle,
+                      ),
+                  ],
+                ),
                 spacerSmall,
-                if (modelPath != null)
+                if (_modelPath != null)
                   TextField(
                     controller: _controller,
+                  ),
+                if (_mmprojPath != null)
+                  Row(
+                    children: [
+                      ElevatedButton.icon(
+                          onPressed: _openImagePressed,
+                          icon: const Icon(Icons.file_open),
+                          label: const Text('Choose .jpeg')),
+                      if (_imageBytes != null)
+                        Text('Image chosen (${_imageBytes!.length} bytes)',
+                            style: textStyle),
+                    ],
                   ),
                 const SizedBox(
                   height: 8,
                 ),
                 ElevatedButton(
                   onPressed: () async {
+                    var messageText = _controller.text;
+                    final isMultimodal = _mmprojPath != null;
+                    if (isMultimodal && _imageBytes != null) {
+                      messageText =
+                          '<img src="data:image/jpeg;base64,${base64Encode(_imageBytes!)}">\n\n$messageText';
+                    }
                     final request = OpenAiRequest(
                       maxTokens: 256,
                       messages: [
-                        Message(Role.user, _controller.text),
+                        Message(Role.user, messageText),
                       ],
                       numGpuLayers: 99,
-                      modelPath: modelPath!,
-          
+                      modelPath: _modelPath!,
+                      mmprojPath: _mmprojPath,
                     );
-                    fllamaChatCompletionAsync(request, (String result, bool done) {
+                    fllamaChatCompletionAsync(request,
+                        (String result, bool done) {
                       setState(() {
                         latestResult = result;
                       });
@@ -93,39 +136,63 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _openGgufPressed() async {
-    XTypeGroup ggufTypeGroup = const XTypeGroup(
-      label: '.gguf',
-      extensions: ['gguf'],
-      // UTIs are required for iOS, which does not support local LLMs.
-      uniformTypeIdentifiers: [],
-    );
-    if (!kIsWeb && Platform.isAndroid) {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-      );
+    final filePath = await _pickGgufPath();
+    setState(() {
+      _modelPath = filePath;
+    });
+  }
 
-      final file = result?.files.first;
-      if (file == null) {
-        return;
-      }
-      final filePath = file.path;
-      setState(() {
-        modelPath = filePath;
-      });
-    } else {
-    final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
-      if (!Platform.isIOS) ggufTypeGroup,
-    ]);
+  void _openMmprojGgufPressed() async {
+    final filePath = await _pickGgufPath();
+    setState(() {
+      _mmprojPath = filePath;
+    });
+  }
 
-
-    if (file == null) {
+  void _openImagePressed() async {
+    final filePath = await _pickImagePath();
+    if (filePath == null) {
       return;
     }
-    final filePath = file.path;
+    final bytes = await File(filePath).readAsBytes();
     setState(() {
-      modelPath = filePath;
+      _imageBytes = bytes;
     });
-    }
-
   }
+}
+
+Future<String?> _pickGgufPath() async {
+  final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
+    const XTypeGroup(
+      label: '.gguf',
+      extensions: ['gguf'],
+      // UTIs are required for iOS, which does not have a .gguf UTI.
+      uniformTypeIdentifiers: [],
+    ),
+  ]);
+
+  if (file == null) {
+    return null;
+  }
+  final filePath = file.path;
+  return filePath;
+}
+
+Future<String?> _pickImagePath() async {
+  final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
+    const XTypeGroup(
+      label: '.jpeg',
+      extensions: ['jpeg'],
+      uniformTypeIdentifiers: [
+        'public.jpeg',
+        'public.image',
+      ],
+    ),
+  ]);
+
+  if (file == null) {
+    return null;
+  }
+  final filePath = file.path;
+  return filePath;
 }

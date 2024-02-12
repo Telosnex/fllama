@@ -24,6 +24,7 @@ Future<String> fllamaChatCompletionAsync(
     input: text,
     maxTokens: request.maxTokens,
     modelPath: request.modelPath,
+    modelMmprojPath: request.mmprojPath,
     numGpuLayers: request.numGpuLayers,
     penaltyFrequency: request.frequencyPenalty,
     penaltyRepeat: request.presencePenalty,
@@ -43,7 +44,9 @@ String fllamaApplyChatTemplate(OpenAiRequest request) {
     // Replacing with trim() did not work. That was unexpected because the Jinja
     // package seems to indicate Dart instance methods are available.
     chatTemplate = builtInChatTemplate.replaceAll('.strip()', '');
+    // ignore: avoid_print
     print('[fllama] Using built-in chat template.');
+    // ignore: avoid_print
     print('[fllama] template: $chatTemplate');
   } else {
     // Assume models without one specified intend ChatML.
