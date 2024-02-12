@@ -28,27 +28,27 @@
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <mutex>
+#include <queue>
 #include <string>
 #include <thread>
 #include <unordered_set>
 #include <vector>
-#include <condition_variable>
-#include <queue>
-#include <functional>
 
 #if defined(_MSC_VER)
 #pragma warning(disable : 4244 4267) // possible loss of data
 #endif
 
 static bool add_tokens_to_context(struct llama_context *ctx_llama,
-                        std::vector<llama_token> tokens, int n_batch,
-                        int *n_past) {
+                                  std::vector<llama_token> tokens, int n_batch,
+                                  int *n_past) {
   int N = (int)tokens.size();
   for (int i = 0; i < N; i += n_batch) {
     int n_eval = (int)tokens.size() - i;
@@ -63,14 +63,16 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
   return true;
 }
 
-static bool add_token_to_context(struct llama_context *ctx_llama, int id, int *n_past) {
+static bool add_token_to_context(struct llama_context *ctx_llama, int id,
+                                 int *n_past) {
   std::vector<llama_token> tokens;
   tokens.push_back(id);
   return add_tokens_to_context(ctx_llama, tokens, 1, n_past);
 }
 
-static bool add_string_to_context(struct llama_context *ctx_llama, const char *str,
-                        int n_batch, int *n_past, bool add_bos) {
+static bool add_string_to_context(struct llama_context *ctx_llama,
+                                  const char *str, int n_batch, int *n_past,
+                                  bool add_bos) {
   std::string str2 = str;
   std::vector<llama_token> embd_inp =
       ::llama_tokenize(ctx_llama, str2, add_bos);
@@ -84,7 +86,8 @@ void _fllama_inference_sync(fllama_inference_request request,
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback) {
   // 1. Setup parameters, then load the model and create a context.
-  std::cout << "[fllama] Inference thread start @ " << ggml_time_us() << std::endl;
+  std::cout << "[fllama] Inference thread start @ " << ggml_time_us()
+            << std::endl;
   gpt_params params;
   std::cout << "[fllama] Initializing params." << std::endl;
   params.n_ctx = request.context_size;
@@ -150,9 +153,9 @@ void _fllama_inference_sync(fllama_inference_request request,
   struct llama_sampling_context *ctx_sampling =
       llama_sampling_init(params.sparams);
 
-  const std::string eos_token =
+  const std::string eos_token_as_string =
       std::string(fflama_get_eos_token(request.model_path));
-  bool has_valid_eos_token = eos_token.length() > 0;
+  bool has_valid_eos_token = eos_token_as_string.length() > 0;
   const auto t_main_start = ggml_time_us();
 
   // 3. Generate tokens.
@@ -175,57 +178,105 @@ void _fllama_inference_sync(fllama_inference_request request,
       false; // Flag to indicate that we're potentially forming an EOS token
   std::string buffer; // Buffer to accumulate potential EOS token sequences
 
+  const auto model_eos_token = llama_token_eos(model);
   while (true) {
     const llama_token new_token_id =
         llama_sampling_sample(ctx_sampling, ctx, NULL);
     llama_sampling_accept(ctx_sampling, ctx, new_token_id, true);
     n_gen += 1;
     // Identify EOS token from the model
-    bool is_eos_model_token = new_token_id == llama_token_eos(model);
+    bool is_eos_model_token = new_token_id == model_eos_token;
 
     // Get the token as a string piece
     std::string token_piece = llama_token_to_piece(ctx, new_token_id);
+    // fprintf(stderr, "token_piece from llama_sampling_sample: %s\n",
+    // token_piece.c_str());
 
     // Add the current token piece to buffer to check for eos_token
     buffer += token_piece;
 
-    // Search for the eos_token in the buffer
-    size_t eos_pos = buffer.find(eos_token);
+    // We need to check for EOS token as a string in the buffer.
+    // Some models don't have an EOS token per se, but rather, a string
+    // that is the sum of a set of tokens. This is the only way to handle that.
+    //
+    // However, it opens up another problem: there's models that have an EOS
+    // token that llama_token_to_piece() can't convert to a string. This is
+    // a problem because it means there will be leftover tokens in the buffer.
+    //
+    // This is handled at the end of this loop - if is_eos_model_token is true,
+    // then we append the buffer to result and break the loop. It is safe to
+    // append down there because of the check up here that ensures the buffer
+    // does not contain the EOS token.
+    size_t eos_pos = buffer.find(eos_token_as_string);
     if (eos_pos != std::string::npos) {
       // If eos_token is found, append content before eos_token to result and
       // end generation
+      fprintf(stderr, "eos_token found at position: %zu\n", eos_pos);
       result += buffer.substr(0, eos_pos);
+      buffer.erase(0, eos_pos + eos_token_as_string.length());
       break;
+    } else {
+      fprintf(stderr, "eos_token not found in buffer\n");
+      fprintf(stderr, "buffer: %s\n", buffer.c_str());
+      fprintf(stderr, "eos_token: %s\n", eos_token_as_string.c_str());
     }
 
     // If the buffer length exceeds the eos_token length, it means the start of
     // the buffer cannot be part of an eos_token. Move such content to result.
-    if (buffer.length() > eos_token.length()) {
-      result += buffer.substr(0, buffer.length() - eos_token.length());
-      buffer.erase(0, buffer.length() - eos_token.length());
+    if (buffer.length() > eos_token_as_string.length()) {
+      result +=
+          buffer.substr(0, buffer.length() - eos_token_as_string.length());
+      buffer.erase(0, buffer.length() - eos_token_as_string.length());
     }
 
     std::strcpy(c_result, result.c_str());
+    // fprintf(stderr, "c_result: %s\n", c_result);
+    // fprintf(stderr, "buffer: %s\n", buffer.c_str());
     callback(/* response */ c_result, /* done */ false);
 
     // If we reach the maximum number of tokens or an eval fails, we should also
     // finish
     if (n_gen >= n_max_tokens) {
       fprintf(stderr, "%s: Finish. Max tokens reached\n", __func__);
+      if (buffer.length() > 0) {
+        result += buffer;
+      }
       break;
     }
 
     if (!add_token_to_context(ctx, new_token_id, &n_past)) {
       fprintf(stderr, "%s: Finish. Eval failed\n", __func__);
+      if (buffer.length() > 0) {
+        result += buffer;
+      }
       break;
     }
 
     // Check for EOS on model tokens
     if (is_eos_model_token) {
-      fprintf(stderr, "%s: Finish. Model EOS token found\n", __func__);
+      fprintf(stderr, "%s: Finish. Model EOS token found. Token is: %s\n",
+              __func__, eos_token_as_string.c_str());
+      fprintf(stderr, "%s: EOS token length: %zu\n", __func__,
+              eos_token_as_string.length());
+      if (buffer.length() > 0) {
+        result += buffer;
+      }
       break;
     }
   }
+
+  // If EOS token is found, above loop does not add it to buffer, and the
+  // loop stops immediately.
+  //
+  // That leaves the last tokens whos length sum < EOS token length in buffer.
+  //
+  // Add it to result.
+  //
+  // Oddly, this issue was only readily apparent when doing function
+  // calling with models < 7B.
+  // if (buffer.length() > 0) {
+  //   result += buffer;
+  // }
 
   // Can't free this: the threading behavior is such that the Dart function will
   // get the pointer at some point in the future. Infrequently, 1 / 20 times,
@@ -251,60 +302,62 @@ void _fllama_inference_sync(fllama_inference_request request,
   llama_sampling_free(ctx_sampling);
   llama_free(ctx);
   llama_backend_free();
-  std::cout << "[fllama] freeing and thread end @ " << ggml_time_us() << std::endl;
+  std::cout << "[fllama] freeing and thread end @ " << ggml_time_us()
+            << std::endl;
 }
-
 
 class InferenceQueue {
 public:
-    InferenceQueue() : done(false), worker(&InferenceQueue::process_inference, this) {}
-    
-    ~InferenceQueue() {
-        // Signal termination and cleanup
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            done = true;
-        }
-        cond_var.notify_one();
-        if (worker.joinable()) {
-            worker.join();
-        }
-    }
+  InferenceQueue()
+      : done(false), worker(&InferenceQueue::process_inference, this) {}
 
-    void enqueue(fllama_inference_request request, fllama_inference_callback callback) {
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            tasks.emplace([request, callback]() {
-                _fllama_inference_sync(request, callback);
-            });
-        }
-        cond_var.notify_one();
+  ~InferenceQueue() {
+    // Signal termination and cleanup
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      done = true;
     }
+    cond_var.notify_one();
+    if (worker.joinable()) {
+      worker.join();
+    }
+  }
+
+  void enqueue(fllama_inference_request request,
+               fllama_inference_callback callback) {
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      tasks.emplace(
+          [request, callback]() { _fllama_inference_sync(request, callback); });
+    }
+    cond_var.notify_one();
+  }
 
 private:
-    void process_inference() {
-        while (true) {
-            std::function<void()> task;
-            {
-                std::unique_lock<std::mutex> lock(mutex);
-                cond_var.wait(lock, [this] { return !tasks.empty() || done; });
-                if (done && tasks.empty()) break;
-                task = std::move(tasks.front());
-                tasks.pop();
-            }
-            try {
-                task();
-            } catch (const std::exception &e) {
-                std::cout << "[fllama] Exception: " << e.what() << std::endl;
-            }
-        }
+  void process_inference() {
+    while (true) {
+      std::function<void()> task;
+      {
+        std::unique_lock<std::mutex> lock(mutex);
+        cond_var.wait(lock, [this] { return !tasks.empty() || done; });
+        if (done && tasks.empty())
+          break;
+        task = std::move(tasks.front());
+        tasks.pop();
+      }
+      try {
+        task();
+      } catch (const std::exception &e) {
+        std::cout << "[fllama] Exception: " << e.what() << std::endl;
+      }
     }
+  }
 
-    std::thread worker;
-    std::mutex mutex;
-    std::condition_variable cond_var;
-    std::queue<std::function<void()>> tasks;
-    bool done;
+  std::thread worker;
+  std::mutex mutex;
+  std::condition_variable cond_var;
+  std::queue<std::function<void()>> tasks;
+  bool done;
 };
 
 // Global queue instance
@@ -313,8 +366,9 @@ static InferenceQueue global_inference_queue;
 FFI_PLUGIN_EXPORT extern "C" void
 fllama_inference(fllama_inference_request request,
                  fllama_inference_callback callback) {
-    std::cout << "[fllama] Hello from fllama.cpp! Queueing your request." << std::endl;
-    global_inference_queue.enqueue(request, callback);
+  std::cout << "[fllama] Hello from fllama.cpp! Queueing your request."
+            << std::endl;
+  global_inference_queue.enqueue(request, callback);
 }
 
 FFI_PLUGIN_EXPORT extern "C" void

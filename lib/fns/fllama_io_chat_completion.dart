@@ -64,17 +64,16 @@ String fllamaApplyChatTemplate(OpenAiRequest request) {
       'content': message.text,
     });
   }
-  for (final tool in request.tools) {
-    jsonMessages.add({
-      'role': 'user',
-      'content': tool.typescriptDefinition,
-    });
-  }
+
+
   if (request.tools.isNotEmpty) {
+    final tools = request.tools.map((tool) {
+      return tool.typescriptDefinition;
+    }).join('\n\n');
     jsonMessages.add({
       'role': 'user',
       'content':
-          'The above are the typescript definitions of the tools.\nPlease pick one and provide a JSON object to call the tool with:',
+          '$tools\n\nThose are our tools, Typescript functions that take a JSON object as an argument.\nSilently pick a tool. Now, write a JSON object to use as an argument for that tool, based on our earlier conversation. The answer is validated JSON format representing a JSON object.',
     });
   }
 
