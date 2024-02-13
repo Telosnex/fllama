@@ -20,6 +20,8 @@ add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)
 
 add_library(fllama SHARED
   "fllama.cpp"
+  "clip.cpp"
+  "llava.cpp"
 )
 
 set_target_properties(fllama PROPERTIES
