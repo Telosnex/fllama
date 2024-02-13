@@ -35,11 +35,40 @@ Future<String> fllamaChatCompletionAsync(
   return fllamaInferenceAsync(inferenceRequest, callback);
 }
 
+const chatMlTemplate = '''
+{%- for msg in messages -%}
+<|im_start|>{{ msg.role }}
+{{ msg.content }}<|im_end|>{% if not loop.last %}\n{% endif %}
+{%- endfor %}
+<|im_start|>assistant
+''';
+
 String fllamaApplyChatTemplate(OpenAiRequest request) {
   final builtInChatTemplate = fllamaGetChatTemplate(request.modelPath);
 
   final String chatTemplate;
-  if (builtInChatTemplate.isNotEmpty) {
+
+  // Order is very important here, be careful.
+  // ex. if isNotEmpty branch comes first, the check for an erroroneous
+  // template never runs.
+  if (builtInChatTemplate
+      .contains('Only user and assistant roles are supported!')) {
+    // There's a strange chat template first encountered in an early version of
+    // LLaVa 1.6 x Mistral 7B.
+    //
+    // It is likely to be some sort of default template used by .gguf makers.
+    //
+    // It is too limited to be acceptable, as it strips out system messages.
+    // Instead of using it, use ChatML.
+    //
+    // n.b. LLaVa 1.6 is actually supposed to use ChatML anyway, the template
+    // in the model is incorrect.
+    //
+    // Template: ```{{ bos_token }}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token}}{% else %}{{ raise_exception('Only user and assistant roles are supported!') }}{% endif %}{% endfor %}```
+    chatTemplate = chatMlTemplate;
+    print(
+        '[fllama] Using ChatML because built-in chat template seems erroneous. (contains "Only user and assistant roles are supported!")');
+  } else if (builtInChatTemplate.isNotEmpty) {
     // First observed with https://huggingface.co/brittlewis12/Memphis-CoT-3B-GGUF
     // Replacing with trim() did not work. That was unexpected because the Jinja
     // package seems to indicate Dart instance methods are available.
@@ -51,13 +80,7 @@ String fllamaApplyChatTemplate(OpenAiRequest request) {
   } else {
     // Assume models without one specified intend ChatML.
     // This is the case for Mistral 7B via OpenHermes.
-    chatTemplate = '''
-{%- for msg in messages -%}
-<|im_start|>{{ msg.role }}
-{{ msg.content }}<|im_end|>{% if not loop.last %}\n{% endif %}
-{%- endfor %}
-<|im_start|>assistant
-''';
+    chatTemplate = chatMlTemplate;
   }
 
   final jsonMessages = <Map<String, dynamic>>[];
@@ -67,7 +90,6 @@ String fllamaApplyChatTemplate(OpenAiRequest request) {
       'content': message.text,
     });
   }
-
 
   if (request.tools.isNotEmpty) {
     final tools = request.tools.map((tool) {
@@ -80,13 +102,36 @@ String fllamaApplyChatTemplate(OpenAiRequest request) {
     });
   }
 
+  // There's a strange chat template first encountered in an early version of
+  // LLaVa 1.6 x Mistral 7B.
+  //
+  // It is likely to be some sort of default template used by .gguf makers.
+  //
+  // It has a raise_exception function that is not defined in the template,
+  // so it will cause an error.
+  //
+  // The template in the LLaVA 1.6 model model was incorrect in several ways,
+  // and currently templates like it (templates that contain only user and
+  // assistant roles are supported) are replaced with ChatML.
+  //
+  // However, it seems sensible to maintain this error.
+  final globals = <String, Function>{
+    'raise_exception': (String message) {
+      // ignore: avoid_print
+      print('[fllama] chat template asked to raise_exception: $message');
+      return '';
+    }
+  };
+
   final env = Environment(
-      globals: null,
-      loader: null,
-      leftStripBlocks: true,
-      trimBlocks: true,
-      keepTrailingNewLine: true);
-  final template = env.fromString(chatTemplate);
+    globals: globals,
+    loader: null,
+    leftStripBlocks: true,
+    trimBlocks: true,
+    keepTrailingNewLine: true,
+  );
+
+  final template = env.fromString(chatTemplate, globals: globals);
   return template.render({
     'messages': jsonMessages,
     'add_generation_prompt': true,

@@ -525,7 +525,7 @@ const char *fflama_get_chat_template(const char *fname) {
 
   struct gguf_context *ctx = gguf_init_from_file(fname, params);
   if (!ctx) {
-    fprintf(stderr, "Unable to load chat template: %s\n", fname);
+    fprintf(stderr, "Unable to load model to get chat template: %s\n", fname);
     return ""; // Return NULL to indicate failure to load or find the value.
   }
 

@@ -13,6 +13,10 @@ Pointer<Char> stringToPointerChar(String string) {
   return result.cast<Char>();
 }
 
+/// Returns an empty string if [pointerChar] is [nullptr].
 String pointerCharToString(Pointer<Char> pointerChar) {
+  if (pointerChar == nullptr) {
+    return '';
+  }
   return pointerChar.cast<Utf8>().toDartString();
 }
