@@ -151,7 +151,9 @@ void _fllama_inference_sync(fllama_inference_request request,
             << params.sparams.penalty_repeat << std::endl;
   params.sparams.penalty_freq = request.penalty_freq;
   params.sparams.penalty_repeat = request.penalty_repeat;
-  params.sparams.samplers_sequence = "pt";
+  std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
+                                              llama_sampler_type::TEMP};
+  params.sparams.samplers_sequence = samplers;
   params.sparams.top_p = request.top_p;
   if (request.grammar != NULL && strlen(request.grammar) > 0) {
     std::cout << "[fllama] Grammar: " << request.grammar << std::endl;
@@ -492,7 +494,9 @@ fllama_tokenize(struct fllama_tokenize_request request,
   params.n_batch = 0;
   params.n_predict = 0;
   params.sparams.temp = 0;
-  params.sparams.samplers_sequence = "pt";
+  std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
+                                              llama_sampler_type::TEMP};
+  params.sparams.samplers_sequence = samplers;
   params.sparams.top_p = 0;
   params.model = request.model_path;
   params.n_gpu_layers = 0;
@@ -665,32 +669,34 @@ const char *fflama_get_eos_token(const char *fname) {
 // Via
 // https://github.com/ggerganov/llama.cpp/blob/master/examples/llava/llava-cli.cpp
 static const char *IMG_BASE64_TAG_BEGIN_PART1 = "<img src=\"data:image/";
-static const char *IMG_BASE64_TAG_BEGIN_PART2 = "base64,";  // Common for JPEG, PNG, and others
+static const char *IMG_BASE64_TAG_BEGIN_PART2 =
+    "base64,"; // Common for JPEG, PNG, and others
 static const char *IMG_BASE64_TAG_END = "\">";
 
 static void find_image_tag_in_prompt(const std::string &prompt,
                                      size_t &begin_out, size_t &end_out) {
   size_t begin_temp = prompt.find(IMG_BASE64_TAG_BEGIN_PART1);
   if (begin_temp == std::string::npos) {
-      begin_out = std::string::npos;
-      end_out = std::string::npos;
-      return;
+    begin_out = std::string::npos;
+    end_out = std::string::npos;
+    return;
   }
-  
-  size_t format_end = prompt.find(";", begin_temp + strlen(IMG_BASE64_TAG_BEGIN_PART1));
+
+  size_t format_end =
+      prompt.find(";", begin_temp + strlen(IMG_BASE64_TAG_BEGIN_PART1));
   if (format_end == std::string::npos) {
-      begin_out = std::string::npos;
-      end_out = std::string::npos;
-      return;
+    begin_out = std::string::npos;
+    end_out = std::string::npos;
+    return;
   }
-  
+
   size_t base64_start = prompt.find(IMG_BASE64_TAG_BEGIN_PART2, format_end);
   if (base64_start == std::string::npos) {
-      begin_out = std::string::npos;
-      end_out = std::string::npos;
-      return;
+    begin_out = std::string::npos;
+    end_out = std::string::npos;
+    return;
   }
-  
+
   begin_out = base64_start + strlen(IMG_BASE64_TAG_BEGIN_PART2);
   end_out = prompt.find(IMG_BASE64_TAG_END, begin_out);
 }
