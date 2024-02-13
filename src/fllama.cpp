@@ -664,14 +664,35 @@ const char *fflama_get_eos_token(const char *fname) {
 #pragma mark - Images
 // Via
 // https://github.com/ggerganov/llama.cpp/blob/master/examples/llava/llava-cli.cpp
-static const char *IMG_BASE64_TAG_BEGIN = "<img src=\"data:image/jpeg;base64,";
+static const char *IMG_BASE64_TAG_BEGIN_PART1 = "<img src=\"data:image/";
+static const char *IMG_BASE64_TAG_BEGIN_PART2 = "base64,";  // Common for JPEG, PNG, and others
 static const char *IMG_BASE64_TAG_END = "\">";
 
 static void find_image_tag_in_prompt(const std::string &prompt,
                                      size_t &begin_out, size_t &end_out) {
-  begin_out = prompt.find(IMG_BASE64_TAG_BEGIN);
-  end_out = prompt.find(IMG_BASE64_TAG_END,
-                        (begin_out == std::string::npos) ? 0UL : begin_out);
+  size_t begin_temp = prompt.find(IMG_BASE64_TAG_BEGIN_PART1);
+  if (begin_temp == std::string::npos) {
+      begin_out = std::string::npos;
+      end_out = std::string::npos;
+      return;
+  }
+  
+  size_t format_end = prompt.find(";", begin_temp + strlen(IMG_BASE64_TAG_BEGIN_PART1));
+  if (format_end == std::string::npos) {
+      begin_out = std::string::npos;
+      end_out = std::string::npos;
+      return;
+  }
+  
+  size_t base64_start = prompt.find(IMG_BASE64_TAG_BEGIN_PART2, format_end);
+  if (base64_start == std::string::npos) {
+      begin_out = std::string::npos;
+      end_out = std::string::npos;
+      return;
+  }
+  
+  begin_out = base64_start + strlen(IMG_BASE64_TAG_BEGIN_PART2);
+  end_out = prompt.find(IMG_BASE64_TAG_END, begin_out);
 }
 
 static bool prompt_contains_image(const std::string &prompt) {
@@ -691,7 +712,7 @@ static std::vector<unsigned char>
 extract_and_decode_image(const std::string &prompt) {
   size_t img_base64_start, img_base64_end;
   find_image_tag_in_prompt(prompt, img_base64_start, img_base64_end);
-  auto base64_str_start = img_base64_start + strlen(IMG_BASE64_TAG_BEGIN);
+  auto base64_str_start = img_base64_start;
   auto base64_str =
       prompt.substr(base64_str_start, img_base64_end - base64_str_start);
   return decode_base64_image(base64_str);
@@ -706,11 +727,11 @@ static llava_image_embed *llava_image_embed_make_with_prompt_base64(
       img_base64_str_end == std::string::npos) {
     fprintf(stderr,
             "%s: invalid base64 image tag. must be %s<base64 byte string>%s\n",
-            __func__, IMG_BASE64_TAG_BEGIN, IMG_BASE64_TAG_END);
+            __func__, IMG_BASE64_TAG_BEGIN_PART2, IMG_BASE64_TAG_END);
     return NULL;
   }
 
-  auto base64_bytes_start = img_base64_str_start + strlen(IMG_BASE64_TAG_BEGIN);
+  auto base64_bytes_start = img_base64_str_start;
   auto base64_bytes_count = img_base64_str_end - base64_bytes_start;
   auto base64_str = prompt.substr(base64_bytes_start, base64_bytes_count);
 
