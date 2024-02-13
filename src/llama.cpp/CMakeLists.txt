@@ -79,7 +79,7 @@ if (NOT MSVC)
 endif()
 
 if (WIN32)
-    option(LLAMA_WIN_VER                     "llama: Windows Version"                           0x602)
+    set(LLAMA_WIN_VER "0x602" CACHE STRING "llama: Windows Version")
 endif()
 
 # 3rd party libs
@@ -100,6 +100,10 @@ option(LLAMA_HIPBLAS                         "llama: use hipBLAS"               
 option(LLAMA_HIP_UMA                         "llama: use HIP unified memory architecture"       OFF)
 option(LLAMA_CLBLAST                         "llama: use CLBlast"                               OFF)
 option(LLAMA_VULKAN                          "llama: use Vulkan"                                OFF)
+option(LLAMA_VULKAN_CHECK_RESULTS            "llama: run Vulkan op checks"                      OFF)
+option(LLAMA_VULKAN_DEBUG                    "llama: enable Vulkan debug output"                OFF)
+option(LLAMA_VULKAN_VALIDATE                 "llama: enable Vulkan validation"                  OFF)
+option(LLAMA_VULKAN_RUN_TESTS                "llama: run Vulkan tests"                          OFF)
 option(LLAMA_METAL                           "llama: use Metal"                                 ${LLAMA_METAL_DEFAULT})
 option(LLAMA_METAL_NDEBUG                    "llama: disable Metal debugging"                   OFF)
 option(LLAMA_METAL_SHADER_DEBUG              "llama: compile Metal with -fno-fast-math"         OFF)
@@ -423,16 +427,29 @@ if (LLAMA_VULKAN)
     if (Vulkan_FOUND)
         message(STATUS "Vulkan found")
 
-        set(GGML_HEADERS_VULKAN ggml-vulkan.h)
-        set(GGML_SOURCES_VULKAN ggml-vulkan.cpp)
-
-        add_library(ggml-vulkan STATIC ggml-vulkan.cpp ggml-vulkan.h)
+        add_library(ggml-vulkan OBJECT ggml-vulkan.cpp ggml-vulkan.h)
         if (BUILD_SHARED_LIBS)
             set_target_properties(ggml-vulkan PROPERTIES POSITION_INDEPENDENT_CODE ON)
         endif()
         target_link_libraries(ggml-vulkan PRIVATE Vulkan::Vulkan)
 
         add_compile_definitions(GGML_USE_VULKAN)
+
+        if (LLAMA_VULKAN_CHECK_RESULTS)
+            target_compile_definitions(ggml-vulkan PRIVATE GGML_VULKAN_CHECK_RESULTS)
+        endif()
+
+        if (LLAMA_VULKAN_DEBUG)
+            target_compile_definitions(ggml-vulkan PRIVATE GGML_VULKAN_DEBUG)
+        endif()
+
+        if (LLAMA_VULKAN_VALIDATE)
+            target_compile_definitions(ggml-vulkan PRIVATE GGML_VULKAN_VALIDATE)
+        endif()
+
+        if (LLAMA_VULKAN_RUN_TESTS)
+            target_compile_definitions(ggml-vulkan PRIVATE GGML_VULKAN_RUN_TESTS)
+        endif()
 
         set(LLAMA_EXTRA_LIBS ${LLAMA_EXTRA_LIBS} ggml-vulkan)
     else()
@@ -507,7 +524,11 @@ if (LLAMA_SYCL)
     set(GGML_HEADERS_SYCL ggml.h ggml-sycl.h)
     set(GGML_SOURCES_SYCL ggml-sycl.cpp)
 
-    set(LLAMA_EXTRA_LIBS ${LLAMA_EXTRA_LIBS} sycl OpenCL mkl_core pthread m dl mkl_sycl_blas mkl_intel_ilp64 mkl_tbb_thread)
+    if (WIN32)
+        set(LLAMA_EXTRA_LIBS ${LLAMA_EXTRA_LIBS} -fsycl sycl7 OpenCL mkl_sycl_blas_dll.lib mkl_intel_ilp64_dll.lib mkl_sequential_dll.lib mkl_core_dll.lib)
+    else()
+        set(LLAMA_EXTRA_LIBS ${LLAMA_EXTRA_LIBS} -fsycl OpenCL mkl_core pthread m dl mkl_sycl_blas mkl_intel_ilp64 mkl_tbb_thread)
+    endif()
 endif()
 
 if (LLAMA_KOMPUTE)
@@ -788,9 +809,9 @@ if (LLAMA_CCACHE)
     if (LLAMA_CCACHE_FOUND)
         set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
         set(ENV{CCACHE_SLOPPINESS} time_macros)
-        message(STATUS "Using ccache")
+        message(STATUS "ccache found, compilation results will be cached. Disable with LLAMA_CCACHE=OFF.")
     else()
-        message(STATUS "Warning: ccache not found - consider installing it or use LLAMA_CCACHE=OFF")
+        message(STATUS "Warning: ccache not found - consider installing it for faster compilation or disable this warning with LLAMA_CCACHE=OFF")
     endif ()
 endif()
 
@@ -829,7 +850,9 @@ endif()
 
 set(ARCH_FLAGS "")
 
-if ((${CMAKE_SYSTEM_PROCESSOR} MATCHES "arm") OR (${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64") OR ("${CMAKE_GENERATOR_PLATFORM_LWR}" MATCHES "arm64"))
+if (CMAKE_OSX_ARCHITECTURES STREQUAL "arm64" OR CMAKE_GENERATOR_PLATFORM_LWR STREQUAL "arm64" OR
+    (NOT CMAKE_OSX_ARCHITECTURES AND NOT CMAKE_GENERATOR_PLATFORM_LWR AND
+     CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm.*|ARM64)$"))
     message(STATUS "ARM detected")
     if (MSVC)
         add_compile_definitions(__ARM_NEON)
@@ -855,7 +878,9 @@ if ((${CMAKE_SYSTEM_PROCESSOR} MATCHES "arm") OR (${CMAKE_SYSTEM_PROCESSOR} MATC
             list(APPEND ARCH_FLAGS -mno-unaligned-access)
         endif()
     endif()
-elseif (${CMAKE_SYSTEM_PROCESSOR} MATCHES "^(x86_64|i686|AMD64)$" OR "${CMAKE_GENERATOR_PLATFORM_LWR}" MATCHES "^(x86_64|i686|amd64|x64)$" )
+elseif (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR CMAKE_GENERATOR_PLATFORM_LWR MATCHES "^(x86_64|i686|amd64|x64|win32)$" OR
+        (NOT CMAKE_OSX_ARCHITECTURES AND NOT CMAKE_GENERATOR_PLATFORM_LWR AND
+         CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|i686|AMD64)$"))
     message(STATUS "x86 detected")
     if (MSVC)
         # instruction set detection for MSVC only
@@ -1008,7 +1033,6 @@ add_library(ggml OBJECT
             ggml-quants.h
             ${GGML_SOURCES_CUDA}    ${GGML_HEADERS_CUDA}
             ${GGML_SOURCES_OPENCL}  ${GGML_HEADERS_OPENCL}
-            ${GGML_SOURCES_VULKAN}  ${GGML_HEADERS_VULKAN}
             ${GGML_SOURCES_METAL}   ${GGML_HEADERS_METAL}
             ${GGML_SOURCES_MPI}     ${GGML_HEADERS_MPI}
             ${GGML_SOURCES_EXTRA}   ${GGML_HEADERS_EXTRA}
@@ -1090,7 +1114,7 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/LlamaConfig.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Llama)
 
 set(GGML_PUBLIC_HEADERS "ggml.h" "ggml-alloc.h" "ggml-backend.h"
-        "${GGML_HEADERS_CUDA}" "${GGML_HEADERS_OPENCL}" "${GGML_HEADERS_VULKAN}"
+        "${GGML_HEADERS_CUDA}" "${GGML_HEADERS_OPENCL}"
         "${GGML_HEADERS_METAL}" "${GGML_HEADERS_MPI}" "${GGML_HEADERS_EXTRA}")
 
 set_target_properties(ggml PROPERTIES PUBLIC_HEADER "${GGML_PUBLIC_HEADERS}")

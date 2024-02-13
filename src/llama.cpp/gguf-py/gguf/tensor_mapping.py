@@ -15,20 +15,23 @@ class TensorNameMap:
             "word_embeddings",                           # bloom
             "model.embed_tokens",                        # llama-hf
             "tok_embeddings",                            # llama-pth
-            "embeddings.word_embeddings",                # bert
+            "embeddings.word_embeddings",                # bert nomic-bert
             "language_model.embedding.word_embeddings",  # persimmon
             "wte",                                       # gpt2
             "transformer.embd.wte",                      # phi2
+            "model.tok_embeddings",                      # internlm2
         ),
 
         # Token type embeddings
         MODEL_TENSOR.TOKEN_TYPES: (
-            "embeddings.token_type_embeddings",  # bert
+            "embeddings.token_type_embeddings",  # bert nomic-bert
         ),
 
         # Normalization of token embeddings
         MODEL_TENSOR.TOKEN_EMBD_NORM: (
             "word_embeddings_layernorm",  # bloom
+            "embeddings.LayerNorm",       # bert
+            "emb_ln",                     # nomic-bert
         ),
 
         # Position embeddings
@@ -42,7 +45,7 @@ class TensorNameMap:
         MODEL_TENSOR.OUTPUT: (
             "embed_out",                 # gptneox
             "lm_head",                   # gpt2 mpt falcon llama-hf baichuan qwen
-            "output",                    # llama-pth bloom
+            "output",                    # llama-pth bloom internlm2
             "word_embeddings_for_head",  # persimmon
             "lm_head.linear",            # phi2
         ),
@@ -51,9 +54,8 @@ class TensorNameMap:
         MODEL_TENSOR.OUTPUT_NORM: (
             "gpt_neox.final_layer_norm",               # gptneox
             "transformer.ln_f",                        # gpt2 gpt-j falcon
-            "model.norm",                              # llama-hf baichuan
+            "model.norm",                              # llama-hf baichuan internlm2
             "norm",                                    # llama-pth
-            "embeddings.LayerNorm",                    # bert
             "transformer.norm_f",                      # mpt
             "ln_f",                                    # refact bloom qwen gpt2
             "language_model.encoder.final_layernorm",  # persimmon
@@ -78,12 +80,12 @@ class TensorNameMap:
             "transformer.h.{bid}.ln_mlp",                           # falcon40b
             "model.layers.{bid}.input_layernorm",                   # llama-hf
             "layers.{bid}.attention_norm",                          # llama-pth
-            "encoder.layer.{bid}.attention.output.LayerNorm",       # bert
             "language_model.encoder.layers.{bid}.input_layernorm",  # persimmon
             "model.layers.{bid}.ln1",                               # yi
             "h.{bid}.ln_1",                                         # gpt2
             "transformer.h.{bid}.ln",                               # phi2
             "model.layers.layers.{bid}.norm",                       # plamo
+            "model.layers.{bid}.attention_norm",                    # internlm2
         ),
 
         # Attention norm 2
@@ -102,6 +104,7 @@ class TensorNameMap:
             "model.layers.{bid}.self_attn.query_key_value",                        # persimmon
             "h.{bid}.attn.c_attn",                                                 # gpt2
             "transformer.h.{bid}.mixer.Wqkv",                                      # phi2
+            "encoder.layers.{bid}.attn.Wqkv",                                      # nomic-bert
         ),
 
         # Attention query
@@ -111,6 +114,7 @@ class TensorNameMap:
             "encoder.layer.{bid}.attention.self.query",    # bert
             "transformer.h.{bid}.attn.q_proj",             # gpt-j
             "model.layers.layers.{bid}.self_attn.q_proj",  # plamo
+            "model.layers.{bid}.attention.wq"             # internlm2
         ),
 
         # Attention key
@@ -120,6 +124,7 @@ class TensorNameMap:
             "encoder.layer.{bid}.attention.self.key",      # bert
             "transformer.h.{bid}.attn.k_proj",             # gpt-j
             "model.layers.layers.{bid}.self_attn.k_proj",  # plamo
+            "model.layers.{bid}.attention.wk"             # internlm2
         ),
 
         # Attention value
@@ -129,6 +134,7 @@ class TensorNameMap:
             "encoder.layer.{bid}.attention.self.value",    # bert
             "transformer.h.{bid}.attn.v_proj",             # gpt-j
             "model.layers.layers.{bid}.self_attn.v_proj",  # plamo
+            "model.layers.{bid}.attention.wv"             # internlm2
         ),
 
         # Attention output
@@ -147,6 +153,14 @@ class TensorNameMap:
             "h.{bid}.attn.c_proj",                                       # gpt2
             "transformer.h.{bid}.mixer.out_proj",                        # phi2
             "model.layers.layers.{bid}.self_attn.o_proj",                # plamo
+            "model.layers.{bid}.attention.wo",                           # internlm2
+            "encoder.layers.{bid}.attn.out_proj",                        # nomic-bert
+        ),
+
+        # Attention output norm
+        MODEL_TENSOR.ATTN_OUT_NORM: (
+            "encoder.layer.{bid}.attention.output.LayerNorm",  # bert
+            "encoder.layers.{bid}.norm1",                      # nomic-bert
         ),
 
         # Rotary embeddings
@@ -165,10 +179,10 @@ class TensorNameMap:
             "transformer.blocks.{bid}.norm_2",                               # mpt
             "model.layers.{bid}.post_attention_layernorm",                   # llama-hf
             "layers.{bid}.ffn_norm",                                         # llama-pth
-            "encoder.layer.{bid}.output.LayerNorm",                          # bert
             "language_model.encoder.layers.{bid}.post_attention_layernorm",  # persimmon
             "model.layers.{bid}.ln2",                                        # yi
             "h.{bid}.ln_2",                                                  # gpt2
+            "model.layers.{bid}.ffn_norm",                                   # internlm2
         ),
 
         MODEL_TENSOR.FFN_GATE_INP: (
@@ -194,6 +208,8 @@ class TensorNameMap:
             "transformer.h.{bid}.mlp.fc1",                            # phi2
             "model.layers.{bid}.mlp.fc1",                             # phi2
             "model.layers.layers.{bid}.mlp.up_proj",                  # plamo
+            "model.layers.{bid}.feed_forward.w3",                     # internlm2
+            "encoder.layers.{bid}.mlp.fc11",                          # nomic-bert
         ),
 
         MODEL_TENSOR.FFN_UP_EXP: (
@@ -212,6 +228,8 @@ class TensorNameMap:
             "layers.{bid}.feed_forward.w1",               # llama-pth
             "transformer.h.{bid}.mlp.w2",                 # qwen
             "model.layers.layers.{bid}.mlp.gate_proj",    # plamo
+            "model.layers.{bid}.feed_forward.w1",         # internlm2
+            "encoder.layers.{bid}.mlp.fc12",              # nomic-bert
         ),
 
         MODEL_TENSOR.FFN_GATE_EXP: (
@@ -236,6 +254,8 @@ class TensorNameMap:
             "transformer.h.{bid}.mlp.fc2",                            # phi2
             "model.layers.{bid}.mlp.fc2",                             # phi2
             "model.layers.layers.{bid}.mlp.down_proj",                # plamo
+            "model.layers.{bid}.feed_forward.w2",                     # internlm2
+            "encoder.layers.{bid}.mlp.fc2",                           # nomic-bert
         ),
 
         MODEL_TENSOR.FFN_DOWN_EXP: (
@@ -256,6 +276,11 @@ class TensorNameMap:
         MODEL_TENSOR.ROPE_FREQS: (
             "language_model.encoder.layers.{bid}.self_attention.rotary_emb.inv_freq",  # persimmon
         ),
+
+        MODEL_TENSOR.LAYER_OUT_NORM: (
+            "encoder.layer.{bid}.output.LayerNorm",  # bert
+            "encoder.layers.{bid}.norm2",            # nomic-bert
+        )
     }
 
     mapping: dict[str, tuple[MODEL_TENSOR, str]]
