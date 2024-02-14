@@ -2,14 +2,20 @@ import 'dart:convert';
 
 import 'dart:io';
 
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:fllama/fllama.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
+late final SharedPreferences kSharedPrefs;
+const String kModelPathKey = 'modelPath';
+const String kMmprojPathKey = 'mmprojPath';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  kSharedPrefs = await SharedPreferences.getInstance();
   runApp(const MyApp());
 }
 
@@ -32,6 +38,8 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    _mmprojPath = kSharedPrefs.getString(kMmprojPathKey);
+    _modelPath = kSharedPrefs.getString(kModelPathKey);
   }
 
   @override
@@ -57,23 +65,38 @@ class _MyAppState extends State<MyApp> {
                       label: const Text('Open .gguf'),
                     ),
                     if (_modelPath != null)
-                      SelectableText(
-                        _modelPath!,
-                        style: textStyle,
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: SelectableText(
+                          _modelPath!,
+                          style: textStyle,
+                        ),
                       ),
                   ],
                 ),
+                const SizedBox(height: 8),
                 Row(
                   children: [
+              
                     ElevatedButton.icon(
                       onPressed: _openMmprojGgufPressed,
                       icon: const Icon(Icons.file_open),
-                      label: const Text('Open mmproj'),
+                      label: const Text('Open mmproj.gguf'),
+                    ),
+                    const SizedBox(width: 8
+                    ),
+                    const Tooltip(
+                      message:
+                          'Optional:\nModels that can also process images, multimodal models, also come with a mmproj.gguf file.',
+                      child: Icon(Icons.info),
                     ),
                     if (_mmprojPath != null)
-                      SelectableText(
-                        _mmprojPath!,
-                        style: textStyle,
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: SelectableText(
+                          _mmprojPath!,
+                          style: textStyle,
+                        ),
                       ),
                   ],
                 ),
@@ -83,16 +106,22 @@ class _MyAppState extends State<MyApp> {
                     controller: _controller,
                   ),
                 if (_mmprojPath != null)
-                  Row(
-                    children: [
-                      ElevatedButton.icon(
-                          onPressed: _openImagePressed,
-                          icon: const Icon(Icons.file_open),
-                          label: const Text('Choose .jpeg')),
-                      if (_imageBytes != null)
-                        Text('Image chosen (${_imageBytes!.length} bytes)',
-                            style: textStyle),
-                    ],
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Row(
+                      children: [
+                        ElevatedButton.icon(
+                            onPressed: _openImagePressed,
+                            icon: const Icon(Icons.image),
+                            label: const Text('Open Image')),
+                        const SizedBox(
+                          width: 8,
+                        ),
+                        if (_imageBytes != null)
+                          Text('Attached: ${_imageBytes!.length} bytes',
+                              style: textStyle),
+                      ],
+                    ),
                   ),
                 const SizedBox(
                   height: 8,
@@ -139,6 +168,13 @@ class _MyAppState extends State<MyApp> {
 
   void _openGgufPressed() async {
     final filePath = await _pickGgufPath();
+    if (filePath == null) {
+      await kSharedPrefs.remove(kModelPathKey);
+      return;
+    } else {
+      await kSharedPrefs.setString(kModelPathKey, filePath);
+    }
+
     setState(() {
       _modelPath = filePath;
     });
@@ -146,6 +182,13 @@ class _MyAppState extends State<MyApp> {
 
   void _openMmprojGgufPressed() async {
     final filePath = await _pickGgufPath();
+    if (filePath == null) {
+      await kSharedPrefs.remove(kMmprojPathKey);
+      return;
+    } else {
+      await kSharedPrefs.setString(kMmprojPathKey, filePath);
+    }
+
     setState(() {
       _mmprojPath = filePath;
     });
