@@ -151,7 +151,7 @@ void _fllama_inference_sync(fllama_inference_request request,
   params.n_ctx = request.context_size;
   std::cout << "[fllama] Context size: " << params.n_ctx << std::endl;
   // >=32 needed for BLAS.
-  params.n_batch = 32;
+  params.n_batch = 512;
   params.n_predict = request.max_tokens;
   params.sparams.temp = request.temperature;
   std::cout << "[fllama] Default penalty_freq: " << params.sparams.penalty_freq

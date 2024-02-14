@@ -113,6 +113,8 @@ class _MyAppState extends State<MyApp> {
                       numGpuLayers: 99,
                       modelPath: _modelPath!,
                       mmprojPath: _mmprojPath,
+                      contextSize: 4096,
+                      temperature: 1.0,
                     );
                     fllamaChatCompletionAsync(request,
                         (String result, bool done) {
