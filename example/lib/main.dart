@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -77,14 +79,12 @@ class _MyAppState extends State<MyApp> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-              
                     ElevatedButton.icon(
                       onPressed: _openMmprojGgufPressed,
                       icon: const Icon(Icons.file_open),
                       label: const Text('Open mmproj.gguf'),
                     ),
-                    const SizedBox(width: 8
-                    ),
+                    const SizedBox(width: 8),
                     const Tooltip(
                       message:
                           'Optional:\nModels that can also process images, multimodal models, also come with a mmproj.gguf file.',
@@ -207,6 +207,14 @@ class _MyAppState extends State<MyApp> {
 }
 
 Future<String?> _pickGgufPath() async {
+  if (!kIsWeb && Platform.isAndroid) {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+    );
+
+    return result?.files.first.path;
+  }
+
   final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
     const XTypeGroup(
       label: '.gguf',
@@ -233,6 +241,12 @@ Future<String?> _pickImagePath() async {
         'public.image',
       ],
     ),
+    const XTypeGroup(label: '.png', extensions: [
+      'png'
+    ], uniformTypeIdentifiers: [
+      'public.png',
+      'public.image',
+    ])
   ]);
 
   if (file == null) {
