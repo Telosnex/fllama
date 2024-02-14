@@ -114,7 +114,7 @@ class _MyAppState extends State<MyApp> {
                       modelPath: _modelPath!,
                       mmprojPath: _mmprojPath,
                       contextSize: 4096,
-                      temperature: 1.0,
+                      temperature: 0.0,
                     );
                     fllamaChatCompletionAsync(request,
                         (String result, bool done) {
