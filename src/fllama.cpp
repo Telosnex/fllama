@@ -41,6 +41,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <limits.h>
 #include <mutex>
 #include <queue>
 #include <string>
