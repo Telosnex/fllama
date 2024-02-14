@@ -53,23 +53,6 @@
 
 //#define CLIP_DEBUG_FUNCTIONS
 
-// RGB uint8 image
-struct clip_image_u8 {
-    int nx;
-    int ny;
-
-    std::vector<uint8_t> buf;
-};
-
-// RGB float32 image (NHWC)
-// Memory layout: RGBRGBRGB...
-struct clip_image_f32 {
-    int nx;
-    int ny;
-
-    std::vector<float> buf;
-};
-
 static std::string format(const char * fmt, ...) {
     va_list ap;
     va_list ap2;
@@ -1450,7 +1433,7 @@ static void resize_and_pad_image(const clip_image_u8& image, clip_image_u8 &imag
  * @param possible_resolutions A list of possible resolutions in the format [(width1, height1), (width2, height2), ...].
  * @return The best fit resolution in the format (width, height).
  */
-static std::pair<int, int> select_best_resolution(const std::pair<int, int> & original_size, const std::vector<std::pair<int, int>> & possible_resolutions) {
+std::pair<int, int> select_best_resolution(const std::pair<int, int> & original_size, const std::vector<std::pair<int, int>> & possible_resolutions) {
     int original_width = original_size.first;
     int original_height = original_size.second;
     std::pair<int, int> best_fit;
