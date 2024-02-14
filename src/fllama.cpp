@@ -140,6 +140,9 @@ static bool add_string_to_context(struct llama_context *ctx_llama,
 
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback);
+static void log_callback_wrapper(enum ggml_log_level level, const char * text, void * user_data) {
+    std::cout << "[fllama] " << text;
+}
 
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback) {
@@ -179,6 +182,11 @@ void _fllama_inference_sync(fllama_inference_request request,
             << std::endl;
 #endif
   llama_backend_init(params.numa);
+  if (log != NULL) {
+    std::cout << "[fllama] Setting log callback." << std::endl;
+    llama_log_set(log_callback_wrapper, NULL);
+  }
+
   std::cout << "[fllama] Backend initialized." << std::endl;
   // !!! Specific to multimodal
   bool prompt_contains_img = prompt_contains_image(request.input);
