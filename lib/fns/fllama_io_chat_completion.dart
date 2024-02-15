@@ -31,6 +31,7 @@ Future<String> fllamaChatCompletionAsync(
     temperature: request.temperature,
     topP: request.topP,
     grammar: grammar,
+    logger: request.logger,
   );
   return fllamaInferenceAsync(inferenceRequest, callback);
 }

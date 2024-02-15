@@ -10,6 +10,8 @@ class FllamaInferenceRequest {
   double penaltyRepeat;
   double topP;
   String? grammar;
+  Function(String)? logger;
+
 
   FllamaInferenceRequest({
     required this.contextSize,
@@ -23,5 +25,6 @@ class FllamaInferenceRequest {
     required this.topP,
     this.grammar,
     this.modelMmprojPath,
+    this.logger,
   });
 }

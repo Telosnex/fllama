@@ -12,6 +12,7 @@ extern "C" {
 
 
 typedef void (*fllama_inference_callback)(const char *response, uint8_t done);
+typedef void (*fllama_log_callback)(const char *);
 
 struct fllama_inference_request
 {
@@ -26,6 +27,7 @@ struct fllama_inference_request
     float penalty_freq; // Optional: 0 <= penalty_freq <= 1. Defaults to 0.0, which means disabled. (llama.cpp behavior)
     float penalty_repeat; // Optional: 0 <= penalty_repeat <= 1. Defaults to 1.0, which means disabled. (llama.cpp behavior)
     char *grammar; // Optional: BNF-like grammar to constrain sampling. Defaults to "" (llama.cpp behavior). See https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
+    fllama_log_callback dart_logger; // Optional: Dart caller logger. Defaults to NULL.
 };
 
 typedef void (*fllama_tokenize_callback)(int count);

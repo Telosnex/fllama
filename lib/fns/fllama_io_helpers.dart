@@ -18,5 +18,11 @@ String pointerCharToString(Pointer<Char> pointerChar) {
   if (pointerChar == nullptr) {
     return '';
   }
+  try {
   return pointerChar.cast<Utf8>().toDartString();
+
+  } catch (e) {
+    // Prevent ex. FormatException: Unexpected extension byte (at offset 8)
+    return '';
+  }
 }

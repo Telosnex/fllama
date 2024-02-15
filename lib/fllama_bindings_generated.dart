@@ -132,7 +132,13 @@ final class fllama_inference_request extends ffi.Struct {
 
   /// Optional: BNF-like grammar to constrain sampling. Defaults to "" (llama.cpp behavior). See https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
   external ffi.Pointer<ffi.Char> grammar;
+
+  /// Optional: Dart caller logger. Defaults to NULL.
+  external fllama_log_callback dart_logger;
 }
+
+typedef fllama_log_callback
+    = ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>;
 
 final class fllama_tokenize_request extends ffi.Struct {
   /// Required: input text

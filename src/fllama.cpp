@@ -140,13 +140,15 @@ static bool add_string_to_context(struct llama_context *ctx_llama,
 
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback);
-static void log_callback_wrapper(enum ggml_log_level level, const char * text, void * user_data) {
-    std::cout << "[llama] " << text;
+
+static void log_callback_wrapper(enum ggml_log_level level, const char *text,
+                                 void *user_data) {
+  std::cout << "[llama] " << text;
 }
 
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback) {
-  // 1. Setup parameters, then load the model and create a context.
+  // Setup parameters, then load the model and create a context.
   int64_t start = ggml_time_ms();
   std::cout << "[fllama] Inference thread start" << std::endl;
   gpt_params params;
@@ -183,8 +185,24 @@ void _fllama_inference_sync(fllama_inference_request request,
 #endif
   llama_backend_init(params.numa);
 
-  std::cout << "[fllama] Setting llama.cpp's log callback, logs following tagged with [llama.cpp] are from there." << std::endl;
-  llama_log_set(log_callback_wrapper, NULL);
+  // Check if a Dart logger function is provided, use it if available.
+  if (request.dart_logger != NULL) {
+    callback(/* response */ "Setting logger",
+             /* done */ false);
+    llama_log_set(
+        [](enum ggml_log_level level, const char *text, void *user_data) {
+          fllama_log_callback dart_logger =
+              reinterpret_cast<fllama_log_callback>(user_data);
+          dart_logger(text);
+        },
+        reinterpret_cast<void *>(request.dart_logger));
+    std::cout << "[fllama] Request log callback installed for llama.cpp. ";
+  } else {
+    callback(/* response */ "not setting logger",
+             /* done */ false);
+    std::cout << "[fllama] fllama default log callback installed for llama.cpp. ";
+    llama_log_set(log_callback_wrapper, NULL);
+  }
 
   std::cout << "[fllama] Backend initialized." << std::endl;
   // !!! Specific to multimodal
@@ -275,10 +293,10 @@ void _fllama_inference_sync(fllama_inference_request request,
   for (auto *embedding : image_embeddings) {
     if (embedding != NULL) {
       if (image_embeddings.size() > 1) {
-        const std::string image_prompt = "Attached Image #" +
-                                         std::to_string(idx_embedding + 1) +
-                                         ":\n";
-        add_string_to_context(ctx, image_prompt.c_str(), params.n_batch, &n_past, add_bos);
+        const std::string image_prompt =
+            "Attached Image #" + std::to_string(idx_embedding + 1) + ":\n";
+        add_string_to_context(ctx, image_prompt.c_str(), params.n_batch,
+                              &n_past, add_bos);
         idx_embedding++;
         std::cout << "[fllama] Added image prompt to context." << std::endl;
         std::cout << "[fllama] Image prompt: " << image_prompt << std::endl;

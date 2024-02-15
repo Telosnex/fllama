@@ -37,6 +37,7 @@ class OpenAiRequest {
   final String? mmprojPath;
   final int numGpuLayers;
   final int contextSize;
+  final Function(String)? logger;
 
   OpenAiRequest({
     this.messages = const [],
@@ -68,5 +69,7 @@ class OpenAiRequest {
     // 4096, today it has 16384. 1000 tokens ~= 3 pages ~= 750 words ~= 3 
     // minutes reading time.
     this.contextSize = 2048, 
+    // Optional logger.
+    this.logger,
   });
 }

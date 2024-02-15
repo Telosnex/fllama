@@ -134,18 +134,26 @@ class _MyAppState extends State<MyApp> {
                       messageText =
                           '<img src="data:image/jpeg;base64,${base64Encode(_imageBytes!)}">\n\n$messageText';
                     }
-                    final request = OpenAiRequest(
+                    final request = FllamaInferenceRequest(
                       maxTokens: 256,
-                      messages: [
-                        Message(Role.user, messageText),
-                      ],
+                      input: messageText,
                       numGpuLayers: 99,
                       modelPath: _modelPath!,
-                      mmprojPath: _mmprojPath,
-                      contextSize: 4096,
-                      temperature: 0.0,
+                      penaltyFrequency: 0.0,
+                      // Don't use below 1.1, LLMs without a repeat penalty
+                      // will repeat the same token.
+                      penaltyRepeat: 1.1,
+                      topP: 1.0,
+                      contextSize: 2048,
+                      // Don't use 0.0, some models will repeat
+                      // the same token.
+                      temperature: 0.1,
+                      logger: (log) {
+                        // ignore: avoid_print
+                        print('[llama.cpp] $log');
+                      },
                     );
-                    fllamaChatCompletionAsync(request,
+                    fllamaInferenceAsync(request,
                         (String result, bool done) {
                       setState(() {
                         latestResult = result;

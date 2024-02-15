@@ -7,11 +7,14 @@ import 'package:ffi/ffi.dart';
 import 'package:fllama/fllama_io.dart';
 import 'package:fllama/fllama_bindings_generated.dart';
 import 'package:fllama/fllama_inference_request.dart';
+import 'package:fllama/fns/fllama_io_helpers.dart';
 
 typedef NativeInferenceCallback = Void Function(
     Pointer<Char> response, Uint8 done);
 typedef NativeFllamaInferenceCallback
     = Pointer<NativeFunction<NativeInferenceCallback>>;
+typedef FllamaLogCallbackNative = Void Function(Pointer<Char>);
+typedef FllamaLogCallbackDart = void Function(Pointer<Char>);
 
 // This callback type will be used in Dart to receive incremental results
 Future<String> fllamaInferenceAsync(
@@ -91,6 +94,16 @@ fllama_inference_request _toNative(FllamaInferenceRequest dart) {
       dart.modelMmprojPath?.isNotEmpty == true) {
     Pointer<Utf8> mmprojPathCstr = dart.modelMmprojPath!.toNativeUtf8();
     request.model_mmproj_path = mmprojPathCstr.cast<Char>();
+  }
+  if (dart.logger != null) {
+    void onResponse(Pointer<Char> responsePointer) {
+      if (dart.logger != null) {
+        dart.logger!(pointerCharToString(responsePointer));
+      }
+    }
+     final NativeCallable<FllamaLogCallbackNative> callback =
+        NativeCallable<FllamaLogCallbackNative>.listener(onResponse);
+    request.dart_logger = callback.nativeFunction;
   }
   return request;
 }
