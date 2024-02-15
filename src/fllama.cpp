@@ -204,8 +204,6 @@ void _fllama_inference_sync(fllama_inference_request request,
 
   // Check if a Dart logger function is provided, use it if available.
   if (request.dart_logger != NULL) {
-    callback(/* response */ "Setting logger",
-             /* done */ false);
     llama_log_set(
         [](enum ggml_log_level level, const char *text, void *user_data) {
           fllama_log_callback dart_logger =
@@ -215,8 +213,6 @@ void _fllama_inference_sync(fllama_inference_request request,
         reinterpret_cast<void *>(request.dart_logger));
     std::cout << "[fllama] Request log callback installed for llama.cpp. ";
   } else {
-    callback(/* response */ "not setting logger",
-             /* done */ false);
     std::cout
         << "[fllama] fllama default log callback installed for llama.cpp. ";
     llama_log_set(log_callback_wrapper, NULL);
