@@ -114,6 +114,10 @@ final class fllama_inference_request extends ffi.Struct {
   @ffi.Int()
   external int num_gpu_layers;
 
+  /// Required: 2 recommended. Platforms can be highly sensitive to this, ex. Android stopped working with 4 suddenly.
+  @ffi.Int()
+  external int num_threads;
+
   /// Optional: temperature. Defaults to 0. (llama.cpp behavior)
   @ffi.Float()
   external double temperature;

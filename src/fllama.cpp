@@ -146,6 +146,22 @@ static void log_callback_wrapper(enum ggml_log_level level, const char *text,
   std::cout << "[llama] " << text;
 }
 
+void fllama_log(const char *message,
+                fllama_log_callback dart_logger = nullptr) {
+  if (dart_logger != NULL) {
+    // If a Dart logger is provided, use it
+    dart_logger(message);
+  } else {
+    // Otherwise, fallback to standard output
+    std::cout << message << std::endl;
+  }
+}
+
+void fllama_log(const std::string &message,
+                fllama_log_callback dart_logger = nullptr) {
+  fllama_log(message.c_str(), dart_logger);
+}
+
 void _fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback) {
   // Setup parameters, then load the model and create a context.
@@ -158,6 +174,7 @@ void _fllama_inference_sync(fllama_inference_request request,
   // >=32 needed for BLAS.
   params.n_batch = 512;
   params.n_predict = request.max_tokens;
+  params.n_threads = request.num_threads;
   params.sparams.temp = request.temperature;
   std::cout << "[fllama] Default penalty_freq: " << params.sparams.penalty_freq
             << std::endl;
@@ -180,8 +197,8 @@ void _fllama_inference_sync(fllama_inference_request request,
 // Otherwise, for physical iOS devices and other platforms
 #else
   params.n_gpu_layers = request.num_gpu_layers;
-  std::cout << "[fllama] Number of GPU layers: " << params.n_gpu_layers
-            << std::endl;
+  fllama_log("Number of GPU layers requested: " + std::to_string(params.n_gpu_layers),
+             request.dart_logger);
 #endif
   llama_backend_init(params.numa);
 
@@ -200,31 +217,31 @@ void _fllama_inference_sync(fllama_inference_request request,
   } else {
     callback(/* response */ "not setting logger",
              /* done */ false);
-    std::cout << "[fllama] fllama default log callback installed for llama.cpp. ";
+    std::cout
+        << "[fllama] fllama default log callback installed for llama.cpp. ";
     llama_log_set(log_callback_wrapper, NULL);
   }
-
-  std::cout << "[fllama] Backend initialized." << std::endl;
+  fllama_log("Initialized llama logger.", request.dart_logger);
   // !!! Specific to multimodal
   bool prompt_contains_img = prompt_contains_image(request.input);
   bool should_load_clip = false;
   if (prompt_contains_img) {
+    fllama_log("Prompt contains images, will process them later.", request.dart_logger);
     std::string mmproj =
         request.model_mmproj_path == NULL ? "" : request.model_mmproj_path;
     if (mmproj.empty()) {
-      std::cout << "[fllama] Warning: prompt contains images, but inference "
-                   "request doesn't specify model_mmproj_path. Multimodal "
-                   "model requires a .mmproj file."
-                << std::endl;
+      fllama_log("Warning: prompt contains images, but inference request doesn't "
+                 "specify model_mmproj_path. Multimodal model requires a .mmproj "
+                 "file.",
+                 request.dart_logger);
     } else {
       params.mmproj = mmproj;
-      std::cout << "[fllama] Multimodal model passed as parameter: " << mmproj
-                << std::endl;
       should_load_clip = true;
     }
   }
   llama_model *model;
   llama_context *ctx;
+  fllama_log("Initializing llama model...", request.dart_logger);
   std::tie(model, ctx) = llama_init_from_gpt_params(params);
   if (model == NULL || ctx == NULL) {
     std::cout << "[fllama] Unable to load model." << std::endl;
@@ -232,19 +249,21 @@ void _fllama_inference_sync(fllama_inference_request request,
       llama_free_model(model);
     }
     callback(/* response */ "Error: Unable to load model.", /* done */ true);
+    fllama_log("Error: Unable to load model.", request.dart_logger);
     return;
   }
+
+  fllama_log("Initialized model.", request.dart_logger);
 
   std::string final_request_input = request.input;
   // !!! Specific to multimodal
   std::vector<llava_image_embed *>
       image_embeddings; // Now a vector to hold multiple embeddings
   if (should_load_clip) {
-    std::cout << "[fllama] Loading multimodal model: " << params.mmproj
-              << std::endl;
+    fllama_log("Loading multimodal model...", request.dart_logger);
     const char *mmproj_path = params.mmproj.c_str();
     auto ctx_clip = clip_model_load(mmproj_path, /*verbosity=*/1);
-    std::cout << "[fllama] Loaded model" << std::endl;
+    std::cout << "Loaded model" << std::endl;
     image_embeddings = llava_image_embed_make_with_prompt_base64(
         ctx_clip, 1 /* or params.n_threads */, final_request_input);
     clip_free(ctx_clip);
@@ -256,11 +275,11 @@ void _fllama_inference_sync(fllama_inference_request request,
   // which is not a good idea. (O(100,000K) tokens)
   if (prompt_contains_img) {
     if (image_embeddings.empty()) {
-      std::cout << "[fllama] Unable to create image embeddings, removing image "
+      std::cout << "Unable to create image embeddings, removing image "
                    "data from prompt."
                 << std::endl;
     } else {
-      std::cout << "[fllama] Images loaded, replacing image data in prompt "
+      std::cout << "Images loaded, replacing image data in prompt "
                    "with clip output"
                 << std::endl;
     }
@@ -270,21 +289,24 @@ void _fllama_inference_sync(fllama_inference_request request,
 
   int64_t model_load_end = ggml_time_ms();
   int64_t model_load_duration_ms = model_load_end - start;
-  std::cout << "[fllama] Model loaded. Took " << model_load_duration_ms
-            << " ms." << std::endl;
+  fllama_log("Model loaded @ " + std::to_string(model_load_duration_ms) +
+                 " ms.",
+             request.dart_logger);
 
   std::vector<llama_token> tokens_list;
   tokens_list = ::llama_tokenize(model, final_request_input, true);
-  std::cout << "[fllama] Input token count: " << tokens_list.size()
-            << std::endl;
-  std::cout << "[fllama] Output tokens requested: " << params.n_predict
-            << std::endl;
+  fllama_log("Input token count: " +
+                 std::to_string(tokens_list.size()),
+             request.dart_logger);
+  fllama_log("Output token count: " +
+                 std::to_string(request.max_tokens),
+             request.dart_logger);
   const int n_max_tokens = request.max_tokens;
   llama_context_params ctx_params =
       llama_context_params_from_gpt_params(params);
-
-  std::cout << "[fllama] Number of threads: " << ctx_params.n_threads
-            << std::endl;
+  fllama_log("Number of threads: " +
+                 std::to_string(ctx_params.n_threads),
+             request.dart_logger);
 
   // 2. Load the prompt into the context.
   int n_past = 0;
@@ -298,32 +320,43 @@ void _fllama_inference_sync(fllama_inference_request request,
         add_string_to_context(ctx, image_prompt.c_str(), params.n_batch,
                               &n_past, add_bos);
         idx_embedding++;
-        std::cout << "[fllama] Added image prompt to context." << std::endl;
-        std::cout << "[fllama] Image prompt: " << image_prompt << std::endl;
       }
+      fllama_log("Adding image #" + std::to_string(idx_embedding + 1) +
+                     " to context.",
+                 request.dart_logger);
       auto success =
           add_image_embed_to_context(ctx, embedding, params.n_batch, &n_past);
       if (!success) {
-        std::cout << "[fllama] Unable to add image to context. Continuing to "
-                     "run inference anyway."
-                  << std::endl;
+        fllama_log("Unable to add image to context. Continuing to run inference "
+                   "anyway.",
+                   request.dart_logger);
       }
       llava_image_embed_free(embedding);
+      fllama_log("Added image #" + std::to_string(idx_embedding + 1) +
+                     " to context.",
+                 request.dart_logger);
     }
   }
 
+  fllama_log("Adding input to context...length: " +
+                 std::to_string(final_request_input.length()),
+             request.dart_logger);
   add_string_to_context(ctx, final_request_input.c_str(), params.n_batch,
                         &n_past, add_bos);
+  fllama_log("Added input to context.", request.dart_logger);
 
+  fllama_log("Initializing sampling context...", request.dart_logger);
   struct llama_sampling_context *ctx_sampling =
       llama_sampling_init(params.sparams);
+  fllama_log("Sampling context initialized.", request.dart_logger);
 
   const std::string eos_token_as_string =
       std::string(fflama_get_eos_token(request.model_path));
   bool has_valid_eos_token = eos_token_as_string.length() > 0;
   const int64_t context_setup_complete = ggml_time_ms();
-  std::cout << "[fllama] context setup complete & input added to context. Took "
-            << (context_setup_complete - start) << " ms." << std::endl;
+  fllama_log("Context setup complete & input added to context. Took " +
+                 std::to_string(context_setup_complete - start) + " ms.",
+             request.dart_logger);
 
   // 3. Generate tokens.
   // Reserve result string once to avoid an allocation in loop.
@@ -336,9 +369,6 @@ void _fllama_inference_sync(fllama_inference_request request,
   std::string printOutput = llama_sampling_print(params.sparams);
   std::string orderPrintOutput = llama_sampling_order_print(params.sparams);
   const float cfg_scale = params.sparams.cfg_scale;
-  fprintf(stderr, "%s\n", printOutput.c_str());
-  fprintf(stderr, "cfg_scale: %f\n", cfg_scale);
-  fprintf(stderr, "%s\n", orderPrintOutput.c_str());
 
   int n_gen = 0;
   bool potentially_eos =
@@ -346,6 +376,7 @@ void _fllama_inference_sync(fllama_inference_request request,
   std::string buffer; // Buffer to accumulate potential EOS token sequences
 
   const auto model_eos_token = llama_token_eos(model);
+  const int64_t start_t = ggml_time_ms();
   while (true) {
     const llama_token new_token_id =
         llama_sampling_sample(ctx_sampling, ctx, NULL);
@@ -398,7 +429,9 @@ void _fllama_inference_sync(fllama_inference_request request,
     // If we reach the maximum number of tokens or an eval fails, we should also
     // finish
     if (n_gen >= n_max_tokens) {
-      fprintf(stderr, "%s: Finish. Max tokens reached\n", __func__);
+      fllama_log("Finish. Max tokens reached (" + std::to_string(n_max_tokens) +
+                     ")",
+                 request.dart_logger);
       if (buffer.length() > 0) {
         result += buffer;
       }
@@ -406,11 +439,20 @@ void _fllama_inference_sync(fllama_inference_request request,
     }
 
     if (!add_token_to_context(ctx, new_token_id, &n_past)) {
+      fllama_log("Finish. Eval failed", request.dart_logger);
       fprintf(stderr, "%s: Finish. Eval failed\n", __func__);
       if (buffer.length() > 0) {
         result += buffer;
       }
       break;
+    }
+
+    // If greater than a second has passed, log the token creation.
+    const auto t_now = ggml_time_ms();
+    if (t_now - start_t > 1000) {
+      fprintf(stderr, "[fllama] generated %d tokens in %.2f s, speed: %.2f t/s\n",
+              n_gen, (t_now - start_t) / 1000.0,
+              n_gen / ((t_now - start_t) / 1000.0));
     }
 
     // Check for EOS on model tokens
@@ -445,6 +487,14 @@ void _fllama_inference_sync(fllama_inference_request request,
   // is a bunch of null characters: they look like 6 vertical lines stacked.
   std::strcpy(c_result, result.c_str());
   callback(/* response */ c_result, /* done */ true);
+    const auto t_now = ggml_time_ms();
+
+      fllama_log("Generated " + std::to_string(n_gen) + " tokens in " +
+                     std::to_string((t_now - start_t) / 1000.0) + " s, speed: " +
+                     std::to_string(n_gen / ((t_now - start_t) / 1000.0)) +
+                     " t/s.",
+                 request.dart_logger);
+
 
   // Log finished
   const auto t_main_end = ggml_time_ms();

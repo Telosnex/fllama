@@ -75,11 +75,11 @@ fllama_inference_request _toNative(FllamaInferenceRequest dart) {
   request.context_size = dart.contextSize;
   request.max_tokens = dart.maxTokens;
   request.num_gpu_layers = dart.numGpuLayers;
+  request.num_threads = dart.numThreads;
   request.temperature = dart.temperature;
   request.top_p = dart.topP;
   request.penalty_freq = dart.penaltyFrequency;
   request.penalty_repeat = dart.penaltyRepeat;
-
 
   // Convert the Dart string to a C string (null-terminated).
   Pointer<Utf8> inputCstr = dart.input.toNativeUtf8();

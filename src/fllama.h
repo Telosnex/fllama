@@ -22,6 +22,7 @@ struct fllama_inference_request
     char *model_path; // Required: .ggml model file path
     char *model_mmproj_path; // Optional: .mmproj file for multimodal models.
     int num_gpu_layers; // Required: number of GPU layers. 0 for CPU only. 99 for all layers. Automatically 0 on iOS simulator.
+    int num_threads; // Required: 2 recommended. Platforms can be highly sensitive to this, ex. Android stopped working with 4 suddenly.
     float temperature; // Optional: temperature. Defaults to 0. (llama.cpp behavior)
     float top_p; // Optional: 0 < top_p <= 1. Defaults to 1. (llama.cpp behavior)
     float penalty_freq; // Optional: 0 <= penalty_freq <= 1. Defaults to 0.0, which means disabled. (llama.cpp behavior)
