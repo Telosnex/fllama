@@ -53,122 +53,132 @@ class _MyAppState extends State<MyApp> {
         appBar: AppBar(
           title: const Text('fllama'),
         ),
-        body: SingleChildScrollView(
-          child: Container(
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: _openGgufPressed,
-                      icon: const Icon(Icons.file_open),
-                      label: const Text('Open .gguf'),
-                    ),
-                    if (_modelPath != null)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8.0),
-                        child: SelectableText(
-                          _modelPath!,
-                          style: textStyle,
-                        ),
+        body: Builder(builder: (context) {
+          return SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _openGgufPressed,
+                        icon: const Icon(Icons.file_open),
+                        label: const Text('Open .gguf'),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: _openMmprojGgufPressed,
-                      icon: const Icon(Icons.file_open),
-                      label: const Text('Open mmproj.gguf'),
-                    ),
-                    const SizedBox(width: 8),
-                    const Tooltip(
-                      message:
-                          'Optional:\nModels that can also process images, multimodal models, also come with a mmproj.gguf file.',
-                      child: Icon(Icons.info),
-                    ),
-                    if (_mmprojPath != null)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8.0),
-                        child: SelectableText(
-                          _mmprojPath!,
-                          style: textStyle,
+                      if (_modelPath != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: SelectableText(
+                            _modelPath!,
+                            style: textStyle,
+                          ),
                         ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _openMmprojGgufPressed,
+                        icon: const Icon(Icons.file_open),
+                        label: const Text('Open mmproj.gguf'),
                       ),
-                  ],
-                ),
-                spacerSmall,
-                if (_modelPath != null)
-                  TextField(
-                    controller: _controller,
-                  ),
-                if (_mmprojPath != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Row(
-                      children: [
-                        ElevatedButton.icon(
-                            onPressed: _openImagePressed,
-                            icon: const Icon(Icons.image),
-                            label: const Text('Open Image')),
-                        const SizedBox(
-                          width: 8,
+                      const SizedBox(width: 8),
+                      const Tooltip(
+                        message:
+                            'Optional:\nModels that can also process images, multimodal models, also come with a mmproj.gguf file.',
+                        child: Icon(Icons.info),
+                      ),
+                      if (_mmprojPath != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: SelectableText(
+                            _mmprojPath!,
+                            style: textStyle,
+                          ),
                         ),
-                        if (_imageBytes != null)
-                          Text('Attached: ${_imageBytes!.length} bytes',
-                              style: textStyle),
-                      ],
-                    ),
+                    ],
                   ),
-                const SizedBox(
-                  height: 8,
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    var messageText = _controller.text;
-                    final isMultimodal = _mmprojPath != null;
-                    if (isMultimodal && _imageBytes != null) {
-                      messageText =
-                          '<img src="data:image/jpeg;base64,${base64Encode(_imageBytes!)}">\n\n$messageText';
-                    }
-                    final request = FllamaInferenceRequest(
-                      maxTokens: 256,
-                      input: messageText,
-                      numGpuLayers: 99,
-                      modelPath: _modelPath!,
-                      penaltyFrequency: 0.0,
-                      // Don't use below 1.1, LLMs without a repeat penalty
-                      // will repeat the same token.
-                      penaltyRepeat: 1.1,
-                      topP: 1.0,
-                      contextSize: 2048,
-                      // Don't use 0.0, some models will repeat
-                      // the same token.
-                      temperature: 0.1,
-                      logger: (log) {
-                        // ignore: avoid_print
-                        print('[llama.cpp] $log');
-                      },
-                    );
-                    fllamaInferenceAsync(request,
-                        (String result, bool done) {
-                      setState(() {
-                        latestResult = result;
+                  spacerSmall,
+                  if (_modelPath != null)
+                    TextField(
+                      controller: _controller,
+                    ),
+                  if (_mmprojPath != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Row(
+                        children: [
+                          ElevatedButton.icon(
+                              onPressed: _openImagePressed,
+                              icon: const Icon(Icons.image),
+                              label: const Text('Open Image')),
+                          const SizedBox(
+                            width: 8,
+                          ),
+                          if (_imageBytes != null)
+                            Text('Attached: ${_imageBytes!.length} bytes',
+                                style: textStyle),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(
+                    height: 8,
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      if (_modelPath == null) {
+                        // Show a snackbar to the user.
+                        SnackBar snackBar = SnackBar(
+                          content: Text('Please open a .gguf file.'),
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(snackBar);
+                        return;
+                      }
+                      var messageText = _controller.text;
+                      final isMultimodal = _mmprojPath != null;
+                      if (isMultimodal && _imageBytes != null) {
+                        messageText =
+                            '<img src="data:image/jpeg;base64,${base64Encode(_imageBytes!)}">\n\n$messageText';
+                      }
+                      final request = FllamaInferenceRequest(
+                        maxTokens: 256,
+                        input: messageText,
+                        numGpuLayers: 99,
+                        modelPath: _modelPath!,
+                        penaltyFrequency: 0.0,
+                        // Don't use below 1.1, LLMs without a repeat penalty
+                        // will repeat the same token.
+                        penaltyRepeat: 1.1,
+                        topP: 1.0,
+                        contextSize: 2048,
+                        // Don't use 0.0, some models will repeat
+                        // the same token.
+                        temperature: 0.1,
+                        logger: (log) {
+                          // ignore: avoid_print
+                          print('[llama.cpp] $log');
+                        },
+                      );
+                      fllamaInferenceAsync(request, (String result, bool done) {
+                        setState(() {
+                          latestResult = result;
+                        });
                       });
-                    });
-                  },
-                  child: const Text('Run inference'),
-                ),
-                SelectableText(
-                  latestResult,
-                  style: textStyle,
-                ),
-              ],
+                    },
+                    child: const Text('Run inference'),
+                  ),
+                  SelectableText(
+                    latestResult,
+                    style: textStyle,
+                  ),
+                ],
+              ),
             ),
-          ),
+          );
+        }
         ),
       ),
     );
