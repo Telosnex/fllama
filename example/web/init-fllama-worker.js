@@ -27,10 +27,33 @@ function cleanup(messageId) {
 
 function fllamaInferenceAsyncJs(request, callback) {
   console.log('[fllamaInferenceAsyncJs] hello!', request);
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) =>  {
     const messageId = Math.random().toString(36).substring(2);
     fllamaMessageIdToResolve.set(messageId, resolve);
     fllamaMessageIdToReject.set(messageId, reject);
+
+    let blobFailed = false;
+    if (request.modelPath.startsWith('blob:')) {
+      // Handle the blob URL
+      console.log('[fllamaInferenceAsyncJs] Detected blob URL, processing it.', request.modelPath);
+      await fetch(request.modelPath)
+        .then(response => response.arrayBuffer())
+        .then(arrayBuffer => {
+          console.log("[fllamaInferenceAsyncJs] loaded blob arrayBuffer", arrayBuffer.byteLength, arrayBuffer.slice(0, 10));
+          request = Object.assign({}, request, { modelArrayBuffer: arrayBuffer });
+        })
+        .catch(error => {
+          blobFailed = true;
+          console.error('[fllamaInferenceAsyncJs] Error fetching blob:', error);
+        });
+    } else {
+      // If not a blob URL, proceed normally
+    }
+    if (blobFailed) {
+      reject(new Error('Failed to fetch blob model. Anonymous error during fetch(), the model is likely too large for the browser fetch() API'));
+      cleanup(messageId);
+      return;
+    }
     runLlamaWasm(request.modelPath, request, callback, messageId);
     console.log('[fllamaInferenceAsyncJs] posted message', request);
   });

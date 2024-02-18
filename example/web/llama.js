@@ -2,8 +2,9 @@ import { action } from "./llama-actions.js";
 
 class LlamaCpp {
     // callback have to be defined before load_worker
-    constructor(url, init_callback, write_result_callback, on_complete_callback) {
-        this.url = url;
+    constructor(request, init_callback, write_result_callback, on_complete_callback) {
+        this.url = request.modelPath;
+        this.modelSize = request.modelArrayBuffer ? request.modelArrayBuffer.byteLength : 0;
         this.init_callback = init_callback;
         this.write_result_callback = write_result_callback;
         this.on_complete_callback = on_complete_callback;
@@ -47,6 +48,7 @@ class LlamaCpp {
         this.worker.postMessage({
             event: action.LOAD,
             url: this.url,
+            modelSize: this.modelSize,
         });
     }
 

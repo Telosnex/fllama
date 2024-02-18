@@ -29,7 +29,7 @@ const runLlamaWasm = (modelUrl, request, callback, messageId) => {
   var accumulatedText = "";
 
   app = new LlamaCpp(
-    modelUrl,
+    request,
     () => {
       console.debug("[llama-app] onModelLoaded");
       console.debug("[llama-app] run for request", request);

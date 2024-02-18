@@ -53,7 +53,7 @@ const stderr = (c) => {
     }
 };
 
-const initWorker = async (modelPath) => {
+const initWorker = async (modelPath, modelSize) => {
     console.log("[llama-worker.js] initializing worker at model path ", modelPath);
 
     const emscrModule = {
@@ -91,7 +91,7 @@ const initWorker = async (modelPath) => {
         });
     }
     console.log("[llama-worker.js] Loading binary resource from model path ", modelPath);
-    loadBinaryResource(modelPath, initCallback);
+    loadBinaryResource(modelPath, modelSize, initCallback);
 }
 
 const run_main = (
@@ -152,9 +152,9 @@ self.addEventListener('message', (e) => {
     console.log("[llama-worker] Received message", e.data);
     switch (e.data.event) {
         case action.LOAD:
-            console.log("[llama-worker] initWorker loading model");
+            console.log("[llama-worker] action.LOAD calling init worker for data:", e.data);
             // load event
-            initWorker(e.data.url);
+            initWorker(e.data.url, e.data.modelSize);
             console.log("[llama-worker] initWorker loaded model");
             break;
         case action.RUN_MAIN:
@@ -162,10 +162,6 @@ self.addEventListener('message', (e) => {
                 console.error("[llama-worker] run_main returning early, module is undefined");
                 return;
             }
-            console.log("VFS /models Contents:");
-                module.FS.readdir('/models').forEach(file => {
-                console.log(file);
-            });
             console.log("[llama-worker] Running main");
             // run main
             run_main(
