@@ -131,7 +131,7 @@ class _MyAppState extends State<MyApp> {
                     onPressed: () async {
                       if (_modelPath == null) {
                         // Show a snackbar to the user.
-                        SnackBar snackBar = SnackBar(
+                        SnackBar snackBar = const SnackBar(
                           content: Text('Please open a .gguf file.'),
                         );
                         ScaffoldMessenger.of(context).showSnackBar(snackBar);
