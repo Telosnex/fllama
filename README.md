@@ -1,11 +1,10 @@
 <img src="fllama_header.png"
      alt="fllama image header, bird like Flutter mascot riding a llama. Text reads: FLLAMA. Run cutting-edge, free, large language models. Near ChatGPT quality. On any platform.
-     iOS, macOS, Android, Windows, Linux. Metal GPU support."
+     iOS, macOS, Android, Windows, Linux, and Web. Metal GPU support."
      style="float: left; margin-right: 0px;" />
 
-- Everywhere (except web)
-- Fast: exceeds average reading speed on all platforms.
-  - GPU acceleration via Metal on iOS and Mac.
+- Everywhere: web, iOS, macOS, Android, Windows, Linux.
+- Fast: exceeds average reading speed on all platforms except web.
 - Private: No network connection, server, cloud required.
 - Forward compatible: Any model compatible with llama.cpp. (so, every model.)
 - Use with FONNX for RAG
