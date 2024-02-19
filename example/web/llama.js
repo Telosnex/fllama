@@ -64,6 +64,7 @@ class LlamaCpp {
         top_k=40,
         top_p=0.9,
         no_display_prompt=true,
+        grammar,
     }={}) {
         this.worker.postMessage({
             event: action.RUN_MAIN,
@@ -77,6 +78,7 @@ class LlamaCpp {
             top_k,
             top_p,
             no_display_prompt,
+            grammar
         });
     }
 }

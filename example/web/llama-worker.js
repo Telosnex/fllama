@@ -104,7 +104,8 @@ const run_main = (
     n_gpu_layers,
     top_k,
     top_p,
-    no_display_prompt
+    no_display_prompt,
+    grammar,
 ) => {
     const args = [
         "--model", model_path,
@@ -130,6 +131,10 @@ const run_main = (
 
     if (no_display_prompt) {
         args.push("--no-display-prompt");
+    }
+    if (grammar) {
+        args.push("--grammar");
+        args.push(grammar);
     }
     console.log("[llama-worker] Running main with args ", args);
 
@@ -175,6 +180,7 @@ self.addEventListener('message', (e) => {
                 e.data.top_k,
                 e.data.top_p,
                 e.data.no_display_prompt,
+                e.data.grammar
             );
 
             break;

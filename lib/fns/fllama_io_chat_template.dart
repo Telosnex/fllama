@@ -1,5 +1,6 @@
 import 'package:fllama/fllama_io.dart';
 import 'package:fllama/fns/fllama_io_helpers.dart';
+import 'package:fllama/fns/fllama_universal.dart';
 
 // Returns empty string if no template provided / error when loading model.
 // Cases:
@@ -25,10 +26,15 @@ import 'package:fllama/fns/fllama_io_helpers.dart';
 String fllamaGetChatTemplate(String modelPath) {
   final pointerChar =
       fllamaBindings.fflama_get_chat_template(stringToPointerChar(modelPath));
-  return pointerCharToString(pointerChar);
+  final builtInChatTemplate = pointerCharToString(pointerChar);
+  return fllamaSanitizeChatTemplate(builtInChatTemplate);
 }
 
 String fllamaGetEosToken(String modelPath) {
+  final template = fllamaGetChatTemplate(modelPath);
+  if (template == chatMlTemplate) {
+    return '<|im_end|>';
+  }
   final pointerChar =
       fllamaBindings.fflama_get_eos_token(stringToPointerChar(modelPath));
   return pointerCharToString(pointerChar);

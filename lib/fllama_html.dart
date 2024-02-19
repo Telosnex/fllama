@@ -28,14 +28,13 @@ class JSFllamaInferenceRequest {
     required double penaltyFrequency,
     required double penaltyRepeat,
     required double topP,
-
+    String? grammar,
     // MISSING: grammar, logger
   });
 }
 
 Future<String> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
     FllamaInferenceCallback callback) async {
-
   final jsRequest = JSFllamaInferenceRequest(
     contextSize: dartRequest.contextSize,
     input: dartRequest.input,
@@ -48,8 +47,10 @@ Future<String> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
     penaltyFrequency: dartRequest.penaltyFrequency,
     penaltyRepeat: dartRequest.penaltyRepeat,
     topP: dartRequest.topP,
+    grammar: dartRequest.grammar,
   );
-  print('[fllama_html] calling fllamaInferenceAsyncJs with JSified request: $jsRequest');
+  print(
+      '[fllama_html] calling fllamaInferenceAsyncJs with JSified request: $jsRequest');
 
   fllamaInferenceAsyncJs(jsRequest, allowInterop((String response, bool done) {
     callback(response, done);
@@ -57,18 +58,4 @@ Future<String> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
   return '';
 }
 
-String fllamaGetChatTemplate(String modelPath) {
-  print('[fllama_html] called fllamaGetChatTemplate');
-  return '';
-}
 
-String fllamaGetEosToken(String modelPath) {
-  print('web called fllamaGetEosToken');
-  return '';
-}
-
-Future<String> fllamaChatCompletionAsync(
-    OpenAiRequest openAiRequest, FllamaInferenceCallback callback) async {
-  print('web called fllamaChatCompletionAsync');
-  return 'fllamaChatCompletionAsync';
-}
