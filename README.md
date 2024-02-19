@@ -116,3 +116,11 @@ fllamaInferenceAsync(request, (String result, bool done) {
   return url;
 }
 ```
+
+# Licensing
+
+FLLAMA is licensed under a dual-license model.
+
+The code as-is on GitHub is licensed under GPL v2. That requires distribution of the integrating app's source code, and this is unlikely to be desirable for commercial entities. See LICENSE.md.
+
+Commercial licenses are also available. Contact info@telosnex.com. Expect very fair terms: our intent is to charge only entities, with a launched app, making a lot of money, with FLLAMA as a core dependency. The base agreement is here: https://github.com/lawndoc/dual-license-templates/blob/main/pdf/Basic-Yearly.pdf
