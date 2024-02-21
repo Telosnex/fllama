@@ -372,7 +372,8 @@ void _fllama_inference_sync(fllama_inference_request request,
   std::string buffer; // Buffer to accumulate potential EOS token sequences
 
   const auto model_eos_token = llama_token_eos(model);
-  const int64_t start_t = ggml_time_ms();
+  const int64_t start_t = ggml_time_ms(); 
+  int64_t t_last = start_t;
   while (true) {
     const llama_token new_token_id =
         llama_sampling_sample(ctx_sampling, ctx, NULL);
@@ -445,10 +446,11 @@ void _fllama_inference_sync(fllama_inference_request request,
 
     // If greater than a second has passed, log the token creation.
     const auto t_now = ggml_time_ms();
-    if (t_now - start_t > 1000) {
+    if (t_now - t_last > 1000) {
       fprintf(stderr, "[fllama] generated %d tokens in %.2f s, speed: %.2f t/s\n",
               n_gen, (t_now - start_t) / 1000.0,
               n_gen / ((t_now - start_t) / 1000.0));
+      t_last = t_now;
     }
 
     // Check for EOS on model tokens
