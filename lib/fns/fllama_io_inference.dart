@@ -66,7 +66,7 @@ final Map<int, Completer<String>> _isolateInferenceRequests =
 final Map<int, FllamaInferenceCallback> _isolateInferenceCallbacks =
     <int, FllamaInferenceCallback>{};
 
-fllama_inference_request _toNative(FllamaInferenceRequest dart) {
+Pointer<fllama_inference_request> _toNative(FllamaInferenceRequest dart) {
   // Allocate memory for the request structure.
   final Pointer<fllama_inference_request> requestPointer =
       calloc<fllama_inference_request>();
@@ -101,11 +101,12 @@ fllama_inference_request _toNative(FllamaInferenceRequest dart) {
         dart.logger!(pointerCharToString(responsePointer));
       }
     }
-     final NativeCallable<FllamaLogCallbackNative> callback =
+
+    final NativeCallable<FllamaLogCallbackNative> callback =
         NativeCallable<FllamaLogCallbackNative>.listener(onResponse);
     request.dart_logger = callback.nativeFunction;
   }
-  return request;
+  return requestPointer;
 }
 
 /// The SendPort belonging to the helper isolate.
@@ -155,6 +156,8 @@ Future<SendPort> _helperIsolateSendPort = () async {
                 'Unsupported message type: ${data.runtimeType}');
           }
 
+          final nativeRequestPointer = _toNative(data.request);
+          final nativeRequest = nativeRequestPointer.ref;
           late final NativeCallable<NativeInferenceCallback> callback;
           void onResponse(Pointer<Char> responsePointer, int done) {
             // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
@@ -186,12 +189,24 @@ Future<SendPort> _helperIsolateSendPort = () async {
             final _IsolateInferenceResponse response =
                 _IsolateInferenceResponse(data.id, decodedString, done == 1);
             sendPort.send(response);
+            if (done == 1) {
+              calloc.free(nativeRequest.input);
+              calloc.free(nativeRequest.model_path);
+              if (nativeRequest.grammar != nullptr) {
+                calloc.free(nativeRequest.grammar);
+              }
+              if (nativeRequest.model_mmproj_path != nullptr) {
+                calloc.free(nativeRequest.model_mmproj_path);
+              }
+              calloc.free(nativeRequestPointer);
+            }
           }
 
           callback =
               NativeCallable<NativeInferenceCallback>.listener(onResponse);
+
           fllamaBindings.fllama_inference(
-            _toNative(data.request),
+            nativeRequest,
             callback.nativeFunction,
           );
         } catch (e, s) {
