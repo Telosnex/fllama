@@ -647,7 +647,7 @@ const char *fflama_get_chat_template(const char *fname) {
       return ""; // Value is null.
     }
   }
-
+  gguf_free(ctx);
   // Should not reach here.
   return ""; // Just to avoid compiler warning.
 }
@@ -755,6 +755,7 @@ const char *fflama_get_eos_token(const char *fname) {
   // Copy the contents of `word` to the allocated memory.
   std::strcpy(heapWord, word.c_str());
 
+  gguf_free(ctx);
   // Return the pointer to the caller. The caller must `delete[]` this memory.
   return heapWord;
 }
