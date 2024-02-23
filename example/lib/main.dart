@@ -143,15 +143,53 @@ class _MyAppState extends State<MyApp> {
                         messageText =
                             '<img src="data:image/jpeg;base64,${base64Encode(_imageBytes!)}">\n\n$messageText';
                       }
-                      final request = FllamaInferenceRequest(
+                      // 2 choices:
+                      // 1. Inference directly. Chat template is *not* applied.
+                      //    A chat template defines start/end sigils for
+                      //    messages, which causes the model to recognize a
+                      //    a conversation.
+                      //
+                      // 2. Inference with chat template.
+
+                      // 1. Inference directly.
+                      // final request = FllamaInferenceRequest(
+                      //   maxTokens: 256,
+                      //   input: messageText,
+                      //   numGpuLayers: 99,
+                      //   modelPath: _modelPath!,
+                      //   penaltyFrequency: 0.0,
+                      //   // Don't use below 1.1, LLMs without a repeat penalty
+                      //   // will repeat the same token.
+                      //   penaltyRepeat: 1.1,
+                      //   topP: 1.0,
+                      //   contextSize: 2048,
+                      //   // Don't use 0.0, some models will repeat
+                      //   // the same token.
+                      //   temperature: 0.1,
+                      //   logger: (log) {
+                      //     // ignore: avoid_print
+                      //     print('[llama.cpp] $log');
+                      //   },
+                      // );
+                      // fllamaInferenceAsync(request, (String result, bool done) {
+                      //   setState(() {
+                      //     latestResult = result;
+                      //   });
+                      // });
+
+                      // 2. Inference with chat template.
+                      final request = OpenAiRequest(
                         maxTokens: 256,
-                        input: messageText,
+                        messages: [
+                          Message(Role.system, 'You are a chatbot.'),
+                          Message(Role.user, messageText),
+                        ],
                         numGpuLayers: 99,
                         modelPath: _modelPath!,
-                        penaltyFrequency: 0.0,
+                        frequencyPenalty: 0.0,
                         // Don't use below 1.1, LLMs without a repeat penalty
                         // will repeat the same token.
-                        penaltyRepeat: 1.1,
+                        presencePenalty: 1.1,
                         topP: 1.0,
                         contextSize: 2048,
                         // Don't use 0.0, some models will repeat
@@ -162,9 +200,9 @@ class _MyAppState extends State<MyApp> {
                           print('[llama.cpp] $log');
                         },
                       );
-                      fllamaInferenceAsync(request, (String result, bool done) {
+                      fllamaChatCompletionAsync(request, (response, done) {
                         setState(() {
-                          latestResult = result;
+                          latestResult = response;
                         });
                       });
                     },
@@ -178,8 +216,7 @@ class _MyAppState extends State<MyApp> {
               ),
             ),
           );
-        }
-        ),
+        }),
       ),
     );
   }
