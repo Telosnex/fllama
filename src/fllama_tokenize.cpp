@@ -27,7 +27,7 @@
 std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path);
 // End tokenizer model caching predeclarations
 
-FFI_PLUGIN_EXPORT extern "C" void
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT extern "C" void
 fllama_tokenize(struct fllama_tokenize_request request,
                 fllama_tokenize_callback callback) {
  /* DISABLED: Model load logs.

@@ -1,6 +1,12 @@
 #ifndef FLLAMA_TOKENIZE_H
 #define FLLAMA_TOKENIZE_H
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#else
+#define EMSCRIPTEN_KEEPALIVE
+#endif
+
 #if _WIN32
 #define FFI_PLUGIN_EXPORT __declspec(dllexport)
 #else
@@ -20,7 +26,7 @@ struct fllama_tokenize_request
     char *model_path; // Required: .ggml model file path
 };
 
-FFI_PLUGIN_EXPORT void fllama_tokenize(struct fllama_tokenize_request request, fllama_tokenize_callback callback);
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_tokenize(struct fllama_tokenize_request request, fllama_tokenize_callback callback);
 #ifdef __cplusplus
 }
 #endif
