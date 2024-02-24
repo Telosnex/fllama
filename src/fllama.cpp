@@ -32,6 +32,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cinttypes>
 #include <cmath>
 #include <condition_variable>
@@ -70,6 +71,9 @@ static std::string remove_all_images_from_prompt(const std::string &prompt,
                                                  const char *replacement = "");
 // End of pre-declared multimodal stuff
 
+// Tokenizer model caching predeclarations
+std::shared_ptr<llama_model> get_or_load_model(const std::string &model_path);
+// End tokenizer model caching predeclarations
 static bool add_tokens_to_context(struct llama_context *ctx_llama,
                                   std::vector<llama_token> tokens, int n_batch,
                                   int *n_past) {
@@ -584,33 +588,43 @@ fllama_inference(fllama_inference_request request,
 FFI_PLUGIN_EXPORT extern "C" void
 fllama_tokenize(struct fllama_tokenize_request request,
                 fllama_tokenize_callback callback) {
-  gpt_params params;
-  params.n_ctx = 0;
-  params.n_batch = 0;
-  params.n_predict = 0;
-  params.sparams.temp = 0;
-  std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
-                                              llama_sampler_type::TEMP};
-  params.sparams.samplers_sequence = samplers;
-  params.sparams.top_p = 0;
-  params.model = request.model_path;
-  params.n_gpu_layers = 0;
-  llama_backend_init(params.numa);
-  llama_model *model;
-  llama_context *ctx;
-  std::tie(model, ctx) = llama_init_from_gpt_params(params);
-  if (model == NULL || ctx == NULL) {
+ /* DISABLED: Model load logs.
+  auto start_time_model_load = std::chrono::high_resolution_clock::now();
+*/
+  llama_log_set(
+      [](enum ggml_log_level level, const char *text, void *user_data) {
+        // do nothing. intent is to avoid ~50 lines of log spam with model
+        // config when tokenizing
+      },
+      NULL);
+  // Model caching avoids O(100 ms) cost for every tokenize request.
+  llama_model *model = get_or_load_model(request.model_path).get();
+  if (!model) {
     std::cout << "[fllama] Unable to load model." << std::endl;
-    if (model != NULL) {
-      llama_free_model(model);
-    }
     callback(-1);
     return;
   }
+  
+  // 50 ms for initial load of 2 GB model, ~^10^-5 for cache hit.
+/* DISABLED: Model load logs.
+  auto end_time_model_load = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double, std::milli> model_load_duration =
+      end_time_model_load - start_time_model_load;
+  std::cout << "[fllama] Model loading took: " << model_load_duration.count() << " ms." << std::endl;
+*/
+
+/* DISABLED: Tokenization logs.
+  auto start_time_tokenize = std::chrono::high_resolution_clock::now();
+*/
   std::vector<llama_token> tokens_list;
   tokens_list = ::llama_tokenize(model, request.input, true);
-  std::cout << "[fllama] Input token count: " << tokens_list.size()
-            << std::endl;
+/* DISABLED: Tokenization logs.
+  // auto end_time_tokenize = std::chrono::high_resolution_clock::now();
+  // std::chrono::duration<double, std::milli> tokenize_duration =
+  //     end_time_tokenize - start_time_tokenize;
+  // std::cout << "[fllama] Tokenization took: " << tokenize_duration.count()
+  //           << " ms. Input token count: " << tokens_list.size() << std::endl;
+*/
   callback(tokens_list.size());
 }
 
@@ -639,8 +653,10 @@ const char *fflama_get_chat_template(const char *fname) {
       // If keyValue is not null, assign our result to the key value.
       result = keyValue;
     } else {
-      // Key was found, but it doesn't have an associated string value, or the value is null.
-      printf("%s: key '%s' found, but it has no associated string value or value is null.\n",
+      // Key was found, but it doesn't have an associated string value, or the
+      // value is null.
+      printf("%s: key '%s' found, but it has no associated string value or "
+             "value is null.\n",
              __func__, targetKey);
       // result already initialized to "", so just leave it as it is.
     }
@@ -648,8 +664,9 @@ const char *fflama_get_chat_template(const char *fname) {
     printf("%s: key '%s' not found.\n", __func__, targetKey);
     // result already initialized to "", so just leave it as it is.
   }
-  
-  // Assuming gguf_free(ctx) should be called regardless of the conditional branches above.
+
+  // Assuming gguf_free(ctx) should be called regardless of the conditional
+  // branches above.
   ggml_free(meta);
   gguf_free(ctx);
 
@@ -904,4 +921,76 @@ static std::string remove_all_images_from_prompt(const std::string &prompt,
     modified_prompt = pre + replacement + post;
   }
   return modified_prompt;
+}
+
+#pragma mark - Caching models for tokenizer
+struct ModelCacheEntry {
+  std::shared_ptr<llama_model> model;
+  std::chrono::steady_clock::time_point last_access;
+};
+
+std::mutex cache_mutex;
+std::unordered_map<std::string, ModelCacheEntry> model_cache;
+
+void cleanup_cache() {
+  auto now = std::chrono::steady_clock::now();
+  std::vector<std::string> to_erase;
+
+  for (const auto &entry : model_cache) {
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+        now - entry.second.last_access);
+    if (elapsed.count() > 30) {
+      to_erase.push_back(entry.first);
+    }
+  }
+
+  for (const auto &key : to_erase) {
+    model_cache.erase(key);
+  }
+}
+
+std::shared_ptr<llama_model> get_or_load_model(const std::string &model_path) {
+  std::lock_guard<std::mutex> lock(cache_mutex);
+  cleanup_cache();
+
+  auto iter = model_cache.find(model_path);
+  if (iter != model_cache.end()) {
+    iter->second.last_access = std::chrono::steady_clock::now();
+    return iter->second.model;
+  } else {
+    gpt_params params;
+    params.n_ctx = 0;
+    params.n_batch = 0;
+    params.n_predict = 0;
+    params.sparams.temp = 0;
+    std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
+                                                llama_sampler_type::TEMP};
+    params.sparams.samplers_sequence = samplers;
+    params.sparams.top_p = 0;
+    params.model = model_path.c_str();
+    params.n_gpu_layers = 0;
+    llama_model_params mparams = llama_model_params_from_gpt_params(params);
+    mparams.vocab_only = true;
+    llama_backend_init(params.numa);
+    // Using llama_load_model_from_file instead of llama_init_from_gpt_params
+    // avoided a crash when tokenization was called in quick succession without
+    // this caching mechanism in place.
+    //
+    // It seems wise to continue using llama_load_model_from_file for tokenization,
+    // as after viewing the call chain, the resource allocation load is lower.
+    llama_model *raw_model =
+        llama_load_model_from_file(model_path.c_str(), mparams);
+
+    if (raw_model == nullptr) {
+      return nullptr;
+    }
+
+    // Create a shared_ptr with custom deleter
+    std::shared_ptr<llama_model> model(
+        raw_model, [](llama_model *ptr) { llama_free_model(ptr); });
+
+    model_cache[model_path] = {model, std::chrono::steady_clock::now()};
+    llama_backend_free();
+    return model;
+  }
 }
