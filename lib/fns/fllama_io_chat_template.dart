@@ -1,3 +1,6 @@
+import 'dart:ffi';
+
+import 'package:ffi/ffi.dart';
 import 'package:fllama/fllama_io.dart';
 import 'package:fllama/fns/fllama_io_helpers.dart';
 import 'package:fllama/fns/fllama_universal.dart';
@@ -24,10 +27,17 @@ import 'package:fllama/fns/fllama_universal.dart';
 // {% endif %}
 // {% endfor %}
 String fllamaGetChatTemplate(String modelPath) {
-  final pointerChar =
-      fllamaBindings.fflama_get_chat_template(stringToPointerChar(modelPath));
-  final builtInChatTemplate = pointerCharToString(pointerChar);
-  return fllamaSanitizeChatTemplate(builtInChatTemplate);
+  final filenamePointer = stringToPointerChar(modelPath);
+  final templatePointer =
+      fllamaBindings.fflama_get_chat_template(filenamePointer);
+  if (templatePointer == nullptr) {
+    calloc.free(filenamePointer);
+    return '';
+  }
+  final builtInChatTemplate = pointerCharToString(templatePointer);
+  final answer = fllamaSanitizeChatTemplate(builtInChatTemplate);
+  calloc.free(filenamePointer);
+  return answer;
 }
 
 String fllamaGetEosToken(String modelPath) {
@@ -35,7 +45,8 @@ String fllamaGetEosToken(String modelPath) {
   if (template == chatMlTemplate) {
     return '<|im_end|>';
   }
-  final pointerChar =
-      fllamaBindings.fflama_get_eos_token(stringToPointerChar(modelPath));
+  final filenamePointer = stringToPointerChar(modelPath);
+  final pointerChar = fllamaBindings.fflama_get_eos_token(filenamePointer);
+  calloc.free(filenamePointer);
   return pointerCharToString(pointerChar);
 }

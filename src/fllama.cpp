@@ -628,29 +628,32 @@ const char *fflama_get_chat_template(const char *fname) {
     return ""; // Return NULL to indicate failure to load or find the value.
   }
 
+  const char *result = "";
+
   const char *targetKey = "tokenizer.chat_template";
   const int keyidx = gguf_find_key(ctx, targetKey);
-  if (keyidx < 0) {
-    printf("%s: key '%s' not found.\n", __func__, targetKey);
-    return ""; // Key not found.
-  } else {
+
+  if (keyidx >= 0) { // Key found.
     const char *keyValue = gguf_get_val_str(ctx, keyidx);
     if (keyValue) {
-      // If keyValue is not null, we've found our string value. Return it
-      // directly.
-      return keyValue;
+      // If keyValue is not null, assign our result to the key value.
+      result = keyValue;
     } else {
-      // Key was found, but it doesn't have an associated string value, or the
-      // value is null.
-      printf("%s: key '%s' found, but it has no associated string value or "
-             "value is null.\n",
+      // Key was found, but it doesn't have an associated string value, or the value is null.
+      printf("%s: key '%s' found, but it has no associated string value or value is null.\n",
              __func__, targetKey);
-      return ""; // Value is null.
+      // result already initialized to "", so just leave it as it is.
     }
+  } else {
+    printf("%s: key '%s' not found.\n", __func__, targetKey);
+    // result already initialized to "", so just leave it as it is.
   }
+  
+  // Assuming gguf_free(ctx) should be called regardless of the conditional branches above.
+  ggml_free(meta);
   gguf_free(ctx);
-  // Should not reach here.
-  return ""; // Just to avoid compiler warning.
+
+  return result;
 }
 
 static int gguf_data_to_int(enum gguf_type type, const void *data, int i) {
@@ -756,6 +759,7 @@ const char *fflama_get_eos_token(const char *fname) {
   // Copy the contents of `word` to the allocated memory.
   std::strcpy(heapWord, word.c_str());
 
+  ggml_free(meta);
   gguf_free(ctx);
   // Return the pointer to the caller. The caller must `delete[]` this memory.
   return heapWord;
