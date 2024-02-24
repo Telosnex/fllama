@@ -1,9 +1,9 @@
 #include "fllama.h"
+#include "clip.h"
 #include "fllama_chat_template.h"
 #include "fllama_eos.h"
 #include "fllama_inference_queue.h"
 #include "fllama_llava.h"
-#include "clip.h"
 #include "llava.h"
 
 // LLaMA.cpp cross-platform support
@@ -58,16 +58,15 @@
 #pragma warning(disable : 4244 4267) // possible loss of data
 #endif
 
-// Multimodal stuff that needs to be pre-declared up top so there aren't
-// compilation errors due to method order.
-static std::vector<llava_image_embed *>
-llava_image_embed_make_with_prompt_base64(struct clip_ctx *ctx_clip,
-                                          int n_threads,
-                                          const std::string &prompt);
-static bool prompt_contains_image(const std::string &prompt);
-static std::string remove_all_images_from_prompt(const std::string &prompt,
-                                                 const char *replacement = "");
-// End of pre-declared multimodal stuff
+static InferenceQueue global_inference_queue;
+
+void fllama_inference(fllama_inference_request request,
+                      fllama_inference_callback callback) {
+  std::cout << "[fllama] Hello from fllama.cpp! Queueing your request."
+            << std::endl;
+  global_inference_queue.enqueue(request, callback);
+}
+
 static bool add_tokens_to_context(struct llama_context *ctx_llama,
                                   std::vector<llama_token> tokens, int n_batch,
                                   int *n_past) {
@@ -85,7 +84,6 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
   return true;
 }
 
-
 static bool add_token_to_context(struct llama_context *ctx_llama, int id,
                                  int *n_past) {
   std::vector<llama_token> tokens;
@@ -101,9 +99,6 @@ static bool add_string_to_context(struct llama_context *ctx_llama,
       ::llama_tokenize(ctx_llama, str2, add_bos);
   return add_tokens_to_context(ctx_llama, embd_inp, n_batch, n_past);
 }
-
-void _fllama_inference_sync(fllama_inference_request request,
-                            fllama_inference_callback callback);
 
 static void log_callback_wrapper(enum ggml_log_level level, const char *text,
                                  void *user_data) {
@@ -127,7 +122,7 @@ void fllama_log(const std::string &message,
 }
 
 void fllama_inference_sync(fllama_inference_request request,
-                            fllama_inference_callback callback) {
+                           fllama_inference_callback callback) {
   // Setup parameters, then load the model and create a context.
   int64_t start = ggml_time_ms();
   std::cout << "[fllama] Inference thread start" << std::endl;
@@ -246,8 +241,7 @@ void fllama_inference_sync(fllama_inference_request request,
                    "with clip output"
                 << std::endl;
     }
-    final_request_input = remove_all_images_from_prompt(
-        request.input); // Updated to remove all images
+    final_request_input = remove_all_images_from_prompt(request.input, "");
   }
 
   int64_t model_load_end = ggml_time_ms();
@@ -313,7 +307,6 @@ void fllama_inference_sync(fllama_inference_request request,
   const char *eos_token_chars = fflama_get_eos_token(request.model_path);
   const std::string eos_token_as_string = std::string(eos_token_chars);
   free((void *)eos_token_chars);
-  bool has_valid_eos_token = eos_token_as_string.length() > 0;
   const int64_t context_setup_complete = ggml_time_ms();
   fllama_log("Context setup complete & input added to context. Took " +
                  std::to_string(context_setup_complete - start) + " ms.",
@@ -329,11 +322,8 @@ void fllama_inference_sync(fllama_inference_request request,
 
   std::string printOutput = llama_sampling_print(params.sparams);
   std::string orderPrintOutput = llama_sampling_order_print(params.sparams);
-  const float cfg_scale = params.sparams.cfg_scale;
 
   int n_gen = 0;
-  bool potentially_eos =
-      false; // Flag to indicate that we're potentially forming an EOS token
   std::string buffer; // Buffer to accumulate potential EOS token sequences
 
   const auto model_eos_token = llama_token_eos(model);
@@ -384,12 +374,8 @@ void fllama_inference_sync(fllama_inference_request request,
     }
 
     std::strcpy(c_result, result.c_str());
-    // fprintf(stderr, "c_result: %s\n", c_result);
-    // fprintf(stderr, "buffer: %s\n", buffer.c_str());
     callback(/* response */ c_result, /* done */ false);
-
-    // If we reach the maximum number of tokens or an eval fails, we should also
-    // finish
+    // If we reach the maximum number of tokens or an eval fails, finish.
     if (n_gen >= n_max_tokens) {
       fllama_log("Finish. Max tokens reached (" + std::to_string(n_max_tokens) +
                      ")",
@@ -409,7 +395,8 @@ void fllama_inference_sync(fllama_inference_request request,
       break;
     }
 
-    // If greater than a second has passed, log the token creation.
+    // If greater than a second has passed since last log, log
+    // the speed of generation.
     const auto t_now = ggml_time_ms();
     if (t_now - t_last > 1000) {
       fprintf(stderr,
@@ -461,7 +448,6 @@ void fllama_inference_sync(fllama_inference_request request,
   // Log finished
   const auto t_main_end = ggml_time_ms();
   const auto t_main = t_main_end - context_setup_complete;
-  fprintf(stderr, "[fllama] main loop took %f ms\n", t_main);
   LOG_TEE("%s: generated %d tokens in %.2f s, speed: %.2f t/s\n", __func__,
           n_gen, t_main / 1000.0,
           n_gen / ((t_main_end - context_setup_complete) / 1000.0));
@@ -479,16 +465,3 @@ void fllama_inference_sync(fllama_inference_request request,
   std::cout << "[fllama] freeing and thread end @ " << ggml_time_us()
             << std::endl;
 }
-
-// Global queue instance
-static InferenceQueue global_inference_queue;
-
-FFI_PLUGIN_EXPORT extern "C" void
-fllama_inference(fllama_inference_request request,
-                 fllama_inference_callback callback) {
-  std::cout << "[fllama] Hello from fllama.cpp! Queueing your request."
-            << std::endl;
-  global_inference_queue.enqueue(request, callback);
-}
-
-
