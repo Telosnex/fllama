@@ -188,6 +188,7 @@ class _MyAppState extends State<MyApp> {
                         ],
                         numGpuLayers: 99,
                         modelPath: _modelPath!,
+                        mmprojPath: _mmprojPath,
                         frequencyPenalty: 0.0,
                         // Don't use below 1.1, LLMs without a repeat penalty
                         // will repeat the same token.

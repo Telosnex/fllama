@@ -56,12 +56,6 @@
 
 // Multimodal stuff that needs to be pre-declared up top so there aren't
 // compilation errors due to method order.
-struct llava_context {
-  struct clip_ctx *ctx_clip = NULL;
-  struct llama_context *ctx_llama = NULL;
-  struct llama_model *model = NULL;
-};
-
 static std::vector<llava_image_embed *>
 llava_image_embed_make_with_prompt_base64(struct clip_ctx *ctx_clip,
                                           int n_threads,
@@ -274,11 +268,11 @@ void _fllama_inference_sync(fllama_inference_request request,
   // which is not a good idea. (O(100,000K) tokens)
   if (prompt_contains_img) {
     if (image_embeddings.empty()) {
-      std::cout << "Unable to create image embeddings, removing image "
+      std::cout << "[fllama] Unable to create image embeddings, removing image "
                    "data from prompt."
                 << std::endl;
     } else {
-      std::cout << "Images loaded, replacing image data in prompt "
+      std::cout << "[fllama] Images loaded, replacing image data in prompt "
                    "with clip output"
                 << std::endl;
     }
@@ -745,34 +739,6 @@ static const char *IMG_BASE64_TAG_BEGIN_PART2 =
     "base64,"; // Common for JPEG, PNG, and others
 static const char *IMG_BASE64_TAG_END = "\">";
 
-static void find_image_tag_in_prompt(const std::string &prompt,
-                                     size_t &begin_out, size_t &end_out) {
-  size_t begin_temp = prompt.find(IMG_BASE64_TAG_BEGIN_PART1);
-  if (begin_temp == std::string::npos) {
-    begin_out = std::string::npos;
-    end_out = std::string::npos;
-    return;
-  }
-
-  size_t format_end =
-      prompt.find(";", begin_temp + strlen(IMG_BASE64_TAG_BEGIN_PART1));
-  if (format_end == std::string::npos) {
-    begin_out = std::string::npos;
-    end_out = std::string::npos;
-    return;
-  }
-
-  size_t base64_start = prompt.find(IMG_BASE64_TAG_BEGIN_PART2, format_end);
-  if (base64_start == std::string::npos) {
-    begin_out = std::string::npos;
-    end_out = std::string::npos;
-    return;
-  }
-
-  begin_out = base64_start + strlen(IMG_BASE64_TAG_BEGIN_PART2);
-  end_out = prompt.find(IMG_BASE64_TAG_END, begin_out);
-}
-
 static std::vector<std::pair<size_t, size_t>>
 find_all_image_tags_in_prompt(const std::string &prompt) {
   std::vector<std::pair<size_t, size_t>> image_positions;
@@ -802,26 +768,7 @@ find_all_image_tags_in_prompt(const std::string &prompt) {
 }
 
 static bool prompt_contains_image(const std::string &prompt) {
-  size_t begin, end;
-  find_image_tag_in_prompt(prompt, begin, end);
-  return (begin != std::string::npos);
-}
-
-static std::vector<unsigned char>
-decode_base64_image(const std::string &base64_str) {
-  std::vector<unsigned char> img_bytes;
-  base64::decode(base64_str.begin(), base64_str.end(), img_bytes.begin());
-  return img_bytes;
-}
-
-static std::vector<unsigned char>
-extract_and_decode_image(const std::string &prompt) {
-  size_t img_base64_start, img_base64_end;
-  find_image_tag_in_prompt(prompt, img_base64_start, img_base64_end);
-  auto base64_str_start = img_base64_start;
-  auto base64_str =
-      prompt.substr(base64_str_start, img_base64_end - base64_str_start);
-  return decode_base64_image(base64_str);
+  return find_all_image_tags_in_prompt(prompt).size() > 0;
 }
 
 // replaces the base64 image tag in the prompt with `replacement`
@@ -847,18 +794,6 @@ llava_image_embed_make_with_prompt_base64(struct clip_ctx *ctx_clip,
     embeddings.push_back(embed);
   }
   return embeddings;
-}
-
-static std::string remove_image_from_prompt(const std::string &prompt,
-                                            const char *replacement) {
-  size_t begin, end;
-  find_image_tag_in_prompt(prompt, begin, end);
-  if (begin == std::string::npos || end == std::string::npos) {
-    return prompt;
-  }
-  auto pre = prompt.substr(0, begin);
-  auto post = prompt.substr(end + strlen(IMG_BASE64_TAG_END));
-  return pre + replacement + post;
 }
 
 static std::string remove_all_images_from_prompt(const std::string &prompt,
