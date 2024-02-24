@@ -1,0 +1,1 @@
+const char *fflama_get_eos_token(const char *fname);
