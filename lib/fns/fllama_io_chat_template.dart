@@ -46,7 +46,7 @@ String fllamaGetEosToken(String modelPath) {
     return '<|im_end|>';
   }
   final filenamePointer = stringToPointerChar(modelPath);
-  final pointerChar = fllamaBindings.fflama_get_eos_token(filenamePointer);
+  final pointerChar = fllamaBindings.fllama_get_eos_token(filenamePointer);
   calloc.free(filenamePointer);
   return pointerCharToString(pointerChar);
 }

@@ -25,9 +25,12 @@
 #include "llama.h"
 #endif
 
+#include "fllama_eos.h"
+
 static int gguf_data_to_int(enum gguf_type type, const void *data, int i);
 
-const char *fflama_get_eos_token(const char *fname) {
+extern "C" {
+EMSCRIPTEN_KEEPALIVE const char *fllama_get_eos_token(const char *fname) {
   struct ggml_context *meta = NULL;
 
   struct gguf_init_params params = {
@@ -84,7 +87,7 @@ const char *fflama_get_eos_token(const char *fname) {
   // Return the pointer to the caller. The caller must `delete[]` this memory.
   return heapWord;
 }
-
+}
 
 static int gguf_data_to_int(enum gguf_type type, const void *data, int i) {
   switch (type) {

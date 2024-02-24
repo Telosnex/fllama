@@ -30,7 +30,7 @@ Future<String> fllamaInferenceAsync(
     helperIsolateSendPort.send(isolateRequest);
   } catch (e) {
     // ignore: avoid_print
-    print('[fflama] ERROR sending request to helper isolate: $e');
+    print('[fllama] ERROR sending request to helper isolate: $e');
   }
   return completer.future;
 }

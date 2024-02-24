@@ -5,7 +5,12 @@ cmake_minimum_required(VERSION 3.10)
 
 project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 
-set(BUILD_SHARED_LIBS ON)
+if(EMSCRIPTEN)
+  set(BUILD_SHARED_LIBS OFF) # Emscripten does better with static libraries for WebAssembly
+  message(STATUS "Emscripten detected, switching to static libraries")
+else()
+  set(BUILD_SHARED_LIBS ON)
+endif()
 
 # Otherwise ex. Android build on macOS fails with `error: unknown target CPU 'cyclone'`
 set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
@@ -36,6 +41,8 @@ set_target_properties(fllama PROPERTIES
 
 target_compile_definitions(fllama PUBLIC DART_SHARED_LIB)
 target_include_directories(fllama PUBLIC .)
+add_executable(fllama_wasm fllama_wasm_entry.cpp)
+target_link_libraries(fllama_wasm fllama) # Link against your library
 target_link_libraries(fllama PUBLIC llama common)
 
 if(ANDROID)

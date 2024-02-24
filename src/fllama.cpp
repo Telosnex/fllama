@@ -304,7 +304,7 @@ void fllama_inference_sync(fllama_inference_request request,
   struct llama_sampling_context *ctx_sampling =
       llama_sampling_init(params.sparams);
   fllama_log("Sampling context initialized.", request.dart_logger);
-  const char *eos_token_chars = fflama_get_eos_token(request.model_path);
+  const char *eos_token_chars = fllama_get_eos_token(request.model_path);
   const std::string eos_token_as_string = std::string(eos_token_chars);
   free((void *)eos_token_chars);
   const int64_t context_setup_complete = ggml_time_ms();

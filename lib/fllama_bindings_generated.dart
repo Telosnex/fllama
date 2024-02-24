@@ -76,19 +76,19 @@ class FllamaBindings {
   late final _fllama_get_chat_template = _fllama_get_chat_templatePtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
-  ffi.Pointer<ffi.Char> fflama_get_eos_token(
+  ffi.Pointer<ffi.Char> fllama_get_eos_token(
     ffi.Pointer<ffi.Char> fname,
   ) {
-    return _fflama_get_eos_token(
+    return _fllama_get_eos_token(
       fname,
     );
   }
 
-  late final _fflama_get_eos_tokenPtr = _lookup<
+  late final _fllama_get_eos_tokenPtr = _lookup<
       ffi.NativeFunction<
           ffi.Pointer<ffi.Char> Function(
-              ffi.Pointer<ffi.Char>)>>('fflama_get_eos_token');
-  late final _fflama_get_eos_token = _fflama_get_eos_tokenPtr
+              ffi.Pointer<ffi.Char>)>>('fllama_get_eos_token');
+  late final _fllama_get_eos_token = _fllama_get_eos_tokenPtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
   void fllama_tokenize(
