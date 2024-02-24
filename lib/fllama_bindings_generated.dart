@@ -44,6 +44,23 @@ class FllamaBindings {
   late final _fllama_inference = _fllama_inferencePtr.asFunction<
       void Function(fllama_inference_request, fllama_inference_callback)>();
 
+  void fllama_inference_sync(
+    fllama_inference_request request,
+    fllama_inference_callback callback,
+  ) {
+    return _fllama_inference_sync(
+      request,
+      callback,
+    );
+  }
+
+  late final _fllama_inference_syncPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(fllama_inference_request,
+              fllama_inference_callback)>>('fllama_inference_sync');
+  late final _fllama_inference_sync = _fllama_inference_syncPtr.asFunction<
+      void Function(fllama_inference_request, fllama_inference_callback)>();
+
   ffi.Pointer<ffi.Char> fflama_get_chat_template(
     ffi.Pointer<ffi.Char> fname,
   ) {
@@ -110,11 +127,13 @@ final class fllama_inference_request extends ffi.Struct {
   /// Optional: .mmproj file for multimodal models.
   external ffi.Pointer<ffi.Char> model_mmproj_path;
 
-  /// Required: number of GPU layers. 0 for CPU only. 99 for all layers. Automatically 0 on iOS simulator.
+  /// Required: number of GPU layers. 0 for CPU only. 99 for
+  /// all layers. Automatically 0 on iOS simulator.
   @ffi.Int()
   external int num_gpu_layers;
 
-  /// Required: 2 recommended. Platforms can be highly sensitive to this, ex. Android stopped working with 4 suddenly.
+  /// Required: 2 recommended. Platforms can be highly sensitive
+  /// to this, ex. Android stopped working with 4 suddenly.
   @ffi.Int()
   external int num_threads;
 
@@ -126,15 +145,19 @@ final class fllama_inference_request extends ffi.Struct {
   @ffi.Float()
   external double top_p;
 
-  /// Optional: 0 <= penalty_freq <= 1. Defaults to 0.0, which means disabled. (llama.cpp behavior)
+  /// Optional: 0 <= penalty_freq <= 1. Defaults to 0.0,
+  /// which means disabled. (llama.cpp behavior)
   @ffi.Float()
   external double penalty_freq;
 
-  /// Optional: 0 <= penalty_repeat <= 1. Defaults to 1.0, which means disabled. (llama.cpp behavior)
+  /// Optional: 0 <= penalty_repeat <= 1. Defaults to 1.0,
+  /// which means disabled. (llama.cpp behavior)
   @ffi.Float()
   external double penalty_repeat;
 
-  /// Optional: BNF-like grammar to constrain sampling. Defaults to "" (llama.cpp behavior). See https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
+  /// Optional: BNF-like grammar to constrain sampling. Defaults to
+  /// "" (llama.cpp behavior). See
+  /// https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
   external ffi.Pointer<ffi.Char> grammar;
 
   /// Optional: Dart caller logger. Defaults to NULL.

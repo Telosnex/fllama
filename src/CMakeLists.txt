@@ -20,6 +20,7 @@ add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)
 
 add_library(fllama SHARED
   "fllama_eos.cpp"
+  "fllama_inference_queue.cpp"
   "fllama_llava.cpp"
   "fllama_tokenize.cpp"
   "fllama.cpp"

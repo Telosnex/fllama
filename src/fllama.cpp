@@ -1,4 +1,5 @@
 #include "fllama.h"
+#include "fllama_inference_queue.h"
 #include "fllama_llava.h"
 #include "clip.h"
 #include "llava.h"
@@ -123,7 +124,7 @@ void fllama_log(const std::string &message,
   fllama_log(message.c_str(), dart_logger);
 }
 
-void _fllama_inference_sync(fllama_inference_request request,
+void fllama_inference_sync(fllama_inference_request request,
                             fllama_inference_callback callback) {
   // Setup parameters, then load the model and create a context.
   int64_t start = ggml_time_ms();
@@ -476,60 +477,6 @@ void _fllama_inference_sync(fllama_inference_request request,
   std::cout << "[fllama] freeing and thread end @ " << ggml_time_us()
             << std::endl;
 }
-
-class InferenceQueue {
-public:
-  InferenceQueue()
-      : done(false), worker(&InferenceQueue::process_inference, this) {}
-
-  ~InferenceQueue() {
-    // Signal termination and cleanup
-    {
-      std::lock_guard<std::mutex> lock(mutex);
-      done = true;
-    }
-    cond_var.notify_one();
-    if (worker.joinable()) {
-      worker.join();
-    }
-  }
-
-  void enqueue(fllama_inference_request request,
-               fllama_inference_callback callback) {
-    {
-      std::lock_guard<std::mutex> lock(mutex);
-      tasks.emplace(
-          [request, callback]() { _fllama_inference_sync(request, callback); });
-    }
-    cond_var.notify_one();
-  }
-
-private:
-  void process_inference() {
-    while (true) {
-      std::function<void()> task;
-      {
-        std::unique_lock<std::mutex> lock(mutex);
-        cond_var.wait(lock, [this] { return !tasks.empty() || done; });
-        if (done && tasks.empty())
-          break;
-        task = std::move(tasks.front());
-        tasks.pop();
-      }
-      try {
-        task();
-      } catch (const std::exception &e) {
-        std::cout << "[fllama] Exception: " << e.what() << std::endl;
-      }
-    }
-  }
-
-  std::thread worker;
-  std::mutex mutex;
-  std::condition_variable cond_var;
-  std::queue<std::function<void()>> tasks;
-  bool done;
-};
 
 // Global queue instance
 static InferenceQueue global_inference_queue;
