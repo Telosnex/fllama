@@ -1,3 +1,4 @@
+#include "fllama_chat_template.h"
 #include "fllama_eos.h"
 #include "fllama_tokenize.h"
 extern "C" {
@@ -7,6 +8,10 @@ extern "C" {
     
     void fllama_tokenize_export(struct fllama_tokenize_request request, fllama_tokenize_callback callback) {
         fllama_tokenize(request, callback);
+    }
+
+    const char *fllama_get_chat_template_export(const char *fname) {
+        return fllama_get_chat_template(fname);
     }
 }
 

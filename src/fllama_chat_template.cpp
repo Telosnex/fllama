@@ -1,4 +1,6 @@
 
+#include "fllama_chat_template.h"
+
 #include <stdio.h>
 
 // LLaMA.cpp cross-platform support
@@ -13,7 +15,8 @@
 #include "ggml.h"
 #endif
 
-const char *fllama_get_chat_template(const char *fname) {
+extern "C" {
+EMSCRIPTEN_KEEPALIVE const char *fllama_get_chat_template(const char *fname) {
   struct ggml_context *meta = NULL;
 
   struct gguf_init_params params = {
@@ -56,4 +59,5 @@ const char *fllama_get_chat_template(const char *fname) {
   gguf_free(ctx);
 
   return result;
+}
 }
