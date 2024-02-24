@@ -205,10 +205,9 @@ class _MyAppState extends State<MyApp> {
                       fllamaChatCompletionAsync(request, (response, done) {
                         setState(() {
                           latestResult = response;
-                          fllamaTokenizeAsync(
-                              FllamaTokenizeRequest(
-                                  input: latestResult,
-                                  modelPath: _modelPath!), (value) {
+                          fllamaTokenizeAsync(FllamaTokenizeRequest(
+                                  input: latestResult, modelPath: _modelPath!))
+                              .then((value) {
                             setState(() {
                               latestOutputTokenCount = value;
                             });

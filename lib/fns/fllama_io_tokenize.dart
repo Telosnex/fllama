@@ -10,9 +10,6 @@ typedef NativeTokenizeCallback = Void Function(Int count);
 typedef NativeFllamaTokenizeCallback
     = Pointer<NativeFunction<NativeTokenizeCallback>>;
 
-// This callback type will be used in Dart to receive the tokenization result
-typedef FllamaTokenizeCallback = void Function(int result);
-
 // Dart model for a tokenization request
 class FllamaTokenizeRequest {
   final String input;
@@ -39,8 +36,6 @@ class _IsolateTokenizeResponse {
 int _nextTokenizeRequestId = 0; // Unique ID for each request
 final Map<int, Completer<int>> _isolateTokenizeRequests =
     <int, Completer<int>>{};
-final Map<int, FllamaTokenizeCallback> _isolateTokenizeCallbacks =
-    <int, FllamaTokenizeCallback>{};
 
 Future<SendPort> _helperTokenizeIsolateSendPort = (() async {
   final completer = Completer<SendPort>();
@@ -54,26 +49,25 @@ Future<SendPort> _helperTokenizeIsolateSendPort = (() async {
     } else if (data is _IsolateTokenizeResponse) {
       final Completer<int>? requestCompleter =
           _isolateTokenizeRequests.remove(data.id);
-      final FllamaTokenizeCallback? callback =
-          _isolateTokenizeCallbacks.remove(data.id);
 
-      if (callback != null && requestCompleter != null) {
-        callback(data.result);
-        if (!requestCompleter.isCompleted) {
-          requestCompleter.complete(data.result);
-        }
+      if (requestCompleter == null) {
+        // ignore: avoid_print
+        print(
+            '[fllama] fllama_io_tokenize ERROR: No completer found for request ID: ${data.id}');
+        return;
       }
+      requestCompleter.complete(data.result);
     } else {
       // ignore: avoid_print
-      print('[fllama] ERROR: Unexpected data from isolate: $data');
+      print(
+          '[fllama] fllama_io_tokenize ERROR: Unexpected data from isolate: $data');
     }
   });
 
   return completer.future;
 }());
 
-Future<int> fllamaTokenizeAsync(
-    FllamaTokenizeRequest request, FllamaTokenizeCallback callback) async {
+Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
   final SendPort helperIsolateSendPort = await _helperTokenizeIsolateSendPort;
 
   final requestId = _nextTokenizeRequestId++;
@@ -81,8 +75,6 @@ Future<int> fllamaTokenizeAsync(
 
   final completer = Completer<int>();
   _isolateTokenizeRequests[requestId] = completer;
-  _isolateTokenizeCallbacks[requestId] = callback;
-
   helperIsolateSendPort.send(isolateRequest);
   return completer.future;
 }
@@ -109,6 +101,8 @@ void _tokenizeIsolateEntryFunction(SendPort mainIsolateSendPort) {
       fllamaBindings.fllama_tokenize(request.ref, callback.nativeFunction);
 
       // Clean-up allocated memory
+      calloc.free(nativeRequest.ref.input);
+      calloc.free(nativeRequest.ref.model_path);
       calloc.free(nativeRequest);
     }
   });
