@@ -41,7 +41,7 @@ Future<SendPort> _helperTokenizeIsolateSendPort = (() async {
   final completer = Completer<SendPort>();
   final receivePort = ReceivePort();
 
-  await Isolate.spawn(_tokenizeIsolateEntryFunction, receivePort.sendPort);
+  await Isolate.spawn(_fllamaTokenizeIsolate, receivePort.sendPort);
 
   receivePort.listen((dynamic data) {
     if (data is SendPort) {
@@ -80,7 +80,7 @@ Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
 }
 
 // Background isolate entry function for tokenization
-void _tokenizeIsolateEntryFunction(SendPort mainIsolateSendPort) {
+void _fllamaTokenizeIsolate(SendPort mainIsolateSendPort) {
   final helperReceivePort = ReceivePort();
   mainIsolateSendPort.send(helperReceivePort.sendPort);
 

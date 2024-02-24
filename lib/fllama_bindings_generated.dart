@@ -61,19 +61,19 @@ class FllamaBindings {
   late final _fllama_inference_sync = _fllama_inference_syncPtr.asFunction<
       void Function(fllama_inference_request, fllama_inference_callback)>();
 
-  ffi.Pointer<ffi.Char> fflama_get_chat_template(
+  ffi.Pointer<ffi.Char> fllama_get_chat_template(
     ffi.Pointer<ffi.Char> fname,
   ) {
-    return _fflama_get_chat_template(
+    return _fllama_get_chat_template(
       fname,
     );
   }
 
-  late final _fflama_get_chat_templatePtr = _lookup<
+  late final _fllama_get_chat_templatePtr = _lookup<
       ffi.NativeFunction<
           ffi.Pointer<ffi.Char> Function(
-              ffi.Pointer<ffi.Char>)>>('fflama_get_chat_template');
-  late final _fflama_get_chat_template = _fflama_get_chat_templatePtr
+              ffi.Pointer<ffi.Char>)>>('fllama_get_chat_template');
+  late final _fllama_get_chat_template = _fllama_get_chat_templatePtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
   ffi.Pointer<ffi.Char> fflama_get_eos_token(

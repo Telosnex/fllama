@@ -8,9 +8,13 @@ output: 'lib/fllama_bindings_generated.dart'
 headers:
   entry-points:
     - 'src/fllama.h'
+    - 'src/fllama_chat_template.h'
+    - 'src/fllama_eos.h'
     - 'src/fllama_tokenize.h'
   include-directives:
     - 'src/fllama.h'
+    - 'src/fllama_chat_template.h'
+    - 'src/fllama_eos.h'
     - 'src/fllama_tokenize.h'
 preamble: |
   // ignore_for_file: always_specify_types

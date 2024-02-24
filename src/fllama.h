@@ -45,9 +45,6 @@ FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,
                                         fllama_inference_callback callback);
 FFI_PLUGIN_EXPORT void fllama_inference_sync(struct fllama_inference_request request,
                            fllama_inference_callback callback);
-FFI_PLUGIN_EXPORT const char *fflama_get_chat_template(const char *fname);
-FFI_PLUGIN_EXPORT const char *fflama_get_eos_token(const char *fname);
-
 #ifdef __cplusplus
 }
 #endif

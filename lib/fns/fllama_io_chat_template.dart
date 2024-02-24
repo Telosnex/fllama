@@ -29,7 +29,7 @@ import 'package:fllama/fns/fllama_universal.dart';
 String fllamaGetChatTemplate(String modelPath) {
   final filenamePointer = stringToPointerChar(modelPath);
   final templatePointer =
-      fllamaBindings.fflama_get_chat_template(filenamePointer);
+      fllamaBindings.fllama_get_chat_template(filenamePointer);
   if (templatePointer == nullptr) {
     calloc.free(filenamePointer);
     return '';

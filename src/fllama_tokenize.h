@@ -1,3 +1,6 @@
+#ifndef FLLAMA_TOKENIZE_H
+#define FLLAMA_TOKENIZE_H
+
 #if _WIN32
 #define FFI_PLUGIN_EXPORT __declspec(dllexport)
 #else
@@ -21,3 +24,4 @@ FFI_PLUGIN_EXPORT void fllama_tokenize(struct fllama_tokenize_request request, f
 #ifdef __cplusplus
 }
 #endif
+#endif // FLLAMA_TOKENIZE_H

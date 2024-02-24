@@ -19,6 +19,7 @@ endif()
 add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)
 
 add_library(fllama SHARED
+  "fllama_chat_template.cpp"
   "fllama_eos.cpp"
   "fllama_inference_queue.cpp"
   "fllama_llava.cpp"

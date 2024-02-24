@@ -146,7 +146,14 @@ Future<SendPort> _helperIsolateSendPort = () async {
     });
 
   // Start the helper isolate.
-  await Isolate.spawn((SendPort sendPort) async {
+  await Isolate.spawn(_fllamaInferenceIsolate, receivePort.sendPort);
+
+  // Wait until the helper isolate has sent us back the SendPort on which we
+  // can start sending requests.
+  return completer.future;
+}();
+
+void _fllamaInferenceIsolate(SendPort sendPort) async {
     final ReceivePort helperReceivePort = ReceivePort()
       ..listen((dynamic data) {
         try {
@@ -217,9 +224,4 @@ Future<SendPort> _helperIsolateSendPort = () async {
 
     // Send the port to the main isolate on which we can receive requests.
     sendPort.send(helperReceivePort.sendPort);
-  }, receivePort.sendPort);
-
-  // Wait until the helper isolate has sent us back the SendPort on which we
-  // can start sending requests.
-  return completer.future;
-}();
+}
