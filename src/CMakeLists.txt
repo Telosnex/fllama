@@ -19,13 +19,14 @@ endif()
 add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)
 
 add_library(fllama SHARED
+  "fllama_tokenize.cpp"
   "fllama.cpp"
   "clip.cpp"
   "llava.cpp"
 )
 
 set_target_properties(fllama PROPERTIES
-  PUBLIC_HEADER fllama.h
+  PUBLIC_HEADER "fllama.h;fllama_tokenize.h"
   OUTPUT_NAME "fllama"
 )
 

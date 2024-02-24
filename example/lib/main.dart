@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:fllama/fllama_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -34,6 +35,7 @@ class _MyAppState extends State<MyApp> {
   // Multimodal models are rare.
   String? _mmprojPath;
   String latestResult = '';
+  int latestOutputTokenCount = 0;
   Uint8List? _imageBytes;
   final TextEditingController _controller = TextEditingController();
 
@@ -203,6 +205,14 @@ class _MyAppState extends State<MyApp> {
                       fllamaChatCompletionAsync(request, (response, done) {
                         setState(() {
                           latestResult = response;
+                          fllamaTokenizeAsync(
+                              FllamaTokenizeRequest(
+                                  input: latestResult,
+                                  modelPath: _modelPath!), (value) {
+                            setState(() {
+                              latestOutputTokenCount = value;
+                            });
+                          });
                         });
                       });
                     },
@@ -212,6 +222,11 @@ class _MyAppState extends State<MyApp> {
                     latestResult,
                     style: textStyle,
                   ),
+                  if (latestResult.isNotEmpty) ...[
+                    spacerSmall,
+                    Text('Output token count: $latestOutputTokenCount',
+                        style: textStyle),
+                  ],
                 ],
               ),
             ),

@@ -44,23 +44,6 @@ class FllamaBindings {
   late final _fllama_inference = _fllama_inferencePtr.asFunction<
       void Function(fllama_inference_request, fllama_inference_callback)>();
 
-  void fllama_tokenize(
-    fllama_tokenize_request request,
-    fllama_tokenize_callback callback,
-  ) {
-    return _fllama_tokenize(
-      request,
-      callback,
-    );
-  }
-
-  late final _fllama_tokenizePtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Void Function(fllama_tokenize_request,
-              fllama_tokenize_callback)>>('fllama_tokenize');
-  late final _fllama_tokenize = _fllama_tokenizePtr.asFunction<
-      void Function(fllama_tokenize_request, fllama_tokenize_callback)>();
-
   ffi.Pointer<ffi.Char> fflama_get_chat_template(
     ffi.Pointer<ffi.Char> fname,
   ) {
@@ -90,6 +73,23 @@ class FllamaBindings {
               ffi.Pointer<ffi.Char>)>>('fflama_get_eos_token');
   late final _fflama_get_eos_token = _fflama_get_eos_tokenPtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
+
+  void fllama_tokenize(
+    fllama_tokenize_request request,
+    fllama_tokenize_callback callback,
+  ) {
+    return _fllama_tokenize(
+      request,
+      callback,
+    );
+  }
+
+  late final _fllama_tokenizePtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(fllama_tokenize_request,
+              fllama_tokenize_callback)>>('fllama_tokenize');
+  late final _fllama_tokenize = _fllama_tokenizePtr.asFunction<
+      void Function(fllama_tokenize_request, fllama_tokenize_callback)>();
 }
 
 final class fllama_inference_request extends ffi.Struct {
@@ -143,6 +143,9 @@ final class fllama_inference_request extends ffi.Struct {
 
 typedef fllama_log_callback
     = ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>;
+typedef fllama_inference_callback = ffi.Pointer<
+    ffi.NativeFunction<
+        ffi.Void Function(ffi.Pointer<ffi.Char> response, ffi.Uint8 done)>>;
 
 final class fllama_tokenize_request extends ffi.Struct {
   /// Required: input text
@@ -152,8 +155,5 @@ final class fllama_tokenize_request extends ffi.Struct {
   external ffi.Pointer<ffi.Char> model_path;
 }
 
-typedef fllama_inference_callback = ffi.Pointer<
-    ffi.NativeFunction<
-        ffi.Void Function(ffi.Pointer<ffi.Char> response, ffi.Uint8 done)>>;
 typedef fllama_tokenize_callback
     = ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Int count)>>;

@@ -84,7 +84,6 @@ Future<int> fllamaTokenizeAsync(
   _isolateTokenizeCallbacks[requestId] = callback;
 
   helperIsolateSendPort.send(isolateRequest);
-
   return completer.future;
 }
 

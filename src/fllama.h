@@ -31,16 +31,7 @@ struct fllama_inference_request
     fllama_log_callback dart_logger; // Optional: Dart caller logger. Defaults to NULL.
 };
 
-typedef void (*fllama_tokenize_callback)(int count);
-
-struct fllama_tokenize_request
-{
-    char *input; // Required: input text
-    char *model_path; // Required: .ggml model file path
-};
-
 FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request, fllama_inference_callback callback);
-FFI_PLUGIN_EXPORT void fllama_tokenize(struct fllama_tokenize_request request, fllama_tokenize_callback callback);
 FFI_PLUGIN_EXPORT const char *fflama_get_chat_template(const char *fname);
 FFI_PLUGIN_EXPORT const char *fflama_get_eos_token(const char *fname);
 
