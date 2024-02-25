@@ -27,10 +27,9 @@ static const char *IMG_BASE64_TAG_BEGIN_PART2 =
     "base64,"; // Common for JPEG, PNG, and others
 static const char *IMG_BASE64_TAG_END = "\">";
 
-
-static bool add_image_embed_to_context(struct llama_context *ctx_llama,
-                                       llava_image_embed *image_embed,
-                                       int n_batch, int *n_past) {
+bool add_image_embed_to_context(struct llama_context *ctx_llama,
+                                llava_image_embed *image_embed, int n_batch,
+                                int *n_past) {
   int n_embd = llama_n_embd(llama_get_model(ctx_llama));
 
   for (int i = 0; i < image_embed->n_image_pos; i += n_batch) {
@@ -63,7 +62,7 @@ static bool add_image_embed_to_context(struct llama_context *ctx_llama,
   return true;
 }
 
-static std::vector<std::pair<size_t, size_t>>
+std::vector<std::pair<size_t, size_t>>
 find_all_image_tags_in_prompt(const std::string &prompt) {
   std::vector<std::pair<size_t, size_t>> image_positions;
   size_t begin_temp = 0;
@@ -91,15 +90,13 @@ find_all_image_tags_in_prompt(const std::string &prompt) {
   return image_positions;
 }
 
-static bool prompt_contains_image(const std::string &prompt) {
+bool prompt_contains_image(const std::string &prompt) {
   return find_all_image_tags_in_prompt(prompt).size() > 0;
 }
 
 // replaces the base64 image tag in the prompt with `replacement`
-static std::vector<llava_image_embed *>
-llava_image_embed_make_with_prompt_base64(struct clip_ctx *ctx_clip,
-                                          int n_threads,
-                                          const std::string &prompt) {
+std::vector<llava_image_embed *> llava_image_embed_make_with_prompt_base64(
+    struct clip_ctx *ctx_clip, int n_threads, const std::string &prompt) {
   std::vector<llava_image_embed *> embeddings;
   auto image_tags = find_all_image_tags_in_prompt(prompt);
   for (const auto &tag : image_tags) {
@@ -120,8 +117,8 @@ llava_image_embed_make_with_prompt_base64(struct clip_ctx *ctx_clip,
   return embeddings;
 }
 
-static std::string remove_all_images_from_prompt(const std::string &prompt,
-                                                 const char *replacement) {
+std::string remove_all_images_from_prompt(const std::string &prompt,
+                                          const char *replacement) {
   std::string modified_prompt = prompt;
   auto image_tags = find_all_image_tags_in_prompt(prompt);
 

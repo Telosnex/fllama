@@ -1,6 +1,12 @@
 #ifndef FLLAMA_H
 #define FLLAMA_H
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#else
+#define EMSCRIPTEN_KEEPALIVE
+#endif
+
 #if _WIN32
 #define FFI_PLUGIN_EXPORT __declspec(dllexport)
 #else
@@ -41,9 +47,9 @@ struct fllama_inference_request {
       dart_logger; // Optional: Dart caller logger. Defaults to NULL.
 };
 
-FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,
                                         fllama_inference_callback callback);
-FFI_PLUGIN_EXPORT void fllama_inference_sync(struct fllama_inference_request request,
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_sync(struct fllama_inference_request request,
                            fllama_inference_callback callback);
 #ifdef __cplusplus
 }

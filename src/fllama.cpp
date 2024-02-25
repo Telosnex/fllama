@@ -60,8 +60,9 @@
 
 static InferenceQueue global_inference_queue;
 
-void fllama_inference(fllama_inference_request request,
-                      fllama_inference_callback callback) {
+extern "C" {
+EMSCRIPTEN_KEEPALIVE void fllama_inference(fllama_inference_request request,
+                                           fllama_inference_callback callback) {
   std::cout << "[fllama] Hello from fllama.cpp! Queueing your request."
             << std::endl;
   global_inference_queue.enqueue(request, callback);
@@ -82,6 +83,7 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
     *n_past += n_eval;
   }
   return true;
+}
 }
 
 static bool add_token_to_context(struct llama_context *ctx_llama, int id,
@@ -121,8 +123,9 @@ void fllama_log(const std::string &message,
   fllama_log(message.c_str(), dart_logger);
 }
 
-void fllama_inference_sync(fllama_inference_request request,
-                           fllama_inference_callback callback) {
+EMSCRIPTEN_KEEPALIVE void
+fllama_inference_sync(fllama_inference_request request,
+                      fllama_inference_callback callback) {
   // Setup parameters, then load the model and create a context.
   int64_t start = ggml_time_ms();
   std::cout << "[fllama] Inference thread start" << std::endl;
