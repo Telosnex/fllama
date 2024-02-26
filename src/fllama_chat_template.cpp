@@ -1,9 +1,11 @@
 
 #include "fllama_chat_template.h"
 
+#include <iostream>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-// LLaMA.cpp cross-platform support
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #endif
@@ -53,11 +55,18 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_chat_template(const char *fname) {
     // result already initialized to "", so just leave it as it is.
   }
 
+  // Copy to new string: as soon as meta/ctx are freed, the string is in no-mans-land.
+  // For some reason, this isn't observed on native, but, on wasm, the string
+  // gets corrupted at the end. On native, it's observed as the length being
+  // 0 yet somehow it still can display the proper string.
+  size_t len = strlen(result);
+  char *safeCopy = (char *)malloc(len + 1); // +1 for null terminator
+  memcpy(safeCopy, result, len);
+  safeCopy[len] = '\0'; // Explicitly null-terminate
   // Assuming gguf_free(ctx) should be called regardless of the conditional
   // branches above.
   ggml_free(meta);
   gguf_free(ctx);
-
-  return result;
+  return safeCopy;
 }
 }

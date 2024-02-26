@@ -4,7 +4,7 @@ import 'package:jinja/jinja.dart';
 
 Future<String> fllamaChatCompletionAsync(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
-  final template = fllamaGetChatTemplate(request.modelPath);
+  final template = await fllamaGetChatTemplate(request.modelPath);
   final text = fllamaApplyChatTemplate(template, request);
   final String grammar;
   if (request.tools.isNotEmpty) {

@@ -10,3 +10,7 @@ Future<String> fllamaInferenceAsync(
 Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
   throw UnimplementedError();
 }
+
+Future<String> fllamaGetChatTemplate(String modelPath) {
+  throw UnimplementedError();
+}

@@ -32,10 +32,12 @@ class _MyAppState extends State<MyApp> {
   // This is only required for multimodal models.
   // Multimodal models are rare.
   String? _mmprojPath;
-  String latestResult = '';
-  int latestOutputTokenCount = 0;
   Uint8List? _imageBytes;
   final TextEditingController _controller = TextEditingController();
+
+  String latestResult = '';
+  int latestOutputTokenCount = 0;
+  String latestChatTemplate = '';
 
   @override
   void initState() {
@@ -201,6 +203,13 @@ class _MyAppState extends State<MyApp> {
                           print('[llama.cpp] $log');
                         },
                       );
+
+                      final chatTemplate =
+                          await fllamaGetChatTemplate(_modelPath!);
+                      setState(() {
+                        latestChatTemplate = chatTemplate;
+                      });
+
                       fllamaChatCompletionAsync(request, (response, done) {
                         setState(() {
                           latestResult = response;
@@ -224,6 +233,14 @@ class _MyAppState extends State<MyApp> {
                     spacerSmall,
                     Text('Output token count: $latestOutputTokenCount',
                         style: textStyle),
+                  ],
+                  if (latestChatTemplate.isNotEmpty) ...[
+                    spacerSmall,
+                    const Text('Chat template:', style: textStyle),
+                    SelectableText(
+                      latestChatTemplate,
+                      style: textStyle,
+                    ),
                   ],
                 ],
               ),

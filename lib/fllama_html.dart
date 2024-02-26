@@ -70,7 +70,8 @@ Future<String> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
   fllamaInferenceAsyncJs2(jsRequest, allowInterop((String response, bool done) {
     callback(response, done);
   }));
-  print('[fllama_html] finished fllamaInferenceAsyncJs2 call at ${DateTime.now()}');
+  print(
+      '[fllama_html] finished fllamaInferenceAsyncJs2 call at ${DateTime.now()}');
   return '';
 }
 
@@ -80,21 +81,38 @@ external Future<int> fllamaTokenizeJs(dynamic modelPath, dynamic input);
 Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
   try {
     final completer = Completer<int>();
-      print(
-      '[fllama_html] calling fllamaTokenizeJs at ${DateTime.now()}');
-    final promise =
-        promiseToFuture(fllamaTokenizeJs(request.modelPath, request.input))
-            .then((value) {
+    print('[fllama_html] calling fllamaTokenizeJs at ${DateTime.now()}');
 
+    promiseToFuture(fllamaTokenizeJs(request.modelPath, request.input))
+        .then((value) {
       print(
           '[fllama_html] fllamaTokenizeAsync finished with $value at ${DateTime.now()}');
       completer.complete(value);
     });
-    print(
-        '[fllama_html] called fllamaTokenizeJs at ${DateTime.now()}');
+    print('[fllama_html] called fllamaTokenizeJs at ${DateTime.now()}');
     return completer.future;
   } catch (e) {
     print('[fllama_html] fllamaTokenizeAsync caught error: $e');
+    rethrow;
+  }
+}
+
+// Chat template
+@JS('fllamaGetChatTemplateJs')
+external Future<String> fllamaGetChatTemplateJs(dynamic modelPath);
+Future<String> fllamaGetChatTemplate(String modelPath) async {
+  try {
+    final completer = Completer<String>();
+    print('[fllama_html] calling fllamaGetChatTemplateJs at ${DateTime.now()}');
+    promiseToFuture(fllamaGetChatTemplateJs(modelPath)).then((value) {
+      print(
+          '[fllama_html] fllamaGetChatTemplateJs finished with $value at ${DateTime.now()}');
+      completer.complete(value);
+    });
+    print('[fllama_html] called fllamaGetChatTemplateJs at ${DateTime.now()}');
+    return completer.future;
+  } catch (e) {
+    print('[fllama_html] fllamaGetChatTemplateJs caught error: $e');
     rethrow;
   }
 }

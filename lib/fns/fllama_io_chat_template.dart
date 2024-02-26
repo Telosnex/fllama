@@ -26,18 +26,18 @@ import 'package:fllama/fns/fllama_universal.dart';
 // {{ '<|assistant|>' }}
 // {% endif %}
 // {% endfor %}
-String fllamaGetChatTemplate(String modelPath) {
+Future<String> fllamaGetChatTemplate(String modelPath) {
   final filenamePointer = stringToPointerChar(modelPath);
   final templatePointer =
       fllamaBindings.fllama_get_chat_template(filenamePointer);
   if (templatePointer == nullptr) {
     calloc.free(filenamePointer);
-    return '';
+    return Future.value('');
   }
   final builtInChatTemplate = pointerCharToString(templatePointer);
   final answer = fllamaSanitizeChatTemplate(builtInChatTemplate);
   calloc.free(filenamePointer);
-  return answer;
+  return Future.value(answer);
 }
 
 String fllamaGetEosToken(String modelPath) {

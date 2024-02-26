@@ -54,6 +54,7 @@ function fllamaInferenceAsyncJs2(request, callback) {
 }
 
 window.fllamaInferenceAsyncJs2 = fllamaInferenceAsyncJs2;
+
 let tokenizeWorker = null;
 let lastModelPath = '';
 
@@ -125,3 +126,37 @@ function tokenizeWithWorker(worker, input) {
 }
 
 window.fllamaTokenizeJs2 = fllamaTokenizeJs2;
+
+
+
+let chatTemplateWorker = null;
+let lastChatTemplateModelPath = '';
+
+async function fllamaGetChatTemplateJs(modelPath) {
+    if (chatTemplateWorker === null || lastChatTemplateModelPath !== modelPath) {
+        lastChatTemplateModelPath = modelPath;
+        chatTemplateWorker = initializeTokenizeWorker(modelPath);
+    }
+    return chatTemplateWorker.then(worker => chatTemplateWithWorker(worker));
+}
+
+function chatTemplateWithWorker(worker, input) {
+    return new Promise((resolve, reject) => {
+        const handleMessage = function (e) {
+            console.log('[fllama_wasm_init.js.chatTemplateWithWorker] received message', e.data);
+            switch (e.data.event) {
+                case action.GET_CHAT_TEMPLATE_CALLBACK:
+                    worker.removeEventListener('message', handleMessage);
+                    resolve(e.data.chatTemplate);
+                    break;
+                default:
+                    reject(new Error('Unexpected message'));
+                    break;
+            }
+        };
+        worker.addEventListener('message', handleMessage);
+        worker.postMessage({ event: action.GET_CHAT_TEMPLATE, input });
+    });
+}
+
+window.fllamaGetChatTemplateJs = fllamaGetChatTemplateJs;

@@ -4,6 +4,9 @@ export const action = {
     INFERENCE: 2,
     INFERENCE_CALLBACK: 3,
     TOKENIZE: 4,
-    RUN_COMPLETED: 5,
-    ERROR: 6
+    TOKENIZE_CALLBACK: 5,
+    GET_CHAT_TEMPLATE: 6,
+    GET_CHAT_TEMPLATE_CALLBACK: 7,
+    RUN_COMPLETED: 8,
+    ERROR: 9
 };
