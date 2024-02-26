@@ -60,8 +60,10 @@ class FllamaTokenizeRequest {
 
 Future<void> fllamaChatCompletionAsync(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
-  final template = await fllamaGetChatTemplate(request.modelPath);
-  final eosToken = await fllamaGetEosToken(request.modelPath);
+  final template = fllamaSanitizeChatTemplate(await fllamaGetChatTemplate(request.modelPath));
+  final eosToken = template == chatMlTemplate
+      ? chatMlEosToken
+      : await fllamaGetEosToken(request.modelPath);
   final text = fllamaApplyChatTemplate(
     chatTemplate: template,
     eosToken: eosToken,
@@ -165,6 +167,8 @@ const chatMlTemplate = '''
 {%- endfor %}
 <|im_start|>assistant
 ''';
+
+const chatMlEosToken = '<|im_end|>';
 
 String fllamaJsonSchemaToGrammar(String jsonSchema) {
   return convertToJsonGrammar(jsonSchema);
