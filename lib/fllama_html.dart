@@ -21,7 +21,6 @@ external Future<void> fllamaInferenceAsyncJs(
 typedef FllamaInferenceCallback = void Function(String response, bool done);
 
 // Keep in sync with fllama_inference_request.dart to pass correctly from Dart to JS
-// Keep in sync with llama-app.js to pass correctly from JS to WASM
 @JS()
 @anonymous
 class _JSFllamaInferenceRequest {

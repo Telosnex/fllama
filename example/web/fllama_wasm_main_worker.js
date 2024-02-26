@@ -1,5 +1,5 @@
 import { action } from "./fllama_wasm_actions.js";
-import { loadBinaryResource } from "./llama-model-storage.js";
+import { loadBinaryResource } from "./fllama_wasm_storage.js";
 import Module from "./fllama_wasm.js";
 
 let module;
