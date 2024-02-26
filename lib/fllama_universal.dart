@@ -1,4 +1,5 @@
 import 'package:fllama/fllama.dart';
+import 'package:fllama/misc/gbnf.dart';
 import 'package:jinja/jinja.dart';
 
 class FllamaInferenceRequest {
@@ -164,6 +165,10 @@ const chatMlTemplate = '''
 {%- endfor %}
 <|im_start|>assistant
 ''';
+
+String fllamaJsonSchemaToGrammar(String jsonSchema) {
+  return convertToJsonGrammar(jsonSchema);
+}
 
 String fllamaSanitizeChatTemplate(String builtInChatTemplate) {
   final String chatTemplate;
