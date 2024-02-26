@@ -10,7 +10,7 @@ Future<String> fllamaGetEosToken(String modelPath) {
   throw UnimplementedError();
 }
 
-Future<String> fllamaInferenceAsync(
+Future<void> fllamaInferenceAsync(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   throw UnimplementedError();
 }

@@ -1,7 +1,7 @@
 import { action } from "./fllama_wasm_actions.js";
 import './fllama_wasm_main_worker.js';
 
-function fllamaInferenceAsyncJs2(request, callback) {
+function fllamaInferenceAsyncJs(request, callback) {
     const fllamaWorker = new Worker(new URL('fllama_wasm_main_worker.js', import.meta.url), { type: 'module' });
 
     fllamaWorker.onmessage = function (e) {
@@ -21,20 +21,20 @@ function fllamaInferenceAsyncJs2(request, callback) {
         }
     };
 
-    // console.log('[fllama_wasm_init.js.fllamaInferenceAsyncJs2] hello!', request);
+    // console.log('[fllama_wasm_init.js.fllamaInferenceAsyncJs] hello!', request);
     return new Promise(async (resolve, reject) => {
         let blobFailed = false;
         if (request.modelPath.startsWith('blob:')) {
             // Handle the blob URL
-            // console.log('[fllama_wasm_init.js.fllamaInferenceAsyncJs2] Detected blob URL, processing it.', request.modelPath);
+            // console.log('[fllama_wasm_init.js.fllamaInferenceAsyncJs] Detected blob URL, processing it.', request.modelPath);
             await fetch(request.modelPath)
                 .then(response => response.arrayBuffer())
                 .then(arrayBuffer => {
-                    console.log("[fllama_wasm_init.js.fllamaInferenceAsyncJs2] loaded blob arrayBuffer", arrayBuffer.byteLength, arrayBuffer.slice(0, 10));
+                    console.log("[fllama_wasm_init.js.fllamaInferenceAsyncJs] loaded blob arrayBuffer", arrayBuffer.byteLength, arrayBuffer.slice(0, 10));
                     request = Object.assign({}, request, { modelArrayBuffer: arrayBuffer });
                 })
                 .catch(error => {
-                    console.error('[fllamaInferenceAsyncJs2] Error fetching blob:', error);
+                    console.error('[fllamaInferenceAsyncJs] Error fetching blob:', error);
                 });
         } else {
             // If not a blob URL, proceed normally
@@ -49,16 +49,16 @@ function fllamaInferenceAsyncJs2(request, callback) {
             modelSize: request.modelSize,
         };
         fllamaWorker.postMessage(message);
-        // console.log('[fllama_wasm_init.js.fllamaInferenceAsyncJs2] posted message to main worker', message);
+        // console.log('[fllama_wasm_init.js.fllamaInferenceAsyncJs] posted message to main worker', message);
     });
 }
 
-window.fllamaInferenceAsyncJs2 = fllamaInferenceAsyncJs2;
+window.fllamaInferenceAsyncJs = fllamaInferenceAsyncJs;
 
 let tokenizeWorker = null;
 let lastModelPath = '';
 
-async function fllamaTokenizeJs2(modelPath, input) {
+async function fllamaTokenizeJs(modelPath, input) {
     if (tokenizeWorker === null || lastModelPath !== modelPath) {
         lastModelPath = modelPath;
         tokenizeWorker = initializeTokenizeWorker(modelPath);
@@ -125,7 +125,7 @@ function tokenizeWithWorker(worker, input) {
     });
 }
 
-window.fllamaTokenizeJs2 = fllamaTokenizeJs2;
+window.fllamaTokenizeJs = fllamaTokenizeJs;
 
 
 

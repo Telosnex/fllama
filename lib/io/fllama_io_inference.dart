@@ -17,14 +17,12 @@ typedef FllamaLogCallbackNative = Void Function(Pointer<Char>);
 typedef FllamaLogCallbackDart = void Function(Pointer<Char>);
 
 // This callback type will be used in Dart to receive incremental results
-Future<String> fllamaInferenceAsync(
+Future<void> fllamaInferenceAsync(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
   final int requestId = _nextInferenceRequestId++;
   final _IsolateInferenceRequest isolateRequest =
       _IsolateInferenceRequest(requestId, request);
-  final Completer<String> completer = Completer<String>();
-  _isolateInferenceRequests[requestId] = completer;
   _isolateInferenceCallbacks[requestId] = callback;
   try {
     helperIsolateSendPort.send(isolateRequest);
@@ -32,7 +30,6 @@ Future<String> fllamaInferenceAsync(
     // ignore: avoid_print
     print('[fllama] ERROR sending request to helper isolate: $e');
   }
-  return completer.future;
 }
 
 /// A request to compute `sum`.
@@ -59,10 +56,8 @@ class _IsolateInferenceResponse {
 /// Counter to identify [_IsolateInferenceRequest]s and [_IsolateInferenceResponse]s.
 int _nextInferenceRequestId = 0;
 
-/// Mapping from [_IsolateInferenceRequest] `id`s to the completers
-/// corresponding to the correct future of the pending request.
-final Map<int, Completer<String>> _isolateInferenceRequests =
-    <int, Completer<String>>{};
+/// Mapping from [_IsolateInferenceRequest] `id`s to the callbacks that are
+/// run when each token is generated.
 final Map<int, FllamaInferenceCallback> _isolateInferenceCallbacks =
     <int, FllamaInferenceCallback>{};
 
@@ -133,10 +128,6 @@ Future<SendPort> _helperIsolateSendPort = () async {
         }
         if (data.done) {
           _isolateInferenceCallbacks.remove(data.id);
-          final Completer<String> completer =
-              _isolateInferenceRequests[data.id]!;
-          completer.complete(data.response);
-          _isolateInferenceRequests.remove(data.id);
           return;
         } else {
           return;

@@ -58,7 +58,7 @@ class FllamaTokenizeRequest {
   FllamaTokenizeRequest({required this.input, required this.modelPath});
 }
 
-Future<String> fllamaChatCompletionAsync(
+Future<void> fllamaChatCompletionAsync(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
   final template = await fllamaGetChatTemplate(request.modelPath);
   final eosToken = await fllamaGetEosToken(request.modelPath);
@@ -94,7 +94,7 @@ Future<String> fllamaChatCompletionAsync(
     grammar: grammar,
     logger: request.logger,
   );
-  return fllamaInferenceAsync(inferenceRequest, callback);
+  fllamaInferenceAsync(inferenceRequest, callback);
 }
 
 String fllamaApplyChatTemplate({

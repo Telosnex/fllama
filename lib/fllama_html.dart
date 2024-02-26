@@ -15,11 +15,7 @@ class Promise<T> {
 }
 
 @JS('fllamaInferenceAsyncJs')
-external Future<String> fllamaInferenceAsyncJs(
-    dynamic request, Function callback);
-
-@JS('fllamaInferenceAsyncJs2')
-external Future<void> fllamaInferenceAsyncJs2(
+external Future<void> fllamaInferenceAsyncJs(
     dynamic request, Function callback);
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
@@ -28,8 +24,8 @@ typedef FllamaInferenceCallback = void Function(String response, bool done);
 // Keep in sync with llama-app.js to pass correctly from JS to WASM
 @JS()
 @anonymous
-class JSFllamaInferenceRequest {
-  external factory JSFllamaInferenceRequest({
+class _JSFllamaInferenceRequest {
+  external factory _JSFllamaInferenceRequest({
     required int contextSize,
     required String input,
     required int maxTokens,
@@ -46,9 +42,9 @@ class JSFllamaInferenceRequest {
   });
 }
 
-Future<String> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
+Future<void> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
     FllamaInferenceCallback callback) async {
-  final jsRequest = JSFllamaInferenceRequest(
+  final jsRequest = _JSFllamaInferenceRequest(
     contextSize: dartRequest.contextSize,
     input: dartRequest.input,
     maxTokens: dartRequest.maxTokens,
@@ -63,15 +59,13 @@ Future<String> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
     grammar: dartRequest.grammar,
   );
 
-  fllamaInferenceAsyncJs2(jsRequest, allowInterop((String response, bool done) {
+  fllamaInferenceAsyncJs(jsRequest, allowInterop((String response, bool done) {
     callback(response, done);
   }));
-  
-  return '';
 }
 
 // Tokenize
-@JS('fllamaTokenizeJs2')
+@JS('fllamaTokenizeJs')
 external Future<int> fllamaTokenizeJs(dynamic modelPath, dynamic input);
 Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
   try {
