@@ -7,6 +7,6 @@ export const action = {
     TOKENIZE_CALLBACK: 5,
     GET_CHAT_TEMPLATE: 6,
     GET_CHAT_TEMPLATE_CALLBACK: 7,
-    RUN_COMPLETED: 8,
-    ERROR: 9
+    GET_EOS_TOKEN: 8,
+    GET_EOS_TOKEN_CALLBACK: 9,
 };

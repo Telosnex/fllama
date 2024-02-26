@@ -38,6 +38,7 @@ class _MyAppState extends State<MyApp> {
   String latestResult = '';
   int latestOutputTokenCount = 0;
   String latestChatTemplate = '';
+  String latestEosToken = '';
 
   @override
   void initState() {
@@ -210,6 +211,11 @@ class _MyAppState extends State<MyApp> {
                         latestChatTemplate = chatTemplate;
                       });
 
+                      final eosToken = await fllamaGetEosToken(_modelPath!);
+                      setState(() {
+                        latestEosToken = eosToken;
+                      });
+
                       fllamaChatCompletionAsync(request, (response, done) {
                         setState(() {
                           latestResult = response;
@@ -239,6 +245,14 @@ class _MyAppState extends State<MyApp> {
                     const Text('Chat template:', style: textStyle),
                     SelectableText(
                       latestChatTemplate,
+                      style: textStyle,
+                    ),
+                  ],
+                  if (latestEosToken.isNotEmpty) ...[
+                    spacerSmall,
+                    const Text('End of sequence token:', style: textStyle),
+                    SelectableText(
+                      latestEosToken,
                       style: textStyle,
                     ),
                   ],

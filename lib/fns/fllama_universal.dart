@@ -1,11 +1,15 @@
-
 import 'package:fllama/fllama.dart';
 import 'package:jinja/jinja.dart';
 
 Future<String> fllamaChatCompletionAsync(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
   final template = await fllamaGetChatTemplate(request.modelPath);
-  final text = fllamaApplyChatTemplate(template, request);
+  final eosToken = await fllamaGetEosToken(request.modelPath);
+  final text = fllamaApplyChatTemplate(
+    chatTemplate: template,
+    eosToken: eosToken,
+    request: request,
+  );
   final String grammar;
   if (request.tools.isNotEmpty) {
     if (request.tools.length > 1) {
@@ -36,7 +40,11 @@ Future<String> fllamaChatCompletionAsync(
   return fllamaInferenceAsync(inferenceRequest, callback);
 }
 
-String fllamaApplyChatTemplate(String chatTemplate, OpenAiRequest request) {
+String fllamaApplyChatTemplate({
+  required String chatTemplate,
+  required OpenAiRequest request,
+  required String eosToken,
+}) {
   final jsonMessages = <Map<String, dynamic>>[];
   for (final message in request.messages) {
     jsonMessages.add({
@@ -89,7 +97,7 @@ String fllamaApplyChatTemplate(String chatTemplate, OpenAiRequest request) {
   return template.render({
     'messages': jsonMessages,
     'add_generation_prompt': true,
-    'eos_token': fllamaGetEosToken(request.modelPath)
+    'eos_token': eosToken,
   });
 }
 
@@ -100,7 +108,6 @@ const chatMlTemplate = '''
 {%- endfor %}
 <|im_start|>assistant
 ''';
-
 
 String fllamaSanitizeChatTemplate(String builtInChatTemplate) {
   final String chatTemplate;

@@ -116,7 +116,7 @@ self.addEventListener('message', async (e) => {
             }
 
             module._fllama_inference_export(contextSize, inputPtr, maxTokens, modelPathPtr, modelMmprojPathPtr, numGpuLayers, numThreads, temperature, topP, penaltyFrequency, penaltyRepeat, grammar, inferenceCallbackJs, logCallbackJs);
-            console.log("[fllama_wasm_main_worker.js.initWorker] received inference request", e.data);
+            // console.log("[fllama_wasm_main_worker.js.initWorker] completed inference request", e.data);
             break;
         case action.GET_CHAT_TEMPLATE: {
             const virtualModelPath = "/models/model.bin";
@@ -127,32 +127,26 @@ self.addEventListener('message', async (e) => {
             module.HEAPU8[modelPathPtr + virtualModelPathRaw.length] = 0; // explicitly set the null terminator
 
             const chatTemplate = module._fllama_get_chat_template_export(modelPathPtr);
-            function logBytesAsHexFromPtr(ptr) {
-                let hexString = '';
-                let length = 0;
-                while(module.HEAPU8[ptr + length] !== 0) {
-                    const byte = module.HEAPU8[ptr + length].toString(16).padStart(2, '0');
-                    hexString += `${byte} `;
-                    length++;
-                }
-                console.log(hexString.trim());
-            }
-            console.log('Hex before UTF-8 conversion:');
-            logBytesAsHexFromPtr(chatTemplate);
-
             const decodedString = module.UTF8ToString(chatTemplate);
-            function logStringAsHex(str) {
-                const encoder = new TextEncoder();
-                const encodedBytes = encoder.encode(str);
-                const hexString = Array.from(encodedBytes).map(byte => byte.toString(16).padStart(2, '0')).join(' ');
-                console.log(hexString);
-            }
-            
-            console.log('Hex of JavaScript string after UTF8ToString conversion:');
-            logStringAsHex(decodedString);
             postMessage({
                 event: action.GET_CHAT_TEMPLATE_CALLBACK,
                 chatTemplate: decodedString,
+            });
+            break;
+        }
+        case action.GET_EOS_TOKEN: {
+            const virtualModelPath = "/models/model.bin";
+            const virtualModelPathRaw = new TextEncoder().encode(virtualModelPath);
+            let modelPathPtr = module._malloc(virtualModelPathRaw.length + 1);
+            let modelPathChunk = module.HEAPU8.subarray(modelPathPtr, modelPathPtr + virtualModelPathRaw.length + 1);
+            modelPathChunk.set(virtualModelPathRaw);
+            module.HEAPU8[modelPathPtr + virtualModelPathRaw.length] = 0; // explicitly set the null terminator
+
+            const eosToken = module._fllama_get_eos_token_export(modelPathPtr);
+            const decodedString = module.UTF8ToString(eosToken);
+            postMessage({
+                event: action.GET_EOS_TOKEN_CALLBACK,
+                eosToken: decodedString,
             });
             break;
         }

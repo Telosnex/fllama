@@ -29,9 +29,9 @@ std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path);
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT extern "C" 
 size_t fllama_tokenize(struct fllama_tokenize_request request) {
-//  /* DISABLED: Model load logs.
+/* DISABLED: Model load logs.
   auto start_time_model_load = std::chrono::high_resolution_clock::now();
-// */
+*/
   llama_log_set(
       [](enum ggml_log_level level, const char *text, void *user_data) {
         // do nothing. intent is to avoid ~50 lines of log spam with model
@@ -46,24 +46,24 @@ size_t fllama_tokenize(struct fllama_tokenize_request request) {
   }
   
   // 50 ms for initial load of 2 GB model, ~^10^-5 for cache hit.
-// /* DISABLED: Model load logs.
+/* DISABLED: Model load logs.
   auto end_time_model_load = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> model_load_duration =
       end_time_model_load - start_time_model_load;
   std::cout << "[fllama] Model loading took: " << model_load_duration.count() << " ms." << std::endl;
-// */
+*/
 
-// /* DISABLED: Tokenization logs.
+/* DISABLED: Tokenization logs.
   auto start_time_tokenize = std::chrono::high_resolution_clock::now();
-// */
+*/
   std::vector<llama_token> tokens_list = ::llama_tokenize(model, request.input, true);
-// /* DISABLED: Tokenization logs.
+/* DISABLED: Tokenization logs.
   auto end_time_tokenize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> tokenize_duration =
        end_time_tokenize - start_time_tokenize;
    std::cout << "[fllama] Tokenization took: " << tokenize_duration.count()
              << " ms. Input token count: " << tokens_list.size() << std::endl;
-// */
+*/
   return tokens_list.size();
 }
 

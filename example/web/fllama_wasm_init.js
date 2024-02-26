@@ -160,3 +160,36 @@ function chatTemplateWithWorker(worker, input) {
 }
 
 window.fllamaGetChatTemplateJs = fllamaGetChatTemplateJs;
+
+
+let eosTokenWorker = null;
+let lastEosTokenTemplateModelPath = '';
+
+async function fllamaGetEosTokenJs(modelPath) {
+    if (eosTokenWorker === null || lastEosTokenTemplateModelPath !== modelPath) {
+        lastEosTokenTemplateModelPath = modelPath;
+        eosTokenWorker = initializeTokenizeWorker(modelPath);
+    }
+    return eosTokenWorker.then(worker => eosTokenWithWorker(worker));
+}
+
+function eosTokenWithWorker(worker) {
+    return new Promise((resolve, reject) => {
+        const handleMessage = function (e) {
+            console.log('[fllama_wasm_init.js.eosTokenWithWorker] received message', e.data);
+            switch (e.data.event) {
+                case action.GET_EOS_TOKEN_CALLBACK:
+                    worker.removeEventListener('message', handleMessage);
+                    resolve(e.data.eosToken);
+                    break;
+                default:
+                    reject(new Error('Unexpected message'));
+                    break;
+            }
+        };
+        worker.addEventListener('message', handleMessage);
+        worker.postMessage({ event: action.GET_EOS_TOKEN });
+    });
+}
+
+window.fllamaGetEosTokenJs = fllamaGetEosTokenJs;
