@@ -28,11 +28,15 @@ const String fllamaLibName = 'fllama';
 /// The bindings to the native functions in [fllamaDylib].
 final FllamaBindings fllamaBindings = FllamaBindings(fllamaDylib);
 
-/// Returns empty string if no template provided / error when loading model.
-// Cases:
-// - Phi 2 has no template, either intended or in the model.
-// - Mistral 7B via OpenHermes has no template and intends ChatML.
+/// Returns the chat template embedded in the .gguf file.
+/// If none is found, returns an empty string.
+/// 
+/// See [fllamaSanitizeChatTemplate] for using sensible fallbacks for gguf
+/// files that don't have a chat template or have incorrect chat templates.
 Future<String> fllamaChatTemplateGet(String modelPath) {
+  // Example models without a chat template:
+  // - Phi 2 has no template, either intended or in the model.
+  // - Mistral 7B via OpenHermes has no template and intends ChatML.
   final filenamePointer = stringToPointerChar(modelPath);
   final templatePointer =
       fllamaBindings.fllama_get_chat_template(filenamePointer);
@@ -44,6 +48,11 @@ Future<String> fllamaChatTemplateGet(String modelPath) {
   return Future.value(builtInChatTemplate);
 }
 
+/// Returns the EOS token embedded in the .gguf file.
+/// If none is found, returns an empty string.
+///
+/// See [fllamaApplyChatTemplate] for using sensible fallbacks for gguf
+/// files that don't have an EOS token or have incorrect EOS tokens.
 Future<String> fllamaEosTokenGet(String modelPath) async {
   final filenamePointer = stringToPointerChar(modelPath);
   final eosTokenPointer = fllamaBindings.fllama_get_eos_token(filenamePointer);

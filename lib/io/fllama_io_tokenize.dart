@@ -60,6 +60,9 @@ Future<SendPort> _helperTokenizeIsolateSendPort = (() async {
   return completer.future;
 }());
 
+/// Returns the number of tokens in [request.input].
+/// 
+/// Useful for identifying what messages will be in context when the LLM is run.
 Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   final SendPort helperIsolateSendPort = await _helperTokenizeIsolateSendPort;
 

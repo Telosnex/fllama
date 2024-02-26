@@ -16,7 +16,13 @@ typedef NativeFllamaInferenceCallback
 typedef FllamaLogCallbackNative = Void Function(Pointer<Char>);
 typedef FllamaLogCallbackDart = void Function(Pointer<Char>);
 
-// This callback type will be used in Dart to receive incremental results
+/// Runs standard LLM inference. The future returns immediately after being
+/// called. [callback] is called on each new output token with the response and
+/// a boolean indicating whether the response is the final response.
+/// 
+/// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
+/// template and an EOS token. Use [fllamaChat] instead if you expect this
+/// sort of interface, i.e. an OpenAI-like API.
 Future<void> fllamaInference(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
@@ -32,9 +38,6 @@ Future<void> fllamaInference(
   }
 }
 
-/// A request to compute `sum`.
-///
-/// Typically sent from one isolate to another.
 class _IsolateInferenceRequest {
   final int id;
   final FllamaInferenceRequest request;
@@ -42,9 +45,6 @@ class _IsolateInferenceRequest {
   const _IsolateInferenceRequest(this.id, this.request);
 }
 
-/// A response with the result of `sum`.
-///
-/// Typically sent from one isolate to another.
 class _IsolateInferenceResponse {
   final int id;
   final String response;

@@ -2,6 +2,12 @@ import 'package:fllama/fllama.dart';
 import 'package:fllama/misc/gbnf.dart';
 import 'package:jinja/jinja.dart';
 
+/// Parameters needed to run standard LLM inference. Use with [fllamaInference].
+/// 
+/// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
+/// template and an EOS token. Use [fllamaChat] instead if you expect this
+/// sort of interface, i.e. an OpenAI-like API. It translates an OpenAI-like
+/// request into a inference request.
 class FllamaInferenceRequest {
   int contextSize; // llama.cpp handled 0 fine. StableLM Zephyr became default (4096).
   String input;
@@ -54,6 +60,10 @@ class FllamaInferenceRequest {
   });
 }
 
+/// Represents a request to tokenize a string.
+/// 
+/// This is useful for identifying what messages will be in context when the LLM
+/// is run. Use with [fllamaTokenize].
 class FllamaTokenizeRequest {
   final String input;
   final String modelPath;
@@ -61,6 +71,14 @@ class FllamaTokenizeRequest {
   FllamaTokenizeRequest({required this.input, required this.modelPath});
 }
 
+/// Run the LLM using the standard LLM chat interface. This is the most common
+/// way to use FLLAMA.
+/// 
+/// What is the difference between this and inference? It automatically handles:
+/// - Using the chat template in the GGUF (fallback to ChatML if none is found).
+/// - Using the EOS token in the GGUF (fallback to ChatML EOS if none is found).
+/// - If a tool / function is supplied, force the model to only output JSON that
+///   is valid according to the tool's JSON schema.
 Future<void> fllamaChat(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
   final template = fllamaSanitizeChatTemplate(
@@ -104,6 +122,12 @@ Future<void> fllamaChat(
   fllamaInference(inferenceRequest, callback);
 }
 
+/// Returns a string representing the input to an LLM model after applying the
+/// chat template.
+/// 
+/// - [chatTemplate] is the raw chat template from the GGUF.
+/// - [eosToken] is the raw EOS token from the GGUF.
+/// - [request] is the OpenAI-like request.
 String fllamaApplyChatTemplate({
   required String chatTemplate,
   required OpenAiRequest request,
@@ -175,10 +199,14 @@ const chatMlTemplate = '''
 
 const chatMlEosToken = '<|im_end|>';
 
+/// Convert a JSON schema to GBNF, a grammar format used by llama.cpp to enforce
+/// that the model returns certain outputs.
 String fllamaJsonSchemaToGrammar(String jsonSchema) {
   return convertToJsonGrammar(jsonSchema);
 }
 
+/// Given a chat template embedded in a .gguf file, returns the chat template 
+/// itself, or a sensible fallback if the chat template is incorrect or missing.
 String fllamaSanitizeChatTemplate(String builtInChatTemplate) {
   final String chatTemplate;
 
