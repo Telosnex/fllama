@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 
 import 'package:file_picker/file_picker.dart';
@@ -294,14 +295,14 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _openImagePressed() async {
-    // final filePath = await _pickImagePath();
-    // if (filePath == null) {
-    //   return;
-    // }
-    // final bytes = await File(filePath).readAsBytes();
-    // setState(() {
-    //   _imageBytes = bytes;
-    // });
+    final filePath = await _pickImagePath();
+    if (filePath == null) {
+      return;
+    }
+    final bytes = await File(filePath).readAsBytes();
+    setState(() {
+      _imageBytes = bytes;
+    });
   }
 }
 
