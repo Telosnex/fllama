@@ -5,9 +5,9 @@ import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 import 'package:fllama/fllama_io.dart';
-import 'package:fllama/fllama_bindings_generated.dart';
-import 'package:fllama/fllama_inference_request.dart';
-import 'package:fllama/fns/fllama_io_helpers.dart';
+import 'package:fllama/io/fllama_bindings_generated.dart';
+import 'package:fllama/fllama_universal.dart';
+import 'package:fllama/io/fllama_io_helpers.dart';
 
 typedef NativeInferenceCallback = Void Function(
     Pointer<Char> response, Uint8 done);

@@ -1,13 +1,13 @@
-export 'fns/fllama_io_inference.dart';
-export 'fns/fllama_io_tokenize.dart';
+export 'io/fllama_io_inference.dart';
+export 'io/fllama_io_tokenize.dart';
 
 import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
-import 'package:fllama/fllama_bindings_generated.dart';
-import 'package:fllama/fns/fllama_io_helpers.dart';
-import 'package:fllama/fns/fllama_universal.dart';
+import 'package:fllama/io/fllama_bindings_generated.dart';
+import 'package:fllama/io/fllama_io_helpers.dart';
+import 'package:fllama/fllama_universal.dart';
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
 

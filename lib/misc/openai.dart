@@ -1,4 +1,4 @@
-import 'package:fllama/model/openai_tool.dart';
+import 'package:fllama/misc/openai_tool.dart';
 
 enum Role {
   assistant,

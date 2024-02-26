@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:fllama/gbnf.dart';
+import 'package:fllama/misc/gbnf.dart';
 import 'package:test/test.dart';
 
 void main() {
