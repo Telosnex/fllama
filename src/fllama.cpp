@@ -315,7 +315,7 @@ fllama_inference_sync(fllama_inference_request request,
   struct llama_sampling_context *ctx_sampling =
       llama_sampling_init(params.sparams);
   fllama_log("Sampling context initialized.", request.dart_logger);
-  const char *eos_token_chars = fllama_get_eos_token(request.model_path);
+  const char *eos_token_chars = request.eos_token != NULL ? request.eos_token : fllama_get_eos_token(request.model_path);
   const std::string eos_token_as_string = std::string(eos_token_chars);
   free((void *)eos_token_chars);
   const int64_t context_setup_complete = ggml_time_ms();
@@ -440,10 +440,7 @@ fllama_inference_sync(fllama_inference_request request,
 
     // Check for EOS on model tokens
     if (is_eos_model_token) {
-      fprintf(stderr, "%s: Finish. Model EOS token found. Token is: %s\n",
-              __func__, eos_token_as_string.c_str());
-      fprintf(stderr, "%s: EOS token length: %zu\n", __func__,
-              eos_token_as_string.length());
+      fprintf(stderr, "%s: Finish. Model EOS token found.", __func__);
       if (buffer.length() > 0) {
         result += buffer;
       }

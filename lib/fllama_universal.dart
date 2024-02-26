@@ -9,16 +9,17 @@ class FllamaInferenceRequest {
   String modelPath;
   String? modelMmprojPath;
   int numGpuLayers;
+
   /// Number of threads to use for inference.
-  /// 
+  ///
   /// 2 by default based on testing performed 2024 Feb 15, and model loading
   /// taking ~3 minutes when thread count exceeds 2 on Pixel Fold.
-  /// 
+  ///
   /// See class code for benchmarks from 2024 Feb 15.
   // Pixel Fold x StableLM 3B Zephyr, 2024 Feb 15:
   // - 99 gpu layers works, doesn't seem to affect performance or system load.
   // - default of 4 threads makes model loading take forever
-  // - 1 thread / 0 layers: 4.7 
+  // - 1 thread / 0 layers: 4.7
   // - 1 thread / 99 layers: 4.5
   // - 2 threads / 0 layers: 7.7
   // M2 Ultra MBP 2024 x LLaVA 1.6 Mistral 7B, 2024 Feb 15:
@@ -33,6 +34,7 @@ class FllamaInferenceRequest {
   double topP;
   String? grammar;
   Function(String)? logger;
+  String? eosToken;
 
   FllamaInferenceRequest({
     required this.contextSize,
@@ -45,6 +47,7 @@ class FllamaInferenceRequest {
     required this.temperature,
     required this.topP,
     this.grammar,
+    this.eosToken,
     this.modelMmprojPath,
     this.numThreads = 2,
     this.logger,
@@ -60,7 +63,8 @@ class FllamaTokenizeRequest {
 
 Future<void> fllamaChatCompletionAsync(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
-  final template = fllamaSanitizeChatTemplate(await fllamaGetChatTemplate(request.modelPath));
+  final template = fllamaSanitizeChatTemplate(
+      await fllamaGetChatTemplate(request.modelPath));
   final eosToken = template == chatMlTemplate
       ? chatMlEosToken
       : await fllamaGetEosToken(request.modelPath);
@@ -95,6 +99,7 @@ Future<void> fllamaChatCompletionAsync(
     topP: request.topP,
     grammar: grammar,
     logger: request.logger,
+    eosToken: eosToken,
   );
   fllamaInferenceAsync(inferenceRequest, callback);
 }
@@ -204,13 +209,14 @@ String fllamaSanitizeChatTemplate(String builtInChatTemplate) {
     // package seems to indicate Dart instance methods are available.
     chatTemplate = builtInChatTemplate.replaceAll('.strip()', '');
     // ignore: avoid_print
-    print('[fllama] Using built-in chat template.');
+    print('[fllama] Using built-in chat template: $chatTemplate');
     // ignore: avoid_print
-    print('[fllama] template: $chatTemplate');
   } else {
     // Assume models without one specified intend ChatML.
     // This is the case for Mistral 7B via OpenHermes.
     chatTemplate = chatMlTemplate;
+    // ignore: avoid_print
+    print('[fllama] Using ChatML because no built-in chat template was found.');
   }
   return chatTemplate;
 }

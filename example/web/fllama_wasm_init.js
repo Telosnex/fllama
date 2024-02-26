@@ -56,28 +56,28 @@ function fllamaInferenceAsyncJs(request, callback) {
 window.fllamaInferenceAsyncJs = fllamaInferenceAsyncJs;
 
 let tokenizeWorker = null;
-let lastModelPath = '';
+let lastTokenizeModelPath = '';
 
 async function fllamaTokenizeJs(modelPath, input) {
-    if (tokenizeWorker === null || lastModelPath !== modelPath) {
-        lastModelPath = modelPath;
-        tokenizeWorker = initializeTokenizeWorker(modelPath);
+    if (tokenizeWorker === null || lastTokenizeModelPath !== modelPath) {
+        lastTokenizeModelPath = modelPath;
+        tokenizeWorker = initializeWorker(modelPath);
     }
     return tokenizeWorker.then(worker => tokenizeWithWorker(worker, input));
 }
 
-function initializeTokenizeWorker(modelPath) {
+function initializeWorker(modelPath) {
     return new Promise((resolve, reject) => {
         const worker = new Worker(new URL('fllama_wasm_main_worker.js', import.meta.url), { type: 'module' });
         worker.onmessage = function (e) {
-            // console.log('[fllama_wasm_init.js.initializeTokenizeWorker] received message', e.data);
+            // console.log('[fllama_wasm_init.js.initializeWorker] received message', e.data);
             if (e.data.event === action.INITIALIZED) {
                 resolve(worker);
             }
         };
 
         worker.onerror = function (error) {
-            // console.error('[fllama_wasm_init.js.initializeTokenizeWorker] Worker error:', error);
+            // console.error('[fllama_wasm_init.js.initializeWorker] Worker error:', error);
             reject(new Error('Worker error'));
         };
 
@@ -90,7 +90,7 @@ function initializeTokenizeWorker(modelPath) {
                     sendMessage(worker, { event: action.LOAD, url: modelPath, modelSize: modelSize });
                 })
                 .catch(error => {
-                    // console.error('[fllama_wasm_init.js.initializeTokenizeWorker] Error fetching blob:', error);
+                    console.error('[fllama_wasm_init.js.initializeWorker] Error fetching blob:', error);
                     worker.terminate();
                     reject(new Error('Failed to load blob model'));
                 });
@@ -135,7 +135,7 @@ let lastChatTemplateModelPath = '';
 async function fllamaGetChatTemplateJs(modelPath) {
     if (chatTemplateWorker === null || lastChatTemplateModelPath !== modelPath) {
         lastChatTemplateModelPath = modelPath;
-        chatTemplateWorker = initializeTokenizeWorker(modelPath);
+        chatTemplateWorker = initializeWorker(modelPath);
     }
     return chatTemplateWorker.then(worker => chatTemplateWithWorker(worker));
 }
@@ -168,7 +168,7 @@ let lastEosTokenTemplateModelPath = '';
 async function fllamaGetEosTokenJs(modelPath) {
     if (eosTokenWorker === null || lastEosTokenTemplateModelPath !== modelPath) {
         lastEosTokenTemplateModelPath = modelPath;
-        eosTokenWorker = initializeTokenizeWorker(modelPath);
+        eosTokenWorker = initializeWorker(modelPath);
     }
     return eosTokenWorker.then(worker => eosTokenWithWorker(worker));
 }

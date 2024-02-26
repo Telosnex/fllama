@@ -157,6 +157,12 @@ final class fllama_inference_request extends ffi.Struct {
   /// https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
   external ffi.Pointer<ffi.Char> grammar;
 
+  /// Optional: end of sequence token. Defaults to one in model file. (llama.cpp behavior)
+  /// For example, in ChatML / OpenAI, <|im_end|> means the message is complete.
+  /// Often times GGUF files were created incorrectly, and this should be overridden.
+  /// Using fllamaChatCompletionAsync from Dart handles this automatically.
+  external ffi.Pointer<ffi.Char> eos_token;
+
   /// Optional: Dart caller logger. Defaults to NULL.
   external fllama_log_callback dart_logger;
 }

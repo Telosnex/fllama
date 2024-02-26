@@ -29,7 +29,7 @@ void fllama_inference_export(
     int context_size, char *input, int max_tokens, char *model_path,
     char *model_mmproj_path, int num_gpu_layers, int num_threads,
     float temperature, float top_p, float penalty_freq, float penalty_repeat,
-    char *grammar, void (*inference_callback_js)(const char *, uint8_t),
+    char *grammar, char* eos_token, void (*inference_callback_js)(const char *, uint8_t),
     void (*log_callback_js)(const char *)) {
   struct fllama_inference_request request;
   request.context_size = context_size;
@@ -44,17 +44,8 @@ void fllama_inference_export(
   request.penalty_freq = penalty_freq;
   request.penalty_repeat = penalty_repeat;
   request.grammar = grammar;
-
-  // Dynamically set the log callback, bridging the C-style callback to the
-  // function pointer
+  request.eos_token = eos_token;
   request.dart_logger = log_callback_js;
-
-  // Because fllama_inference takes a fllama_inference_callback, which is a
-  // pointer to a function of a specific signature, we directly assign the
-  // passed JS-interfaced C function pointer. There's no need to wrap it since
-  // the functionality and calling convention match.
-
-  // Directly pass the JS-provided callback through the C interface
   fllama_inference_sync(request, inference_callback_js);
 }
 }

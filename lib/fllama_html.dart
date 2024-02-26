@@ -38,7 +38,8 @@ class _JSFllamaInferenceRequest {
     required double penaltyRepeat,
     required double topP,
     String? grammar,
-    // MISSING: grammar, logger
+    String? eosToken,
+    // INTENTIONALLY MISSING: logger
   });
 }
 
@@ -57,6 +58,7 @@ Future<void> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
     penaltyRepeat: dartRequest.penaltyRepeat,
     topP: dartRequest.topP,
     grammar: dartRequest.grammar,
+    eosToken: dartRequest.eosToken,
   );
 
   fllamaInferenceAsyncJs(jsRequest, allowInterop((String response, bool done) {

@@ -75,7 +75,7 @@ self.addEventListener('message', async (e) => {
             break;
         }
         case action.INFERENCE:
-            const { contextSize, input, maxTokens, modelPath, modelMmprojPath, numGpuLayers, numThreads, temperature, topP, penaltyFrequency, penaltyRepeat, grammar } = e.data;
+            const { contextSize, input, maxTokens, modelPath, modelMmprojPath, numGpuLayers, numThreads, temperature, topP, penaltyFrequency, penaltyRepeat, grammar, eosToken } = e.data;
             const inferenceCallbackJs = module.addFunction((response, isDone) => {
                 postMessage({
                     event: action.INFERENCE_CALLBACK,
@@ -105,7 +105,6 @@ self.addEventListener('message', async (e) => {
             modelPathChunk.set(virtualModelPathRaw);
             module.HEAPU8[modelPathPtr + virtualModelPathRaw.length] = 0; // explicitly set the null terminator
 
-
             let modelMmprojPathPtr = 0; // Use null pointer (0) in C/C++ if modelMmprojPath is not provided
             if (modelMmprojPath) {
                 const virtualModelMmprojPath = "/models/mmproj.bin";
@@ -113,9 +112,19 @@ self.addEventListener('message', async (e) => {
                 modelMmprojPathPtr = module._malloc(virtualModelMmprojPathRaw.length + 1);
                 let modelMmprojPathChunk = module.HEAPU8.subarray(modelMmprojPathPtr, modelMmprojPathPtr + virtualModelMmprojPathRaw.length + 1);
                 modelMmprojPathChunk.set(virtualModelMmprojPathRaw);
+                module.HEAPU8[modelMmprojPathPtr + virtualModelMmprojPathRaw.length] = 0; // explicitly set the null terminator
             }
 
-            module._fllama_inference_export(contextSize, inputPtr, maxTokens, modelPathPtr, modelMmprojPathPtr, numGpuLayers, numThreads, temperature, topP, penaltyFrequency, penaltyRepeat, grammar, inferenceCallbackJs, logCallbackJs);
+            let eosTokenPtr = 0; // Use null pointer (0) in C/C++ if eosToken is not provided
+            if (eosToken) {
+                const eosTokenRaw = new TextEncoder().encode(eosToken);
+                eosTokenPtr = module._malloc(eosTokenRaw.length + 1);
+                let eosTokenChunk = module.HEAPU8.subarray(eosTokenPtr, eosTokenPtr + eosTokenRaw.length + 1);
+                eosTokenChunk.set(eosTokenRaw);
+                module.HEAPU8[eosTokenPtr + eosTokenRaw.length] = 0; // explicitly set the null terminator
+            }
+
+            module._fllama_inference_export(contextSize, inputPtr, maxTokens, modelPathPtr, modelMmprojPathPtr, numGpuLayers, numThreads, temperature, topP, penaltyFrequency, penaltyRepeat, grammar, eosTokenPtr, inferenceCallbackJs, logCallbackJs);
             // console.log("[fllama_wasm_main_worker.js.initWorker] completed inference request", e.data);
             break;
         case action.GET_CHAT_TEMPLATE: {
