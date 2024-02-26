@@ -81,6 +81,7 @@ class _MyAppState extends State<MyApp> {
                         ),
                     ],
                   ),
+                  if (!kIsWeb) ...[
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -105,12 +106,13 @@ class _MyAppState extends State<MyApp> {
                         ),
                     ],
                   ),
+                  ],
                   spacerSmall,
                   if (_modelPath != null)
                     TextField(
                       controller: _controller,
                     ),
-                  if (_mmprojPath != null)
+                  if (_mmprojPath != null && !kIsWeb)
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0),
                       child: Row(
