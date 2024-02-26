@@ -7,8 +7,17 @@
 - Fast: exceeds average reading speed on all platforms except web.
 - Private: No network connection, server, cloud required.
 - Forward compatible: Any model compatible with llama.cpp. (so, every model.)
+- Full OpenAI compatability: chat messages, multimodal/image support via LLaVa models, and function calling. (constrain outputs to valid JSON based on a JSON schema) 
+- Bare metal interface: call LLMs without being constrained to a chat implementation.
 - Use with FONNX for RAG
   - Combine with [FONNX](https://github.com/Telosnex/fonnx) to have a full retrieval-augmented generation stack available on all platforms.
+
+## Recent updates
+### 26 Feb 2024
+- Web is now based on WASM compiled from FLLAMA itself, rather than just llama.cpp, guaranteeing native/web parity.
+- Tokenizing strings based on the model is 1000x faster, via caching the model. Went from O(300 ms) on native only to O(0.2 ms) on web, O(0.00001 ms) on native. This enables calculating what strings will be in context based on the context size.
+- Method renames for consistency, correctness, and clarity. (ex. remove *Async from names, because all methods are async; rename `fllamaChatCompletionAsync` to `fllamaChat`)
+- Document methods and updated example. TL;DR: Use `fllamaChat` unless you're doing something funny with LLMs that isn't user-facing, it will act like a true text completion engine instead of a chatbot.
 
 ## Integrate
 - Add this to your package's pubspec.yaml file:
@@ -23,51 +32,46 @@ dependencies:
 ```dart
 import 'package:fllama/fllama.dart';
 
-final llama = Fllama();
-final request = FllamaInferenceRequest(
-                  // Proportional to RAM use. 
-                  // 4096 is a good default. 
-                  // 2048 should be considered on devices with low RAM (<8 GB)
-                  // 8192 and higher can be considered on device with high RAM (>16 GB)
-                  // Models are trained on <= a certain context size.
-                  contextSize: 4096,
-                  maxTokens: 256,
-                  temperature: 1.0,
-                  topP: 1.0,
-                  // Make sure to format input appropriately for the model, ex. ChatML
-                  input: _controller.text,
-                  // 0 = CPU only. Functionally, maximum number of layers to run on GPU. 
-                  // 99/100 are used in llama.cpp examples when intent is to run all layers 
-                  // on GPU. Automatically set to 0 in obvious scenarios where it will be
-                  // incompatible, such as iOS simulator. You should set it to 0 on CI,
-                  // virtualized graphics cards will not work.
-                  numGpuLayers: 99,
-                  // Path to a GGUF file.
-                  // Obtain from HuggingFace.
-                  // Recommended models available on fllama HuggingFace.
-                  // https://huggingface.co/telosnex/fllama/tree/main
-                  //
-                  // Stable LM 3B is reasonable on all devices. ~360 wpm on Android, 
-                  // ~540 wpm on iOS, ~2700 wpm on ultra premium macOS. (M2 Max MBP).
-                  // People read at ~250 wpm.
-                  //
-                  // Mistral 7B is best on 2023 iPhones or 2024 Androids or better.
-                  // It's about 2/3 the speed of Stable LM 3B and requires 5 GB of RAM.
-                  //
-                  // Mixtral should only be considered on a premium laptop or desktop,
-                  // such as an M-series MacBook or a premium desktop purchased in 2023
-                  // or later.
-                  modelPath: null,
-                );
-fllamaInferenceAsync(request, (String result, bool done) {
-  setState(() {
-    latestResult = result;
-  });
+String latestResult = "";
+
+final request = OpenAiRequest(
+  maxTokens: 256,
+  messages: [
+    Message(Role.system, 'You are a chatbot.'),
+    Message(Role.user, messageText),
+  ],
+  numGpuLayers: 99, /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
+  modelPath: _modelPath!,
+  mmprojPath: _mmprojPath,
+  frequencyPenalty: 0.0,
+  // Don't use below 1.1, LLMs without a repeat penalty
+  // will repeat the same token.
+  presencePenalty: 1.1,
+  topP: 1.0,
+  // Proportional to RAM use. 
+  // 4096 is a good default. 
+  // 2048 should be considered on devices with low RAM (<8 GB)
+  // 8192 and higher can be considered on device with high RAM (>16 GB)
+  // Models are trained on <= a certain context size. Exceeding that # can/will lead to completely incoherent output.
+  contextSize: 2048,
+  // Don't use 0.0, some models will repeat the same token.
+  temperature: 0.1,
+  logger: (log) {
+    // ignore: avoid_print
+    print('[llama.cpp] $log');
+  },
+);
+fllamaChat(request, (response, done) {
+    setState(() {
+      latestResult = response;
+    });
 });
 ```
 ## Tips & Tricks
+### Web
+  Web is __extremely__ slow, ex. on a MBP M2 Max with 64 VRAM, it does ~2 tokens/second with a 3B parameter model. It's best seen as validation for your users that you will strive to support free LLMs everywhere.
+  To install: copy the fllama_wasm* files from `example/web` to your app's `web` directory, then add the `<script>` tag in `example/web/index.html`.
 ### Recommended models
-
   3 top-tier open models are in the [fllama HuggingFace repo](https://huggingface.co/telosnex/fllama/tree/main).
   - __Stable LM 3B__ is the first LLM model that can handle RAG, using documents such as web pages to answer a query, on *all* devices. 
   > Mistral models via [Nous Research](https://nousresearch.com/).
