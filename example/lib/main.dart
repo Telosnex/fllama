@@ -1,11 +1,9 @@
 import 'dart:convert';
 
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 
 import 'package:file_selector/file_selector.dart';
-import 'package:fllama/fllama_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -186,7 +184,7 @@ class _MyAppState extends State<MyApp> {
                           Message(Role.system, 'You are a chatbot.'),
                           Message(Role.user, messageText),
                         ],
-                        numGpuLayers: 99,
+                        numGpuLayers: 99, /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
                         modelPath: _modelPath!,
                         mmprojPath: _mmprojPath,
                         frequencyPenalty: 0.0,
@@ -265,19 +263,19 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _openImagePressed() async {
-    final filePath = await _pickImagePath();
-    if (filePath == null) {
-      return;
-    }
-    final bytes = await File(filePath).readAsBytes();
-    setState(() {
-      _imageBytes = bytes;
-    });
+    // final filePath = await _pickImagePath();
+    // if (filePath == null) {
+    //   return;
+    // }
+    // final bytes = await File(filePath).readAsBytes();
+    // setState(() {
+    //   _imageBytes = bytes;
+    // });
   }
 }
 
 Future<String?> _pickGgufPath() async {
-  if (!kIsWeb && Platform.isAndroid) {
+  if (!kIsWeb && TargetPlatform.android == defaultTargetPlatform) {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.any,
     );

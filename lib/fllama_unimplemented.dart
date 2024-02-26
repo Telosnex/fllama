@@ -6,3 +6,7 @@ Future<String> fllamaInferenceAsync(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   throw UnimplementedError();
 }
+
+Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
+  throw UnimplementedError();
+}

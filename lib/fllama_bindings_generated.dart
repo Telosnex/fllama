@@ -91,22 +91,19 @@ class FllamaBindings {
   late final _fllama_get_eos_token = _fllama_get_eos_tokenPtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
-  void fllama_tokenize(
+  int fllama_tokenize(
     fllama_tokenize_request request,
-    fllama_tokenize_callback callback,
   ) {
     return _fllama_tokenize(
       request,
-      callback,
     );
   }
 
-  late final _fllama_tokenizePtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Void Function(fllama_tokenize_request,
-              fllama_tokenize_callback)>>('fllama_tokenize');
-  late final _fllama_tokenize = _fllama_tokenizePtr.asFunction<
-      void Function(fllama_tokenize_request, fllama_tokenize_callback)>();
+  late final _fllama_tokenizePtr =
+      _lookup<ffi.NativeFunction<ffi.Size Function(fllama_tokenize_request)>>(
+          'fllama_tokenize');
+  late final _fllama_tokenize =
+      _fllama_tokenizePtr.asFunction<int Function(fllama_tokenize_request)>();
 }
 
 final class fllama_inference_request extends ffi.Struct {
@@ -177,6 +174,3 @@ final class fllama_tokenize_request extends ffi.Struct {
   /// Required: .ggml model file path
   external ffi.Pointer<ffi.Char> model_path;
 }
-
-typedef fllama_tokenize_callback
-    = ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Int count)>>;

@@ -4,19 +4,12 @@ import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 import 'package:fllama/fllama_bindings_generated.dart';
-import 'package:fllama/fllama_io.dart'; // Ensure this is correctly pointed to your generated bindings
+import 'package:fllama/fllama_io.dart';
+import 'package:fllama/fllama_tokenize_request.dart'; // Ensure this is correctly pointed to your generated bindings
 
 typedef NativeTokenizeCallback = Void Function(Int count);
 typedef NativeFllamaTokenizeCallback
     = Pointer<NativeFunction<NativeTokenizeCallback>>;
-
-// Dart model for a tokenization request
-class FllamaTokenizeRequest {
-  final String input;
-  final String modelPath;
-
-  FllamaTokenizeRequest({required this.input, required this.modelPath});
-}
 
 // Inner workings - No need for direct access, hence private
 class _IsolateTokenizeRequest {
@@ -87,23 +80,15 @@ void _fllamaTokenizeIsolate(SendPort mainIsolateSendPort) {
   helperReceivePort.listen((dynamic data) {
     if (data is _IsolateTokenizeRequest) {
       final request = _toNativeTokenizeRequest(data.request);
-      late final NativeCallable<NativeTokenizeCallback> callback;
-      final Pointer<fllama_tokenize_request> nativeRequest =
-          _toNativeTokenizeRequest(data.request);
-      void onTokenizeResponse(int count) {
-        mainIsolateSendPort.send(_IsolateTokenizeResponse(data.id, count));
-      }
-
-      callback =
-          NativeCallable<NativeTokenizeCallback>.listener(onTokenizeResponse);
 
       // Invoke the actual FFI function here; ensure proper signature and binding exist
-      fllamaBindings.fllama_tokenize(request.ref, callback.nativeFunction);
+      int answer = fllamaBindings.fllama_tokenize(request.ref);
+      mainIsolateSendPort.send(_IsolateTokenizeResponse(data.id, answer));
 
       // Clean-up allocated memory
-      calloc.free(nativeRequest.ref.input);
-      calloc.free(nativeRequest.ref.model_path);
-      calloc.free(nativeRequest);
+      calloc.free(request.ref.input);
+      calloc.free(request.ref.model_path);
+      calloc.free(request);
     }
   });
 }

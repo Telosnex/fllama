@@ -1,12 +1,27 @@
 // ignore_for_file: avoid_print
 
+import 'dart:async';
+
 import 'package:fllama/fllama.dart';
 
 @JS()
 import 'package:js/js.dart';
+import 'package:js/js_util.dart';
+
+@JS()
+class Promise<T> {
+  external Promise(
+      void Function(void Function(T result) resolve, Function reject) executor);
+  external Promise then(void Function(T result) onFulfilled,
+      [Function onRejected]);
+}
 
 @JS('fllamaInferenceAsyncJs')
 external Future<String> fllamaInferenceAsyncJs(
+    dynamic request, Function callback);
+
+@JS('fllamaInferenceAsyncJs2')
+external Future<void> fllamaInferenceAsyncJs2(
     dynamic request, Function callback);
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
@@ -50,12 +65,36 @@ Future<String> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
     grammar: dartRequest.grammar,
   );
   print(
-      '[fllama_html] calling fllamaInferenceAsyncJs with JSified request: $jsRequest');
+      '[fllama_html] calling fllamaInferenceAsyncJs2 with JSified request: $jsRequest at ${DateTime.now()}');
 
-  fllamaInferenceAsyncJs(jsRequest, allowInterop((String response, bool done) {
+  fllamaInferenceAsyncJs2(jsRequest, allowInterop((String response, bool done) {
     callback(response, done);
   }));
+  print('[fllama_html] finished fllamaInferenceAsyncJs2 call at ${DateTime.now()}');
   return '';
 }
 
+// Tokenize
+@JS('fllamaTokenizeJs2')
+external Future<int> fllamaTokenizeJs(dynamic modelPath, dynamic input);
+Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
+  try {
+    final completer = Completer<int>();
+      print(
+      '[fllama_html] calling fllamaTokenizeJs at ${DateTime.now()}');
+    final promise =
+        promiseToFuture(fllamaTokenizeJs(request.modelPath, request.input))
+            .then((value) {
 
+      print(
+          '[fllama_html] fllamaTokenizeAsync finished with $value at ${DateTime.now()}');
+      completer.complete(value);
+    });
+    print(
+        '[fllama_html] called fllamaTokenizeJs at ${DateTime.now()}');
+    return completer.future;
+  } catch (e) {
+    print('[fllama_html] fllamaTokenizeAsync caught error: $e');
+    rethrow;
+  }
+}

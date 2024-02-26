@@ -1,6 +1,9 @@
 #ifndef FLLAMA_TOKENIZE_H
 #define FLLAMA_TOKENIZE_H
 
+#include <stdlib.h>
+#include <stddef.h>
+
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #else
@@ -17,8 +20,6 @@
 extern "C" {
 #endif
 
-typedef void (*fllama_tokenize_callback)(int count);
-
 
 struct fllama_tokenize_request
 {
@@ -26,7 +27,7 @@ struct fllama_tokenize_request
     char *model_path; // Required: .ggml model file path
 };
 
-EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_tokenize(struct fllama_tokenize_request request, fllama_tokenize_callback callback);
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT size_t fllama_tokenize(struct fllama_tokenize_request request);
 #ifdef __cplusplus
 }
 #endif

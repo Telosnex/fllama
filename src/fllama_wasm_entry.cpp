@@ -2,28 +2,60 @@
 #include "fllama_chat_template.h"
 #include "fllama_eos.h"
 #include "fllama_tokenize.h"
+#include <stdio.h>
 
 extern "C" {
 const char *fllama_get_eos_token_export(const char *fname) {
   return fllama_get_eos_token(fname);
 }
 
-void fllama_tokenize_export(struct fllama_tokenize_request request,
-                            fllama_tokenize_callback callback) {
-  fllama_tokenize(request, callback);
+size_t fllama_tokenize_export(const char *fname, const char *input) {
+  fllama_tokenize_request request;
+  request.input = const_cast<char *>(
+      input); // Since input is 'const char*' and request.input is 'char*'
+  request.model_path = const_cast<char *>(
+      fname); // Since fname is 'const char*' and request.model_path is 'char*'
+
+  size_t result = fllama_tokenize(request);
+  return result;
 }
 
 const char *fllama_get_chat_template_export(const char *fname) {
   return fllama_get_chat_template(fname);
 }
 
-void fllama_inference_export(struct fllama_inference_request request,
-                             fllama_inference_callback callback) {
-  fllama_inference(request, callback);
-}
-void fllama_inference_sync_export(struct fllama_inference_request request,
-                                  fllama_inference_callback callback) {
-  fllama_inference_sync(request, callback);
+// Wrapper function to be called from JavaScript
+void fllama_inference_export(
+    int context_size, char *input, int max_tokens, char *model_path,
+    char *model_mmproj_path, int num_gpu_layers, int num_threads,
+    float temperature, float top_p, float penalty_freq, float penalty_repeat,
+    char *grammar, void (*inference_callback_js)(const char *, uint8_t),
+    void (*log_callback_js)(const char *)) {
+  struct fllama_inference_request request;
+  request.context_size = context_size;
+  request.input = input;
+  request.max_tokens = max_tokens;
+  request.model_path = model_path;
+  request.model_mmproj_path = model_mmproj_path;
+  request.num_gpu_layers = num_gpu_layers;
+  request.num_threads = num_threads;
+  request.temperature = temperature;
+  request.top_p = top_p;
+  request.penalty_freq = penalty_freq;
+  request.penalty_repeat = penalty_repeat;
+  request.grammar = grammar;
+
+  // Dynamically set the log callback, bridging the C-style callback to the
+  // function pointer
+  request.dart_logger = log_callback_js;
+
+  // Because fllama_inference takes a fllama_inference_callback, which is a
+  // pointer to a function of a specific signature, we directly assign the
+  // passed JS-interfaced C function pointer. There's no need to wrap it since
+  // the functionality and calling convention match.
+
+  // Directly pass the JS-provided callback through the C interface
+  fllama_inference_sync(request, inference_callback_js);
 }
 }
 

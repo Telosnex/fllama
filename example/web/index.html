@@ -62,9 +62,9 @@
   <!-- 1. Sets up a web worker for inference to avoid blocking UI. -->
   <!-- 2. Sends inference requests to the worker and returns a Promise. -->
   <!-- 3. When inference is complete, the Promise is resolved. -->
-  <script type="module">
-    import './init-fllama-worker.js';
-  </script>
+    <script type="module">
+      import './fllama_wasm_init.js';
+    </script>
 </body>
 
 </html>

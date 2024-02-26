@@ -136,32 +136,40 @@ fllama_inference_sync(fllama_inference_request request,
   // >=32 needed for BLAS.
   params.n_batch = 512;
   params.n_predict = request.max_tokens;
+  // std::cout << "[fllama] Max tokens: " << params.n_predict << std::endl;
   params.n_threads = request.num_threads;
+  // std::cout << "[fllama] Number of threads: " << params.n_threads << std::endl;
   params.sparams.temp = request.temperature;
   std::cout << "[fllama] Default penalty_freq: " << params.sparams.penalty_freq
             << std::endl;
   std::cout << "[fllama] Default penalty_repeat: "
             << params.sparams.penalty_repeat << std::endl;
   params.sparams.penalty_freq = request.penalty_freq;
+  // std::cout << "[fllama] Penalty_freq: " << params.sparams.penalty_freq
+            // << std::endl;
   params.sparams.penalty_repeat = request.penalty_repeat;
+  // std::cout << "[fllama] Penalty_repeat: " << params.sparams.penalty_repeat
+            // << std::endl;
   std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
                                               llama_sampler_type::TEMP};
   params.sparams.samplers_sequence = samplers;
   params.sparams.top_p = request.top_p;
+  // std::cout << "[fllama] Top_p: " << params.sparams.top_p << std::endl;
   if (request.grammar != NULL && strlen(request.grammar) > 0) {
     std::cout << "[fllama] Grammar: " << request.grammar << std::endl;
     params.sparams.grammar = std::string(request.grammar);
   }
   params.model = request.model_path;
+  // std::cout << "[fllama] Model path: " << params.model << std::endl;
 // Force CPU if iOS simulator: no GPU support available, hangs.
 #if TARGET_IPHONE_SIMULATOR
   params.n_gpu_layers = 0;
 // Otherwise, for physical iOS devices and other platforms
 #else
   params.n_gpu_layers = request.num_gpu_layers;
-  fllama_log("Number of GPU layers requested: " +
-                 std::to_string(params.n_gpu_layers),
-             request.dart_logger);
+  // fllama_log("[fllama] Number of GPU layers requested: " +
+                //  std::to_string(params.n_gpu_layers),
+            //  request.dart_logger);
 #endif
   llama_backend_init(params.numa);
 
@@ -333,9 +341,18 @@ fllama_inference_sync(fllama_inference_request request,
   const int64_t start_t = ggml_time_ms();
   int64_t t_last = start_t;
   while (true) {
+    // auto sample_start = std::chrono::high_resolution_clock::now();
     const llama_token new_token_id =
         llama_sampling_sample(ctx_sampling, ctx, NULL);
     llama_sampling_accept(ctx_sampling, ctx, new_token_id, true);
+    // auto sample_end = std::chrono::high_resolution_clock::now();
+    // // Calculate duration
+    // std::chrono::duration<double, std::milli> sample_duration =
+    //     sample_end - sample_start;
+    // Log the duration
+    // fllama_log("Sample took " + std::to_string(sample_duration.count()) +
+    //                " milliseconds.",
+    //            request.dart_logger);
     n_gen += 1;
     // Identify EOS token from the model
     bool is_eos_model_token = new_token_id == model_eos_token;
@@ -377,7 +394,12 @@ fllama_inference_sync(fllama_inference_request request,
     }
 
     std::strcpy(c_result, result.c_str());
-    callback(/* response */ c_result, /* done */ false);
+    if (callback != NULL) {
+      callback(/* response */ c_result, /* done */ false);
+    } else {
+      fllama_log("WARNING: callback is NULL. Output: " + result,
+                 request.dart_logger);
+    }
     // If we reach the maximum number of tokens or an eval fails, finish.
     if (n_gen >= n_max_tokens) {
       fllama_log("Finish. Max tokens reached (" + std::to_string(n_max_tokens) +
@@ -389,6 +411,7 @@ fllama_inference_sync(fllama_inference_request request,
       break;
     }
 
+    // auto add_to_context_start = std::chrono::high_resolution_clock::now();
     if (!add_token_to_context(ctx, new_token_id, &n_past)) {
       fllama_log("Finish. Eval failed", request.dart_logger);
       fprintf(stderr, "%s: Finish. Eval failed\n", __func__);
@@ -397,6 +420,12 @@ fllama_inference_sync(fllama_inference_request request,
       }
       break;
     }
+    // auto add_to_context_end = std::chrono::high_resolution_clock::now();
+    // std::chrono::duration<double, std::milli> add_to_context_duration =
+    //     add_to_context_end - add_to_context_start;
+    // fllama_log("Add to context took " + std::to_string(add_to_context_duration.count()) +
+    //                " milliseconds.",
+    //            request.dart_logger);
 
     // If greater than a second has passed since last log, log
     // the speed of generation.
@@ -420,6 +449,12 @@ fllama_inference_sync(fllama_inference_request request,
       }
       break;
     }
+    // auto other_end = std::chrono::high_resolution_clock::now();
+    // std::chrono::duration<double, std::milli> other_duration =
+    //     other_end - sample_end;
+    // fllama_log("Other took " + std::to_string(other_duration.count()) +
+    //                " milliseconds.",
+    //            request.dart_logger);
   }
 
   // If EOS token is found, above loop does not add it to buffer, and the
@@ -440,7 +475,13 @@ fllama_inference_sync(fllama_inference_request request,
   // this will be _after_ this function returns. In that case, the final output
   // is a bunch of null characters: they look like 6 vertical lines stacked.
   std::strcpy(c_result, result.c_str());
-  callback(/* response */ c_result, /* done */ true);
+  if (callback != NULL) {
+    callback(/* response */ c_result, /* done */ true);
+  } else {
+    fllama_log("WARNING: callback is NULL. Output: " + result,
+               request.dart_logger);
+  }
+
   const auto t_now = ggml_time_ms();
 
   fllama_log("Generated " + std::to_string(n_gen) + " tokens in " +
