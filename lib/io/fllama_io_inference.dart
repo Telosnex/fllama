@@ -17,7 +17,7 @@ typedef FllamaLogCallbackNative = Void Function(Pointer<Char>);
 typedef FllamaLogCallbackDart = void Function(Pointer<Char>);
 
 // This callback type will be used in Dart to receive incremental results
-Future<void> fllamaInferenceAsync(
+Future<void> fllamaInference(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
   final int requestId = _nextInferenceRequestId++;

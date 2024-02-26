@@ -14,8 +14,8 @@ class Promise<T> {
       [Function onRejected]);
 }
 
-@JS('fllamaInferenceAsyncJs')
-external Future<void> fllamaInferenceAsyncJs(
+@JS('fllamaInferenceJs')
+external Future<void> fllamaInferenceJs(
     dynamic request, Function callback);
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
@@ -42,7 +42,7 @@ class _JSFllamaInferenceRequest {
   });
 }
 
-Future<void> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
+Future<void> fllamaInference(FllamaInferenceRequest dartRequest,
     FllamaInferenceCallback callback) async {
   final jsRequest = _JSFllamaInferenceRequest(
     contextSize: dartRequest.contextSize,
@@ -60,7 +60,7 @@ Future<void> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
     eosToken: dartRequest.eosToken,
   );
 
-  fllamaInferenceAsyncJs(jsRequest, allowInterop((String response, bool done) {
+  fllamaInferenceJs(jsRequest, allowInterop((String response, bool done) {
     callback(response, done);
   }));
 }
@@ -68,7 +68,7 @@ Future<void> fllamaInferenceAsync(FllamaInferenceRequest dartRequest,
 // Tokenize
 @JS('fllamaTokenizeJs')
 external Future<int> fllamaTokenizeJs(dynamic modelPath, dynamic input);
-Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
+Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   try {
     final completer = Completer<int>();
     // print('[fllama_html] calling fllamaTokenizeJs at ${DateTime.now()}');
@@ -89,42 +89,42 @@ Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
 }
 
 // Chat template
-@JS('fllamaGetChatTemplateJs')
-external Future<String> fllamaGetChatTemplateJs(dynamic modelPath);
-Future<String> fllamaGetChatTemplate(String modelPath) async {
+@JS('fllamaChatTemplateGetJs')
+external Future<String> fllamaChatTemplateGetJs(dynamic modelPath);
+Future<String> fllamaChatTemplateGet(String modelPath) async {
   try {
     final completer = Completer<String>();
-    // print('[fllama_html] calling fllamaGetChatTemplateJs at ${DateTime.now()}');
-    promiseToFuture(fllamaGetChatTemplateJs(modelPath)).then((value) {
+    // print('[fllama_html] calling fllamaChatTemplateGetJs at ${DateTime.now()}');
+    promiseToFuture(fllamaChatTemplateGetJs(modelPath)).then((value) {
       // print(
-          // '[fllama_html] fllamaGetChatTemplateJs finished with $value at ${DateTime.now()}');
+          // '[fllama_html] fllamaChatTemplateGetJs finished with $value at ${DateTime.now()}');
       completer.complete(value);
     });
-    // print('[fllama_html] called fllamaGetChatTemplateJs at ${DateTime.now()}');
+    // print('[fllama_html] called fllamaChatTemplateGetJs at ${DateTime.now()}');
     return completer.future;
   } catch (e) {
     // ignore: avoid_print
-    print('[fllama_html] fllamaGetChatTemplateJs caught error: $e');
+    print('[fllama_html] fllamaChatTemplateGetJs caught error: $e');
     rethrow;
   }
 }
 
-@JS('fllamaGetEosTokenJs')
-external Future<String> fllamaGetEosTokenJs(dynamic modelPath);
-Future<String> fllamaGetEosToken(String modelPath) {
+@JS('fllamaEosTokenGetJs')
+external Future<String> fllamaEosTokenGetJs(dynamic modelPath);
+Future<String> fllamaEosTokenGet(String modelPath) {
   try {
     final completer = Completer<String>();
-    // print('[fllama_html] calling fllamaGetEosTokenJs at ${DateTime.now()}');
-    promiseToFuture(fllamaGetEosTokenJs(modelPath)).then((value) {
+    // print('[fllama_html] calling fllamaEosTokenGet at ${DateTime.now()}');
+    promiseToFuture(fllamaEosTokenGetJs(modelPath)).then((value) {
       // print(
-          // '[fllama_html] fllamaGetEosTokenJs finished with $value at ${DateTime.now()}');
+          // '[fllama_html] fllamaEosTokenGet finished with $value at ${DateTime.now()}');
       completer.complete(value);
     });
-    // print('[fllama_html] called fllamaGetEosTokenJs at ${DateTime.now()}');
+    // print('[fllama_html] called fllamaEosTokenGet at ${DateTime.now()}');
     return completer.future;
   } catch (e) {
     // ignore: avoid_print
-    print('[fllama_html] fllamaGetEosTokenJs caught error: $e');
+    print('[fllama_html] fllamaEosTokenGet caught error: $e');
     rethrow;
   }
 }

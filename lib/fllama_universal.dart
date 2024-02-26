@@ -61,13 +61,13 @@ class FllamaTokenizeRequest {
   FllamaTokenizeRequest({required this.input, required this.modelPath});
 }
 
-Future<void> fllamaChatCompletionAsync(
+Future<void> fllamaChat(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
   final template = fllamaSanitizeChatTemplate(
-      await fllamaGetChatTemplate(request.modelPath));
+      await fllamaChatTemplateGet(request.modelPath));
   final eosToken = template == chatMlTemplate
       ? chatMlEosToken
-      : await fllamaGetEosToken(request.modelPath);
+      : await fllamaEosTokenGet(request.modelPath);
   final text = fllamaApplyChatTemplate(
     chatTemplate: template,
     eosToken: eosToken,
@@ -78,7 +78,7 @@ Future<void> fllamaChatCompletionAsync(
     if (request.tools.length > 1) {
       // ignore: avoid_print
       print(
-          '[fllama] WARNING: More than one tool was specified. No grammar will be enforced. (via fllamaChatCompletionAsync)');
+          '[fllama] WARNING: More than one tool was specified. No grammar will be enforced. (via fllamaChat)');
       grammar = '';
     } else {
       grammar = request.tools.first.grammar;
@@ -101,7 +101,7 @@ Future<void> fllamaChatCompletionAsync(
     logger: request.logger,
     eosToken: eosToken,
   );
-  fllamaInferenceAsync(inferenceRequest, callback);
+  fllamaInference(inferenceRequest, callback);
 }
 
 String fllamaApplyChatTemplate({

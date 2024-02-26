@@ -206,20 +206,20 @@ class _MyAppState extends State<MyApp> {
                       );
 
                       final chatTemplate =
-                          await fllamaGetChatTemplate(_modelPath!);
+                          await fllamaChatTemplateGet(_modelPath!);
                       setState(() {
                         latestChatTemplate = chatTemplate;
                       });
 
-                      final eosToken = await fllamaGetEosToken(_modelPath!);
+                      final eosToken = await fllamaEosTokenGet(_modelPath!);
                       setState(() {
                         latestEosToken = eosToken;
                       });
 
-                      fllamaChatCompletionAsync(request, (response, done) {
+                      fllamaChat(request, (response, done) {
                         setState(() {
                           latestResult = response;
-                          fllamaTokenizeAsync(FllamaTokenizeRequest(
+                          fllamaTokenize(FllamaTokenizeRequest(
                                   input: latestResult, modelPath: _modelPath!))
                               .then((value) {
                             setState(() {

@@ -32,7 +32,7 @@ final FllamaBindings fllamaBindings = FllamaBindings(fllamaDylib);
 // Cases:
 // - Phi 2 has no template, either intended or in the model.
 // - Mistral 7B via OpenHermes has no template and intends ChatML.
-Future<String> fllamaGetChatTemplate(String modelPath) {
+Future<String> fllamaChatTemplateGet(String modelPath) {
   final filenamePointer = stringToPointerChar(modelPath);
   final templatePointer =
       fllamaBindings.fllama_get_chat_template(filenamePointer);
@@ -44,7 +44,7 @@ Future<String> fllamaGetChatTemplate(String modelPath) {
   return Future.value(builtInChatTemplate);
 }
 
-Future<String> fllamaGetEosToken(String modelPath) async {
+Future<String> fllamaEosTokenGet(String modelPath) async {
   final filenamePointer = stringToPointerChar(modelPath);
   final eosTokenPointer = fllamaBindings.fllama_get_eos_token(filenamePointer);
   calloc.free(filenamePointer);

@@ -46,7 +46,7 @@ struct fllama_inference_request {
   char *eos_token; // Optional: end of sequence token. Defaults to one in model file. (llama.cpp behavior)
                    // For example, in ChatML / OpenAI, <|im_end|> means the message is complete.
                    // Often times GGUF files were created incorrectly, and this should be overridden.
-                   // Using fllamaChatCompletionAsync from Dart handles this automatically.
+                   // Using fllamaChat from Dart handles this automatically.
   fllama_log_callback
       dart_logger; // Optional: Dart caller logger. Defaults to NULL.
 };

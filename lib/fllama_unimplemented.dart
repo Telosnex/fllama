@@ -2,19 +2,19 @@ import 'package:fllama/fllama.dart';
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
 
-Future<String> fllamaGetChatTemplate(String modelPath) {
+Future<String> fllamaChatTemplateGet(String modelPath) {
   throw UnimplementedError();
 }
 
-Future<String> fllamaGetEosToken(String modelPath) {
+Future<String> fllamaEosTokenGet(String modelPath) {
   throw UnimplementedError();
 }
 
-Future<void> fllamaInferenceAsync(
+Future<void> fllamaInference(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   throw UnimplementedError();
 }
 
-Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
+Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   throw UnimplementedError();
 }

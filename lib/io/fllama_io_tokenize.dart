@@ -60,7 +60,7 @@ Future<SendPort> _helperTokenizeIsolateSendPort = (() async {
   return completer.future;
 }());
 
-Future<int> fllamaTokenizeAsync(FllamaTokenizeRequest request) async {
+Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   final SendPort helperIsolateSendPort = await _helperTokenizeIsolateSendPort;
 
   final requestId = _nextTokenizeRequestId++;
