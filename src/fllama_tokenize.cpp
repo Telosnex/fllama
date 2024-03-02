@@ -1,5 +1,7 @@
 #include "fllama_tokenize.h"
 
+#include <mutex>
+
 #if TARGET_OS_IOS
 // iOS-specific includes
 #include "../ios/llama.cpp/common/base64.hpp"
