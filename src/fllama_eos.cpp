@@ -23,6 +23,7 @@
 #include "common/common.h"
 #include "ggml.h"
 #include "llama.h"
+#include <climits>
 #endif
 
 #include "fllama_eos.h"
