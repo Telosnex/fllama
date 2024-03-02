@@ -14,6 +14,7 @@
 #include "base64.hpp"
 #endif
 
+#include <cstring>
 #include <string>
 #include <vector>
 
