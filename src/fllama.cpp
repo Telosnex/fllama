@@ -188,6 +188,14 @@ fllama_inference_sync(fllama_inference_request request,
         << "[fllama] fllama default log callback installed for llama.cpp. ";
     llama_log_set(log_callback_wrapper, NULL);
   }
+  // By default, llama.cpp emits a llama.log file containing ex. ~20 highest probability tokens
+  // and the tokens selected. This is interesting, but, there's privacy implications with that, as well
+  // as the log will grow unbounded according to an issue on the llama.cpp GitHub repo.
+  //
+  // This imitates the solution used in the llama.cpp server when --log-disable is passed.
+  //
+  // See https://github.com/ggerganov/llama.cpp/pull/4260.
+  log_set_target(stdout);
   fllama_log("Initialized llama logger.", request.dart_logger);
   // !!! Specific to multimodal
   bool prompt_contains_img = prompt_contains_image(request.input);
