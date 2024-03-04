@@ -3,7 +3,7 @@ import 'package:fllama/misc/gbnf.dart';
 import 'package:jinja/jinja.dart';
 
 /// Parameters needed to run standard LLM inference. Use with [fllamaInference].
-/// 
+///
 /// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
 /// template and an EOS token. Use [fllamaChat] instead if you expect this
 /// sort of interface, i.e. an OpenAI-like API. It translates an OpenAI-like
@@ -61,7 +61,7 @@ class FllamaInferenceRequest {
 }
 
 /// Represents a request to tokenize a string.
-/// 
+///
 /// This is useful for identifying what messages will be in context when the LLM
 /// is run. Use with [fllamaTokenize].
 class FllamaTokenizeRequest {
@@ -73,7 +73,7 @@ class FllamaTokenizeRequest {
 
 /// Run the LLM using the standard LLM chat interface. This is the most common
 /// way to use FLLAMA.
-/// 
+///
 /// What is the difference between this and inference? It automatically handles:
 /// - Using the chat template in the GGUF (fallback to ChatML if none is found).
 /// - Using the EOS token in the GGUF (fallback to ChatML EOS if none is found).
@@ -100,8 +100,12 @@ Future<void> fllamaChat(
       grammar = '';
     } else {
       grammar = request.tools.first.grammar;
+      // ignore: avoid_print
+      print('[fllama] Grammar to be enforced: $grammar');
     }
   } else {
+    // ignore: avoid_print
+    print('[fllama] No tools were specified. No grammar will be enforced.');
     grammar = '';
   }
   final inferenceRequest = FllamaInferenceRequest(
@@ -124,7 +128,7 @@ Future<void> fllamaChat(
 
 /// Returns a string representing the input to an LLM model after applying the
 /// chat template.
-/// 
+///
 /// - [chatTemplate] is the raw chat template from the GGUF.
 /// - [eosToken] is the raw EOS token from the GGUF.
 /// - [request] is the OpenAI-like request.
@@ -205,7 +209,7 @@ String fllamaJsonSchemaToGrammar(String jsonSchema) {
   return convertToJsonGrammar(jsonSchema);
 }
 
-/// Given a chat template embedded in a .gguf file, returns the chat template 
+/// Given a chat template embedded in a .gguf file, returns the chat template
 /// itself, or a sensible fallback if the chat template is incorrect or missing.
 String fllamaSanitizeChatTemplate(String builtInChatTemplate) {
   final String chatTemplate;
