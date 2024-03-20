@@ -4,10 +4,12 @@ import 'dart:ffi';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
+import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/fllama_io.dart';
 import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/fllama_universal.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
+import 'package:uuid/uuid.dart';
 
 typedef NativeInferenceCallback = Void Function(
     Pointer<Char> response, Uint8 done);
@@ -66,7 +68,7 @@ Pointer<fllama_inference_request> _toNative(FllamaInferenceRequest dart) {
   final Pointer<fllama_inference_request> requestPointer =
       calloc<fllama_inference_request>();
   final fllama_inference_request request = requestPointer.ref;
-
+  
   request.context_size = dart.contextSize;
   request.max_tokens = dart.maxTokens;
   request.num_gpu_layers = dart.numGpuLayers;
@@ -75,12 +77,14 @@ Pointer<fllama_inference_request> _toNative(FllamaInferenceRequest dart) {
   request.top_p = dart.topP;
   request.penalty_freq = dart.penaltyFrequency;
   request.penalty_repeat = dart.penaltyRepeat;
-
+ 
   // Convert the Dart string to a C string (null-terminated).
+  Pointer<Utf8> requestIdCstr = const Uuid().v4().toNativeUtf8();
   Pointer<Utf8> inputCstr = dart.input.toNativeUtf8();
   Pointer<Utf8> modelPathCstr = dart.modelPath.toNativeUtf8();
   request.input = inputCstr.cast<Char>();
   request.model_path = modelPathCstr.cast<Char>();
+  request.request_id = requestIdCstr.cast<Char>();
   if (dart.grammar != null && dart.grammar?.isNotEmpty == true) {
     Pointer<Utf8> grammarCstr = dart.grammar!.toNativeUtf8();
     request.grammar = grammarCstr.cast<Char>();

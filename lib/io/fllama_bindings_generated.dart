@@ -107,6 +107,9 @@ class FllamaBindings {
 }
 
 final class fllama_inference_request extends ffi.Struct {
+  /// Required: unique ID for the request. Used for cancellation.
+  external ffi.Pointer<ffi.Char> request_id;
+
   /// Required: context size
   @ffi.Int()
   external int context_size;

@@ -23,6 +23,7 @@ typedef void (*fllama_inference_callback)(const char *response, uint8_t done);
 typedef void (*fllama_log_callback)(const char *);
 
 struct fllama_inference_request {
+  char *request_id; // Required: unique ID for the request. Used for cancellation.
   int context_size;        // Required: context size
   char *input;             // Required: input text
   int max_tokens;          // Required: max tokens to generate
