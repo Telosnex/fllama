@@ -30,10 +30,12 @@ public:
   void enqueue(fllama_inference_request request,
                fllama_inference_callback callback);
   void cancel(const std::string &request_id);
+  bool is_cancelled(const std::string& request_id);
 
 private:
   std::thread worker;               // Worker thread to process tasks
-  std::mutex mutex;                 // Mutex for thread safety
+  std::mutex queue_lock;            // Mutex for managing the task queue
+  std::mutex inference_lock;        // Mutex for managing inference operations
   std::condition_variable cond_var; // Condition variable for task signaling
   std::queue<TaskWrapper> tasks;    // Queue of tasks
   bool done; // Flag to control the lifecycle of the worker thread

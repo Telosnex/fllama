@@ -4,10 +4,9 @@ import 'dart:ffi';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
-import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/fllama_io.dart';
-import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/fllama_universal.dart';
+import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
 import 'package:uuid/uuid.dart';
 

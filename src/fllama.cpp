@@ -138,7 +138,8 @@ fllama_inference_sync(fllama_inference_request request,
   params.n_predict = request.max_tokens;
   // std::cout << "[fllama] Max tokens: " << params.n_predict << std::endl;
   params.n_threads = request.num_threads;
-  // std::cout << "[fllama] Number of threads: " << params.n_threads << std::endl;
+  // std::cout << "[fllama] Number of threads: " << params.n_threads <<
+  // std::endl;
   params.sparams.temp = request.temperature;
   std::cout << "[fllama] Default penalty_freq: " << params.sparams.penalty_freq
             << std::endl;
@@ -146,10 +147,10 @@ fllama_inference_sync(fllama_inference_request request,
             << params.sparams.penalty_repeat << std::endl;
   params.sparams.penalty_freq = request.penalty_freq;
   // std::cout << "[fllama] Penalty_freq: " << params.sparams.penalty_freq
-            // << std::endl;
+  // << std::endl;
   params.sparams.penalty_repeat = request.penalty_repeat;
   // std::cout << "[fllama] Penalty_repeat: " << params.sparams.penalty_repeat
-            // << std::endl;
+  // << std::endl;
   std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
                                               llama_sampler_type::TEMP};
   params.sparams.samplers_sequence = samplers;
@@ -168,8 +169,8 @@ fllama_inference_sync(fllama_inference_request request,
 #else
   params.n_gpu_layers = request.num_gpu_layers;
   // fllama_log("[fllama] Number of GPU layers requested: " +
-                //  std::to_string(params.n_gpu_layers),
-            //  request.dart_logger);
+  //  std::to_string(params.n_gpu_layers),
+  //  request.dart_logger);
 #endif
   llama_backend_init(params.numa);
 
@@ -188,11 +189,13 @@ fllama_inference_sync(fllama_inference_request request,
         << "[fllama] fllama default log callback installed for llama.cpp. ";
     llama_log_set(log_callback_wrapper, NULL);
   }
-  // By default, llama.cpp emits a llama.log file containing ex. ~20 highest probability tokens
-  // and the tokens selected. This is interesting, but, there's privacy implications with that, as well
-  // as the log will grow unbounded according to an issue on the llama.cpp GitHub repo.
+  // By default, llama.cpp emits a llama.log file containing ex. ~20 highest
+  // probability tokens and the tokens selected. This is interesting, but,
+  // there's privacy implications with that, as well as the log will grow
+  // unbounded according to an issue on the llama.cpp GitHub repo.
   //
-  // This imitates the solution used in the llama.cpp server when --log-disable is passed.
+  // This imitates the solution used in the llama.cpp server when --log-disable
+  // is passed.
   //
   // See https://github.com/ggerganov/llama.cpp/pull/4260.
   log_set_target(stdout);
@@ -323,7 +326,9 @@ fllama_inference_sync(fllama_inference_request request,
   struct llama_sampling_context *ctx_sampling =
       llama_sampling_init(params.sparams);
   fllama_log("Sampling context initialized.", request.dart_logger);
-  const char *eos_token_chars = request.eos_token != NULL ? request.eos_token : fllama_get_eos_token(request.model_path);
+  const char *eos_token_chars = request.eos_token != NULL
+                                    ? request.eos_token
+                                    : fllama_get_eos_token(request.model_path);
   const std::string eos_token_as_string = std::string(eos_token_chars);
   free((void *)eos_token_chars);
   const int64_t context_setup_complete = ggml_time_ms();
@@ -332,6 +337,14 @@ fllama_inference_sync(fllama_inference_request request,
              request.dart_logger);
 
   // 3. Generate tokens.
+  // Check for cancellation before starting the generation loop
+  const char *request_id = request.request_id;
+
+  if(global_inference_queue.is_cancelled(request_id)) {
+    fllama_log("Cancelled before starting generation loop. ID:" + std::string(request_id), request.dart_logger);
+    callback(request_id, true);
+    return;
+  }
   // Reserve result string once to avoid an allocation in loop.
   const auto estimated_total_size = n_max_tokens * 10;
   std::string result;
@@ -401,6 +414,12 @@ fllama_inference_sync(fllama_inference_request request,
       buffer.erase(0, buffer.length() - eos_token_as_string.length());
     }
 
+    if (global_inference_queue.is_cancelled(request_id)) {
+      fllama_log("Cancelled during generation loop. ID:" + std::string(request_id), request.dart_logger);
+      callback(request_id, false);
+      break; // Exit the generation loop if cancelled
+    }
+
     std::strcpy(c_result, result.c_str());
     if (callback != NULL) {
       callback(/* response */ c_result, /* done */ false);
@@ -431,7 +450,8 @@ fllama_inference_sync(fllama_inference_request request,
     // auto add_to_context_end = std::chrono::high_resolution_clock::now();
     // std::chrono::duration<double, std::milli> add_to_context_duration =
     //     add_to_context_end - add_to_context_start;
-    // fllama_log("Add to context took " + std::to_string(add_to_context_duration.count()) +
+    // fllama_log("Add to context took " +
+    // std::to_string(add_to_context_duration.count()) +
     //                " milliseconds.",
     //            request.dart_logger);
 
