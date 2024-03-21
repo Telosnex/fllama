@@ -20,7 +20,7 @@ typedef FllamaLogCallbackDart = void Function(Pointer<Char>);
 /// Runs standard LLM inference. The future returns immediately after being
 /// called. [callback] is called on each new output token with the response and
 /// a boolean indicating whether the response is the final response.
-/// 
+///
 /// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
 /// template and an EOS token. Use [fllamaChat] instead if you expect this
 /// sort of interface, i.e. an OpenAI-like API.
@@ -67,7 +67,7 @@ Pointer<fllama_inference_request> _toNative(FllamaInferenceRequest dart) {
   final Pointer<fllama_inference_request> requestPointer =
       calloc<fllama_inference_request>();
   final fllama_inference_request request = requestPointer.ref;
-  
+
   request.context_size = dart.contextSize;
   request.max_tokens = dart.maxTokens;
   request.num_gpu_layers = dart.numGpuLayers;
@@ -76,7 +76,7 @@ Pointer<fllama_inference_request> _toNative(FllamaInferenceRequest dart) {
   request.top_p = dart.topP;
   request.penalty_freq = dart.penaltyFrequency;
   request.penalty_repeat = dart.penaltyRepeat;
- 
+
   // Convert the Dart string to a C string (null-terminated).
   Pointer<Utf8> requestIdCstr = const Uuid().v4().toNativeUtf8();
   Pointer<Utf8> inputCstr = dart.input.toNativeUtf8();
@@ -152,72 +152,71 @@ Future<SendPort> _helperIsolateSendPort = () async {
 }();
 
 void _fllamaInferenceIsolate(SendPort sendPort) async {
-  final ReceivePort helperReceivePort = ReceivePort()
-    ..listen((dynamic data) {
-      try {
-        // On the helper isolate listen to requests and respond to them.
-        if (data is! _IsolateInferenceRequest) {
-          throw UnsupportedError(
-              'Unsupported message type: ${data.runtimeType}');
-        }
-
-        final nativeRequestPointer = _toNative(data.request);
-        final nativeRequest = nativeRequestPointer.ref;
-        late final NativeCallable<NativeInferenceCallback> callback;
-        void onResponse(Pointer<Char> responsePointer, int done) {
-          // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
-          // order to allow only valid UTF-8.
-          final codeUnits = responsePointer.cast<Uint8>();
-          var length = 0;
-          while (codeUnits[length] != 0) {
-            length++;
-          }
-
-          var decodedString = '';
-          while (length > 0) {
-            try {
-              decodedString = utf8.decode(codeUnits.asTypedList(length),
-                  allowMalformed: false);
-              // if the decode succeeds, exit the loop
-              break;
-            } catch (e) {
-              // If an exception is caught, try with one less byte
-              length--;
-            }
-          }
-
-          // If length becomes zero, it means decoding failed at every attempt - use an empty string
-          if (length == 0) {
-            decodedString = '';
-          }
-
-          final _IsolateInferenceResponse response =
-              _IsolateInferenceResponse(data.id, decodedString, done == 1);
-          sendPort.send(response);
-          if (done == 1) {
-            calloc.free(nativeRequest.input);
-            calloc.free(nativeRequest.model_path);
-            if (nativeRequest.grammar != nullptr) {
-              calloc.free(nativeRequest.grammar);
-            }
-            if (nativeRequest.model_mmproj_path != nullptr) {
-              calloc.free(nativeRequest.model_mmproj_path);
-            }
-            calloc.free(nativeRequestPointer);
-          }
-        }
-
-        callback = NativeCallable<NativeInferenceCallback>.listener(onResponse);
-
-        fllamaBindings.fllama_inference(
-          nativeRequest,
-          callback.nativeFunction,
-        );
-      } catch (e, s) {
-        // ignore: avoid_print
-        print('[fllama inference isolate] ERROR: $e. STACK: $s');
+  final ReceivePort helperReceivePort = ReceivePort();
+  helperReceivePort.listen((dynamic data) {
+    try {
+      // On the helper isolate listen to requests and respond to them.
+      if (data is! _IsolateInferenceRequest) {
+        throw UnsupportedError('Unsupported message type: ${data.runtimeType}');
       }
-    });
+
+      final nativeRequestPointer = _toNative(data.request);
+      final nativeRequest = nativeRequestPointer.ref;
+      late final NativeCallable<NativeInferenceCallback> callback;
+      void onResponse(Pointer<Char> responsePointer, int done) {
+        // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
+        // order to allow only valid UTF-8.
+        final codeUnits = responsePointer.cast<Uint8>();
+        var length = 0;
+        while (codeUnits[length] != 0) {
+          length++;
+        }
+
+        var decodedString = '';
+        while (length > 0) {
+          try {
+            decodedString = utf8.decode(codeUnits.asTypedList(length),
+                allowMalformed: false);
+            // if the decode succeeds, exit the loop
+            break;
+          } catch (e) {
+            // If an exception is caught, try with one less byte
+            length--;
+          }
+        }
+
+        // If length becomes zero, it means decoding failed at every attempt - use an empty string
+        if (length == 0) {
+          decodedString = '';
+        }
+
+        final _IsolateInferenceResponse response =
+            _IsolateInferenceResponse(data.id, decodedString, done == 1);
+        sendPort.send(response);
+        if (done == 1) {
+          calloc.free(nativeRequest.input);
+          calloc.free(nativeRequest.model_path);
+          if (nativeRequest.grammar != nullptr) {
+            calloc.free(nativeRequest.grammar);
+          }
+          if (nativeRequest.model_mmproj_path != nullptr) {
+            calloc.free(nativeRequest.model_mmproj_path);
+          }
+          calloc.free(nativeRequestPointer);
+        }
+      }
+
+      callback = NativeCallable<NativeInferenceCallback>.listener(onResponse);
+
+      fllamaBindings.fllama_inference(
+        nativeRequest,
+        callback.nativeFunction,
+      );
+    } catch (e, s) {
+      // ignore: avoid_print
+      print('[fllama inference isolate] ERROR: $e. STACK: $s');
+    }
+  });
 
   // Send the port to the main isolate on which we can receive requests.
   sendPort.send(helperReceivePort.sendPort);
