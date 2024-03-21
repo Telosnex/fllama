@@ -68,6 +68,10 @@ EMSCRIPTEN_KEEPALIVE void fllama_inference(fllama_inference_request request,
   global_inference_queue.enqueue(request, callback);
 }
 
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(struct fllama_inference_request request) {
+  global_inference_queue.cancel(request.request_id);
+}
+
 static bool add_tokens_to_context(struct llama_context *ctx_llama,
                                   std::vector<llama_token> tokens, int n_batch,
                                   int *n_past) {

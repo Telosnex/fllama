@@ -61,6 +61,20 @@ class FllamaBindings {
   late final _fllama_inference_sync = _fllama_inference_syncPtr.asFunction<
       void Function(fllama_inference_request, fllama_inference_callback)>();
 
+  void fllama_inference_cancel(
+    fllama_inference_request request,
+  ) {
+    return _fllama_inference_cancel(
+      request,
+    );
+  }
+
+  late final _fllama_inference_cancelPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(fllama_inference_request)>>(
+          'fllama_inference_cancel');
+  late final _fllama_inference_cancel = _fllama_inference_cancelPtr
+      .asFunction<void Function(fllama_inference_request)>();
+
   ffi.Pointer<ffi.Char> fllama_get_chat_template(
     ffi.Pointer<ffi.Char> fname,
   ) {
