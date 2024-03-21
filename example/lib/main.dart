@@ -257,7 +257,7 @@ class _MyAppState extends State<MyApp> {
       latestEosToken = eosToken;
     });
 
-    fllamaChat(request, (response, done) {
+    int requestId = await fllamaChat(request, (response, done) {
       setState(() {
         latestResult = response;
         fllamaTokenize(FllamaTokenizeRequest(
@@ -269,6 +269,7 @@ class _MyAppState extends State<MyApp> {
         });
       });
     });
+    print('REQUEST ID: $requestId');
   }
 
   void _openGgufPressed() async {

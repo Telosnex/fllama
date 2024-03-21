@@ -27,7 +27,7 @@ Future<String> fllamaEosTokenGet(String modelPath) {
 /// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
 /// template and an EOS token. Use [fllamaChat] instead if you expect this
 /// sort of interface, i.e. an OpenAI-like API.
-Future<void> fllamaInference(
+Future<int> fllamaInference(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   throw UnimplementedError();
 }

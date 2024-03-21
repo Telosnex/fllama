@@ -79,7 +79,7 @@ class FllamaTokenizeRequest {
 /// - Using the EOS token in the GGUF (fallback to ChatML EOS if none is found).
 /// - If a tool / function is supplied, force the model to only output JSON that
 ///   is valid according to the tool's JSON schema.
-Future<void> fllamaChat(
+Future<int> fllamaChat(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
   final template = fllamaSanitizeChatTemplate(
       await fllamaChatTemplateGet(request.modelPath));
@@ -123,7 +123,7 @@ Future<void> fllamaChat(
     logger: request.logger,
     eosToken: eosToken,
   );
-  fllamaInference(inferenceRequest, callback);
+  return fllamaInference(inferenceRequest, callback);
 }
 
 /// Returns a string representing the input to an LLM model after applying the

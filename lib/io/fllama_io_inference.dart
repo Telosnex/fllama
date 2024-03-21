@@ -23,7 +23,7 @@ typedef FllamaLogCallbackDart = void Function(Pointer<Char>);
 /// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
 /// template and an EOS token. Use [fllamaChat] instead if you expect this
 /// sort of interface, i.e. an OpenAI-like API.
-Future<void> fllamaInference(
+Future<int> fllamaInference(
     FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
   final int requestId = _nextInferenceRequestId++;
@@ -36,6 +36,7 @@ Future<void> fllamaInference(
     // ignore: avoid_print
     print('[fllama] ERROR sending request to helper isolate: $e');
   }
+  return requestId;
 }
 
 class _IsolateInferenceRequest {
@@ -61,12 +62,14 @@ int _nextInferenceRequestId = 0;
 final Map<int, FllamaInferenceCallback> _isolateInferenceCallbacks =
     <int, FllamaInferenceCallback>{};
 
-Pointer<fllama_inference_request> _toNative(FllamaInferenceRequest dart) {
+Pointer<fllama_inference_request> _toNative(
+    FllamaInferenceRequest dart, int requestId) {
   // Allocate memory for the request structure.
   final Pointer<fllama_inference_request> requestPointer =
       calloc<fllama_inference_request>();
   final fllama_inference_request request = requestPointer.ref;
 
+  request.request_id = requestId;
   request.context_size = dart.contextSize;
   request.max_tokens = dart.maxTokens;
   request.num_gpu_layers = dart.numGpuLayers;
@@ -157,7 +160,7 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
         throw UnsupportedError('Unsupported message type: ${data.runtimeType}');
       }
 
-      final nativeRequestPointer = _toNative(data.request);
+      final nativeRequestPointer = _toNative(data.request, data.id);
       final nativeRequest = nativeRequestPointer.ref;
       late final NativeCallable<NativeInferenceCallback> callback;
       void onResponse(Pointer<Char> responsePointer, int done) {
