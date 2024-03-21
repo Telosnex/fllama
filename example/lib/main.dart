@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-
 import 'package:file_picker/file_picker.dart';
 
 import 'package:file_selector/file_selector.dart';
@@ -82,30 +81,30 @@ class _MyAppState extends State<MyApp> {
                     ],
                   ),
                   if (!kIsWeb) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _openMmprojGgufPressed,
-                        icon: const Icon(Icons.file_open),
-                        label: const Text('Open mmproj.gguf'),
-                      ),
-                      const SizedBox(width: 8),
-                      const Tooltip(
-                        message:
-                            'Optional:\nModels that can also process images, multimodal models, also come with a mmproj.gguf file.',
-                        child: Icon(Icons.info),
-                      ),
-                      if (_mmprojPath != null)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8.0),
-                          child: SelectableText(
-                            _mmprojPath!,
-                            style: textStyle,
-                          ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _openMmprojGgufPressed,
+                          icon: const Icon(Icons.file_open),
+                          label: const Text('Open mmproj.gguf'),
                         ),
-                    ],
-                  ),
+                        const SizedBox(width: 8),
+                        const Tooltip(
+                          message:
+                              'Optional:\nModels that can also process images, multimodal models, also come with a mmproj.gguf file.',
+                          child: Icon(Icons.info),
+                        ),
+                        if (_mmprojPath != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8.0),
+                            child: SelectableText(
+                              _mmprojPath!,
+                              style: textStyle,
+                            ),
+                          ),
+                      ],
+                    ),
                   ],
                   spacerSmall,
                   if (_modelPath != null)
@@ -134,103 +133,8 @@ class _MyAppState extends State<MyApp> {
                     height: 8,
                   ),
                   ElevatedButton(
-                    onPressed: () async {
-                      if (_modelPath == null) {
-                        // Show a snackbar to the user.
-                        SnackBar snackBar = const SnackBar(
-                          content: Text('Please open a .gguf file.'),
-                        );
-                        ScaffoldMessenger.of(context).showSnackBar(snackBar);
-                        return;
-                      }
-                      var messageText = _controller.text;
-                      final isMultimodal = _mmprojPath != null;
-                      if (isMultimodal && _imageBytes != null) {
-                        messageText =
-                            '<img src="data:image/jpeg;base64,${base64Encode(_imageBytes!)}">\n\n$messageText';
-                      }
-                      // 2 choices:
-                      // 1. Inference directly. Chat template is *not* applied.
-                      //    A chat template defines start/end sigils for
-                      //    messages, which causes the model to recognize a
-                      //    a conversation.
-                      //
-                      // 2. Inference with chat template.
-
-                      // 1. Inference directly.
-                      // final request = FllamaInferenceRequest(
-                      //   maxTokens: 256,
-                      //   input: messageText,
-                      //   numGpuLayers: 99,
-                      //   modelPath: _modelPath!,
-                      //   penaltyFrequency: 0.0,
-                      //   // Don't use below 1.1, LLMs without a repeat penalty
-                      //   // will repeat the same token.
-                      //   penaltyRepeat: 1.1,
-                      //   topP: 1.0,
-                      //   contextSize: 2048,
-                      //   // Don't use 0.0, some models will repeat
-                      //   // the same token.
-                      //   temperature: 0.1,
-                      //   logger: (log) {
-                      //     // ignore: avoid_print
-                      //     print('[llama.cpp] $log');
-                      //   },
-                      // );
-                      // fllamaInferenceAsync(request, (String result, bool done) {
-                      //   setState(() {
-                      //     latestResult = result;
-                      //   });
-                      // });
-
-                      // 2. Inference with chat template.
-                      final request = OpenAiRequest(
-                        maxTokens: 256,
-                        messages: [
-                          Message(Role.system, 'You are a chatbot.'),
-                          Message(Role.user, messageText),
-                        ],
-                        numGpuLayers: 99, /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
-                        modelPath: _modelPath!,
-                        mmprojPath: _mmprojPath,
-                        frequencyPenalty: 0.0,
-                        // Don't use below 1.1, LLMs without a repeat penalty
-                        // will repeat the same token.
-                        presencePenalty: 1.1,
-                        topP: 1.0,
-                        contextSize: 2048,
-                        // Don't use 0.0, some models will repeat
-                        // the same token.
-                        temperature: 0.1,
-                        logger: (log) {
-                          // ignore: avoid_print
-                          print('[llama.cpp] $log');
-                        },
-                      );
-
-                      final chatTemplate =
-                          await fllamaChatTemplateGet(_modelPath!);
-                      setState(() {
-                        latestChatTemplate = chatTemplate;
-                      });
-
-                      final eosToken = await fllamaEosTokenGet(_modelPath!);
-                      setState(() {
-                        latestEosToken = eosToken;
-                      });
-
-                      fllamaChat(request, (response, done) {
-                        setState(() {
-                          latestResult = response;
-                          fllamaTokenize(FllamaTokenizeRequest(
-                                  input: latestResult, modelPath: _modelPath!))
-                              .then((value) {
-                            setState(() {
-                              latestOutputTokenCount = value;
-                            });
-                          });
-                        });
-                      });
+                    onPressed: () {
+                      _runInferencePressed();
                     },
                     child: const Text('Run inference'),
                   ),
@@ -266,6 +170,105 @@ class _MyAppState extends State<MyApp> {
         }),
       ),
     );
+  }
+
+  void _runInferencePressed() async {
+    if (_modelPath == null) {
+      // Show a snackbar to the user.
+      SnackBar snackBar = const SnackBar(
+        content: Text('Please open a .gguf file.'),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(snackBar);
+      return;
+    }
+    var messageText = _controller.text;
+    final isMultimodal = _mmprojPath != null;
+    if (isMultimodal && _imageBytes != null) {
+      messageText =
+          '<img src="data:image/jpeg;base64,${base64Encode(_imageBytes!)}">\n\n$messageText';
+    }
+    // 2 choices:
+    // 1. Inference directly. Chat template is *not* applied.
+    //    A chat template defines start/end sigils for
+    //    messages, which causes the model to recognize a
+    //    a conversation.
+    //
+    // 2. Inference with chat template.
+
+    // 1. Inference directly.
+    // final request = FllamaInferenceRequest(
+    //   maxTokens: 256,
+    //   input: messageText,
+    //   numGpuLayers: 99,
+    //   modelPath: _modelPath!,
+    //   penaltyFrequency: 0.0,
+    //   // Don't use below 1.1, LLMs without a repeat penalty
+    //   // will repeat the same token.
+    //   penaltyRepeat: 1.1,
+    //   topP: 1.0,
+    //   contextSize: 2048,
+    //   // Don't use 0.0, some models will repeat
+    //   // the same token.
+    //   temperature: 0.1,
+    //   logger: (log) {
+    //     // ignore: avoid_print
+    //     print('[llama.cpp] $log');
+    //   },
+    // );
+    // fllamaInferenceAsync(request, (String result, bool done) {
+    //   setState(() {
+    //     latestResult = result;
+    //   });
+    // });
+
+    // 2. Inference with chat template.
+    final request = OpenAiRequest(
+      maxTokens: 256,
+      messages: [
+        Message(Role.system, 'You are a chatbot.'),
+        Message(Role.user, messageText),
+      ],
+      numGpuLayers: 99,
+      /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
+      modelPath: _modelPath!,
+      mmprojPath: _mmprojPath,
+      frequencyPenalty: 0.0,
+      // Don't use below 1.1, LLMs without a repeat penalty
+      // will repeat the same token.
+      presencePenalty: 1.1,
+      topP: 1.0,
+      contextSize: 2048,
+      // Don't use 0.0, some models will repeat
+      // the same token.
+      temperature: 0.1,
+      logger: (log) {
+        // ignore: avoid_print
+        print('[llama.cpp] $log');
+      },
+    );
+
+    final chatTemplate = await fllamaChatTemplateGet(_modelPath!);
+    setState(() {
+      latestChatTemplate = chatTemplate;
+    });
+
+    final eosToken = await fllamaEosTokenGet(_modelPath!);
+    setState(() {
+      latestEosToken = eosToken;
+    });
+
+    fllamaChat(request, (response, done) {
+      setState(() {
+        latestResult = response;
+        fllamaTokenize(FllamaTokenizeRequest(
+                input: latestResult, modelPath: _modelPath!))
+            .then((value) {
+          setState(() {
+            latestOutputTokenCount = value;
+          });
+        });
+      });
+    });
   }
 
   void _openGgufPressed() async {
