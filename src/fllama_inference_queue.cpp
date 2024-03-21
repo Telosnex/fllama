@@ -27,17 +27,14 @@ InferenceQueue::~InferenceQueue() {
 void InferenceQueue::enqueue(fllama_inference_request request,
                              fllama_inference_callback callback) {
   std::lock_guard<std::mutex> lock(queue_lock);
-  // Convert id from char* to std::string
-  std::string requestId = request.request_id ? std::string(request.request_id) : "";
-
   TaskWrapper taskWrapper(
       [request, callback]() { fllama_inference_sync(request, callback); },
-      requestId);
+      request.request_id);
   tasks.emplace(std::move(taskWrapper));
   cond_var.notify_one();
 }
 
-void InferenceQueue::cancel(const std::string &request_id) {
+void InferenceQueue::cancel(int request_id) {
   {
     std::lock_guard<std::mutex> lock(queue_lock);
     cancel_flags[request_id] = true;
@@ -45,49 +42,55 @@ void InferenceQueue::cancel(const std::string &request_id) {
   cond_var.notify_one();
 }
 
-bool InferenceQueue::is_cancelled(const std::string& request_id) {
+bool InferenceQueue::is_cancelled(int request_id) {
   std::lock_guard<std::mutex> lock(queue_lock);
-  return cancel_flags.find(request_id) != cancel_flags.end() && cancel_flags[request_id];
+  return cancel_flags.find(request_id) != cancel_flags.end() &&
+         cancel_flags[request_id];
 }
 
 void InferenceQueue::process_inference() {
-    while (true) {
+  while (true) {
 
-       std::unique_ptr<TaskWrapper> taskWrapperPtr;
-        std::string current_request_id;
+    std::unique_ptr<TaskWrapper> taskWrapperPtr;
+    int current_request_id;
 
-        { // Scope for the queue lock
-            std::unique_lock<std::mutex> queueLock(queue_lock);
-            cond_var.wait(queueLock, [this]{ return !tasks.empty() || done; });
+    { // Scope for the queue lock
+      std::unique_lock<std::mutex> queueLock(queue_lock);
+      cond_var.wait(queueLock, [this] { return !tasks.empty() || done; });
 
-            if (done && tasks.empty()) {
-                break;
-            }
+      if (done && tasks.empty()) {
+        break;
+      }
 
-            // Use std::make_unique for C++14 and above. For C++11, use new TaskWrapper(...)
-            taskWrapperPtr = std::unique_ptr<TaskWrapper>(new TaskWrapper(std::move(tasks.front())));
+      // Use std::make_unique for C++14 and above. For C++11, use new
+      // TaskWrapper(...)
+      taskWrapperPtr = std::unique_ptr<TaskWrapper>(
+          new TaskWrapper(std::move(tasks.front())));
 
-            current_request_id = taskWrapperPtr->request_id;
+      current_request_id = taskWrapperPtr->request_id;
 
-            tasks.pop(); // Remove the task from the queue here
-        } // Release the queue lock as soon as possible
+      tasks.pop(); // Remove the task from the queue here
+    }              // Release the queue lock as soon as possible
 
-        // Log the request_id to the console
-        std::cout << "Processing request: " << current_request_id << std::endl;
+    // Log the request_id to the console
+    std::cout << "Processing request: " << current_request_id << std::endl;
 
-        { // Scope to check cancellation flag
-            std::lock_guard<std::mutex> inferenceLock(inference_lock);
-            if (cancel_flags.find(current_request_id) != cancel_flags.end() && cancel_flags[current_request_id]) {
-                // If the task is cancelled, do not execute it. Clean up cancellation flag after checking.
-                cancel_flags.erase(current_request_id);
-                continue;
-            }
-        } // Release the inference lock
+    { // Scope to check cancellation flag
+      std::lock_guard<std::mutex> inferenceLock(inference_lock);
+      if (cancel_flags.find(current_request_id) != cancel_flags.end() &&
+          cancel_flags[current_request_id]) {
+        // If the task is cancelled, do not execute it. Clean up cancellation
+        // flag after checking.
+        cancel_flags.erase(current_request_id);
+        continue;
+      }
+    } // Release the inference lock
 
-        // Now safe to execute the task outside of any locks.
-        // Since taskWrapperPtr is a std::unique_ptr<TaskWrapper>, access members using ->
-        if (taskWrapperPtr) {
-            (*taskWrapperPtr)();
-        }
+    // Now safe to execute the task outside of any locks.
+    // Since taskWrapperPtr is a std::unique_ptr<TaskWrapper>, access members
+    // using ->
+    if (taskWrapperPtr) {
+      (*taskWrapperPtr)();
     }
+  }
 }

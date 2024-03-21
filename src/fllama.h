@@ -23,7 +23,7 @@ typedef void (*fllama_inference_callback)(const char *response, uint8_t done);
 typedef void (*fllama_log_callback)(const char *);
 
 struct fllama_inference_request {
-  char *request_id; // Required: unique ID for the request. Used for cancellation.
+  int request_id; // Required: unique ID for the request. Used for cancellation.
   int context_size;        // Required: context size
   char *input;             // Required: input text
   int max_tokens;          // Required: max tokens to generate
@@ -56,7 +56,7 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_infer
                                         fllama_inference_callback callback);
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_sync(struct fllama_inference_request request,
                            fllama_inference_callback callback);
-EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(struct fllama_inference_request request);
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(int request_id);
 #ifdef __cplusplus
 }
 #endif

@@ -62,18 +62,18 @@ class FllamaBindings {
       void Function(fllama_inference_request, fllama_inference_callback)>();
 
   void fllama_inference_cancel(
-    fllama_inference_request request,
+    int request_id,
   ) {
     return _fllama_inference_cancel(
-      request,
+      request_id,
     );
   }
 
   late final _fllama_inference_cancelPtr =
-      _lookup<ffi.NativeFunction<ffi.Void Function(fllama_inference_request)>>(
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int)>>(
           'fllama_inference_cancel');
-  late final _fllama_inference_cancel = _fllama_inference_cancelPtr
-      .asFunction<void Function(fllama_inference_request)>();
+  late final _fllama_inference_cancel =
+      _fllama_inference_cancelPtr.asFunction<void Function(int)>();
 
   ffi.Pointer<ffi.Char> fllama_get_chat_template(
     ffi.Pointer<ffi.Char> fname,
@@ -122,7 +122,8 @@ class FllamaBindings {
 
 final class fllama_inference_request extends ffi.Struct {
   /// Required: unique ID for the request. Used for cancellation.
-  external ffi.Pointer<ffi.Char> request_id;
+  @ffi.Int()
+  external int request_id;
 
   /// Required: context size
   @ffi.Int()

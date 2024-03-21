@@ -13,10 +13,10 @@
 
 struct TaskWrapper {
   std::function<void()> task; // Actual task to execute
-  std::string request_id;     // Unique ID for the request
+  int request_id;             // Unique ID for the request
 
-  TaskWrapper(std::function<void()> task, std::string request_id)
-      : task(std::move(task)), request_id(std::move(request_id)) {}
+  TaskWrapper(std::function<void()> task, int request_id)
+      : task(std::move(task)), request_id(request_id) {}
 
   void operator()() const { task(); }
 };
@@ -29,8 +29,8 @@ public:
   // Enqueue a new inference request
   void enqueue(fllama_inference_request request,
                fllama_inference_callback callback);
-  void cancel(const std::string &request_id);
-  bool is_cancelled(const std::string& request_id);
+  void cancel(int request_id);
+  bool is_cancelled(int request_id);
 
 private:
   std::thread worker;               // Worker thread to process tasks
@@ -40,7 +40,7 @@ private:
   std::queue<TaskWrapper> tasks;    // Queue of tasks
   bool done; // Flag to control the lifecycle of the worker thread
 
-  std::unordered_map<std::string, std::atomic<bool>> cancel_flags;
+  std::unordered_map<int, std::atomic<bool>> cancel_flags;
 
   // Private method to be run by the worker thread
   void process_inference();

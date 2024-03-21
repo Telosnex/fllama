@@ -68,8 +68,8 @@ EMSCRIPTEN_KEEPALIVE void fllama_inference(fllama_inference_request request,
   global_inference_queue.enqueue(request, callback);
 }
 
-EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(struct fllama_inference_request request) {
-  global_inference_queue.cancel(request.request_id);
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(int request_id) {
+  global_inference_queue.cancel(request_id);
 }
 
 static bool add_tokens_to_context(struct llama_context *ctx_llama,
@@ -342,11 +342,11 @@ fllama_inference_sync(fllama_inference_request request,
 
   // 3. Generate tokens.
   // Check for cancellation before starting the generation loop
-  const char *request_id = request.request_id;
+  int request_id = request.request_id;
 
   if(global_inference_queue.is_cancelled(request_id)) {
-    fllama_log("Cancelled before starting generation loop. ID:" + std::string(request_id), request.dart_logger);
-    callback(request_id, true);
+    fllama_log("Cancelled before starting generation loop. ID:" + std::to_string(request_id), request.dart_logger);
+    callback("", true);
     return;
   }
   // Reserve result string once to avoid an allocation in loop.
@@ -419,9 +419,8 @@ fllama_inference_sync(fllama_inference_request request,
     }
 
     if (global_inference_queue.is_cancelled(request_id)) {
-      fllama_log("Cancelled during generation loop. ID:" + std::string(request_id), request.dart_logger);
-      callback(request_id, false);
-      break; // Exit the generation loop if cancelled
+      fllama_log("Cancelled during generation loop. ID:" + std::to_string(request_id), request.dart_logger);
+      break; // Exit the generation loop if cancelled. Callback will be called.
     }
 
     std::strcpy(c_result, result.c_str());
