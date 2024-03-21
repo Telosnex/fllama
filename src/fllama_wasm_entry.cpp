@@ -24,14 +24,20 @@ const char *fllama_get_chat_template_export(const char *fname) {
   return fllama_get_chat_template(fname);
 }
 
+void fllama_cancel_inference_export(int request_id) {
+  fllama_inference_cancel(request_id);
+}
+
 // Wrapper function to be called from JavaScript
 void fllama_inference_export(
-    int context_size, char *input, int max_tokens, char *model_path,
-    char *model_mmproj_path, int num_gpu_layers, int num_threads,
-    float temperature, float top_p, float penalty_freq, float penalty_repeat,
-    char *grammar, char* eos_token, void (*inference_callback_js)(const char *, uint8_t),
+    int request_id, int context_size, char *input, int max_tokens,
+    char *model_path, char *model_mmproj_path, int num_gpu_layers,
+    int num_threads, float temperature, float top_p, float penalty_freq,
+    float penalty_repeat, char *grammar, char *eos_token,
+    void (*inference_callback_js)(const char *, uint8_t),
     void (*log_callback_js)(const char *)) {
   struct fllama_inference_request request;
+  request.request_id = request_id;
   request.context_size = context_size;
   request.input = input;
   request.max_tokens = max_tokens;

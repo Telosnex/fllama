@@ -229,7 +229,7 @@ class _MyAppState extends State<MyApp> {
 
     // 2. Inference with chat template.
     final request = OpenAiRequest(
-      maxTokens: 256,
+      maxTokens: 10,
       messages: [
         Message(Role.system, 'You are a chatbot.'),
         Message(Role.user, messageText),

@@ -1,15 +1,30 @@
 import { action } from "./fllama_wasm_actions.js";
 import './fllama_wasm_main_worker.js';
 
+let nextRequestId = 0;
+let inferenceWorker = null;
+let lastInferenceModelPath = '';
 function fllamaInferenceJs(request, callback) {
-    const fllamaWorker = new Worker(new URL('fllama_wasm_main_worker.js', import.meta.url), { type: 'module' });
+    if (inferenceWorker === null || lastInferenceModelPath !== request.modelPath) {
+        lastInferenceModelPath = request.modelPath;
+        inferenceWorker = initializeWorker(request.modelPath);
+    }
 
-    fllamaWorker.onmessage = function (e) {
+    return inferenceWorker.then(worker => inferenceWithWorker(worker, request, callback));
+}
+
+async function inferenceWithWorker(worker, request, callback) {
+    request.requestId = nextRequestId++;
+    worker.onmessage = function (e) {
         // console.log('[fllama_wasm_init.js] received message', e.data);
         switch (e.data.event) {
             case action.INITIALIZED:
                 // console.log('[fllama_wasm_init.js] worker initialized. Requesting inference.');
-                fllamaWorker.postMessage({ event: action.INFERENCE, ...request });
+                worker.postMessage({ event: action.INFERENCE, ...request });
+                break;
+            case action.INFERENCE_CANCEL:
+                console.log('[fllama_wasm_init.js] inferenceWithWorker received inference cancel', e.data);
+                worker.postMessage({ event: action.INFERENCE_CANCEL, ...e.data });
                 break;
             case action.INFERENCE_CALLBACK:
                 // console.log('[fllama_wasm_init.js] received inference callback', e.data);
@@ -48,7 +63,9 @@ function fllamaInferenceJs(request, callback) {
             url: request.modelPath,
             modelSize: request.modelSize,
         };
-        fllamaWorker.postMessage(message);
+        worker.postMessage(message);
+        console.log('[fllama_wasm_init.js.fllamaInferenceJs] resolving promise with request ID', request.requestId);
+        resolve(request.requestId);
         // console.log('[fllama_wasm_init.js.fllamaInferenceJs] posted message to main worker', message);
     });
 }
@@ -193,3 +210,19 @@ function eosTokenWithWorker(worker) {
 }
 
 window.fllamaEosTokenGetJs = fllamaEosTokenGetJs;
+
+
+
+async function fllamaCancelInferenceJs(requestId) {
+
+    console.log('[fllama_wasm_init.js.fllamaCancelInferenceJs] cancel inference called for request ID', requestId);
+    // Check if inferenceWorker is initialized. If so, send cancel message.
+    if (inferenceWorker !== null) {
+        console.log('[fllama_wasm_init.js.fllamaCancelInferenceJs] inferenceWorker is initialized, sending cancel message');
+        inferenceWorker.then(worker => worker.postMessage({ event: action.INFERENCE_CANCEL, requestId }));
+    } else {
+        console.log('[fllama_wasm_init.js.fllamaCancelInferenceJs] inferenceWorker is not initialized, skipping cancel message');
+    }
+}
+
+window.fllamaCancelInferenceJs = fllamaCancelInferenceJs;

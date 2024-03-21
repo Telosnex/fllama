@@ -38,11 +38,9 @@ Future<int> fllamaInference(
 /// Use the callbacks, like you would generally.
 /// 
 /// This is supported via:
-/// 
-/// Inferences that have not yet started will call their callback with `done` set
-/// to `true` and an empty string.
-/// 
-/// Inferences that have started will call their callback with `done` set to 
+/// - Inferences that have not yet started will call their callback with `done`
+/// set to `true` and an empty string.
+/// - Inferences that have started will call their callback with `done` set to 
 /// `true` and the final output of the inference.
 void fllamaCancelInference(int requestId) {
   throw UnimplementedError();

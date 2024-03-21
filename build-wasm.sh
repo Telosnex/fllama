@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Seeing error like this? ./build-wasm.sh: line 23: emcc: command not found
+# Remember to cd ~/dev/emsdk && source ./emsdk_env.sh.
 set -e
 
 LLAMA_CPP_WASM_BUILD_DIR=wasm_build
@@ -23,7 +25,7 @@ echo "now in directory: $(pwd)"
 emcc --clear-cache
 emcmake cmake $FLLAMA_SOURCE_DIR
 # export EMCC_CFLAGS="-O3 -pthread -DNDEBUG -flto -s SHARED_MEMORY=1 -s EXPORT_ALL=1 -s EXPORT_ES6=1 -s MODULARIZE=1 -s INITIAL_MEMORY=2GB -s MAXIMUM_MEMORY=4GB -s ALLOW_MEMORY_GROWTH -s FORCE_FILESYSTEM=1 -s EXPORTED_FUNCTIONS=_main -s EXPORTED_RUNTIME_METHODS=callMain -s NO_EXIT_RUNTIME=1"
-export EMCC_CFLAGS="-O3 -msimd128 -pthread -fno-rtti -s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=4 -DNDEBUG -flto=full -s ALLOW_TABLE_GROWTH  -s SHARED_MEMORY=1 -s EXPORT_ALL=1 -s EXPORT_ES6=1 -s MODULARIZE=1 -s INITIAL_MEMORY=800MB -s MAXIMUM_MEMORY=4GB -s ALLOW_MEMORY_GROWTH -s FORCE_FILESYSTEM=1 -s EXPORTED_RUNTIME_METHODS=['addFunction'] -s EXPORTED_FUNCTIONS=['_fllama_get_eos_token_export, _fllama_tokenize_export, _fllama_get_chat_template_export, _fllama_inference_export, _malloc'] -s NO_EXIT_RUNTIME=1"
+export EMCC_CFLAGS="-O3 -msimd128 -pthread -fno-rtti -s USE_PTHREADS=1 -s ASYNCIFY=1 -s PTHREAD_POOL_SIZE=4 -DNDEBUG -flto=full -s ALLOW_TABLE_GROWTH  -s SHARED_MEMORY=1 -s EXPORT_ALL=1 -s EXPORT_ES6=1 -s MODULARIZE=1 -s INITIAL_MEMORY=800MB -s MAXIMUM_MEMORY=4GB -s ALLOW_MEMORY_GROWTH -s FORCE_FILESYSTEM=1 -s EXPORTED_RUNTIME_METHODS=['addFunction'] -s EXPORTED_FUNCTIONS=['_fllama_get_eos_token_export, _fllama_cancel_inference_export, _fllama_tokenize_export, _fllama_get_chat_template_export, _fllama_inference_export, _malloc'] -s NO_EXIT_RUNTIME=1"
 emmake make fllama_wasm -j
 
 #

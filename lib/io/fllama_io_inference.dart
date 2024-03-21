@@ -158,8 +158,14 @@ Future<SendPort> _helperIsolateSendPort = () async {
 }();
 
 /// Cancels the inference with the given [requestId].
-/// Inferences that have not yet started will never call their callback.
-/// Inferences that have started will call their callback with `done` set to
+/// 
+/// It is recommended you do _not_ update your state based on this.
+/// Use the callbacks, like you would generally.
+/// 
+/// This is supported via:
+/// - Inferences that have not yet started will call their callback with `done`
+/// set to `true` and an empty string.
+/// - Inferences that have started will call their callback with `done` set to 
 /// `true` and the final output of the inference.
 void fllamaCancelInference(int requestId) async {
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;

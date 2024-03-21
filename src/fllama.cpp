@@ -68,7 +68,8 @@ EMSCRIPTEN_KEEPALIVE void fllama_inference(fllama_inference_request request,
   global_inference_queue.enqueue(request, callback);
 }
 
-EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(int request_id) {
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void
+fllama_inference_cancel(int request_id) {
   global_inference_queue.cancel(request_id);
 }
 
@@ -150,11 +151,11 @@ fllama_inference_sync(fllama_inference_request request,
   std::cout << "[fllama] Default penalty_repeat: "
             << params.sparams.penalty_repeat << std::endl;
   params.sparams.penalty_freq = request.penalty_freq;
-  // std::cout << "[fllama] Penalty_freq: " << params.sparams.penalty_freq
-  // << std::endl;
+  std::cout << "[fllama] Penalty_freq: " << params.sparams.penalty_freq
+            << std::endl;
   params.sparams.penalty_repeat = request.penalty_repeat;
-  // std::cout << "[fllama] Penalty_repeat: " << params.sparams.penalty_repeat
-  // << std::endl;
+  std::cout << "[fllama] Penalty_repeat: " << params.sparams.penalty_repeat
+            << std::endl;
   std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
                                               llama_sampler_type::TEMP};
   params.sparams.samplers_sequence = samplers;
@@ -176,10 +177,14 @@ fllama_inference_sync(fllama_inference_request request,
   //  std::to_string(params.n_gpu_layers),
   //  request.dart_logger);
 #endif
+  std::cout << "[fllama] Number of GPU layers requested: "
+            << params.n_gpu_layers << std::endl;
   llama_backend_init(params.numa);
+  std::cout << "[fllama] Backend initialized." << std::endl;
 
   // Check if a Dart logger function is provided, use it if available.
   if (request.dart_logger != NULL) {
+    std::cout << "[fllama] Request log callback for llama.cpp detected";
     llama_log_set(
         [](enum ggml_log_level level, const char *text, void *user_data) {
           fllama_log_callback dart_logger =
@@ -344,8 +349,10 @@ fllama_inference_sync(fllama_inference_request request,
   // Check for cancellation before starting the generation loop
   int request_id = request.request_id;
 
-  if(global_inference_queue.is_cancelled(request_id)) {
-    fllama_log("Cancelled before starting generation loop. ID:" + std::to_string(request_id), request.dart_logger);
+  if (global_inference_queue.is_cancelled(request_id)) {
+    fllama_log("Cancelled before starting generation loop. ID:" +
+                   std::to_string(request_id),
+               request.dart_logger);
     callback("", true);
     return;
   }
@@ -417,9 +424,11 @@ fllama_inference_sync(fllama_inference_request request,
           buffer.substr(0, buffer.length() - eos_token_as_string.length());
       buffer.erase(0, buffer.length() - eos_token_as_string.length());
     }
-
+    emscripten_sleep(1);
     if (global_inference_queue.is_cancelled(request_id)) {
-      fllama_log("Cancelled during generation loop. ID:" + std::to_string(request_id), request.dart_logger);
+      fllama_log("Cancelled during generation loop. ID:" +
+                     std::to_string(request_id),
+                 request.dart_logger);
       break; // Exit the generation loop if cancelled. Callback will be called.
     }
 

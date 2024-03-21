@@ -15,8 +15,7 @@ class Promise<T> {
 }
 
 @JS('fllamaInferenceJs')
-external Future<void> fllamaInferenceJs(
-    dynamic request, Function callback);
+external Future<int> fllamaInferenceJs(dynamic request, Function callback);
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
 
@@ -45,11 +44,11 @@ class _JSFllamaInferenceRequest {
 /// Runs standard LLM inference. The future returns immediately after being
 /// called. [callback] is called on each new output token with the response and
 /// a boolean indicating whether the response is the final response.
-/// 
+///
 /// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
 /// template and an EOS token. Use [fllamaChat] instead if you expect this
 /// sort of interface, i.e. an OpenAI-like API.
-Future<void> fllamaInference(FllamaInferenceRequest dartRequest,
+Future<int> fllamaInference(FllamaInferenceRequest dartRequest,
     FllamaInferenceCallback callback) async {
   final jsRequest = _JSFllamaInferenceRequest(
     contextSize: dartRequest.contextSize,
@@ -67,9 +66,15 @@ Future<void> fllamaInference(FllamaInferenceRequest dartRequest,
     eosToken: dartRequest.eosToken,
   );
 
-  fllamaInferenceJs(jsRequest, allowInterop((String response, bool done) {
+  final completer = Completer<int>();
+  promiseToFuture(
+      fllamaInferenceJs(jsRequest, allowInterop((String response, bool done) {
     callback(response, done);
-  }));
+  }))).then((value) {
+    print('RequestId is $value');
+    completer.complete(value);
+  });
+  return completer.future;
 }
 
 // Tokenize
@@ -77,7 +82,7 @@ Future<void> fllamaInference(FllamaInferenceRequest dartRequest,
 external Future<int> fllamaTokenizeJs(dynamic modelPath, dynamic input);
 
 /// Returns the number of tokens in [request.input].
-/// 
+///
 /// Useful for identifying what messages will be in context when the LLM is run.
 Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   try {
@@ -87,7 +92,7 @@ Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
     promiseToFuture(fllamaTokenizeJs(request.modelPath, request.input))
         .then((value) {
       // print(
-          // '[fllama_html] fllamaTokenizeAsync finished with $value at ${DateTime.now()}');
+      // '[fllama_html] fllamaTokenizeAsync finished with $value at ${DateTime.now()}');
       completer.complete(value);
     });
     // print('[fllama_html] called fllamaTokenizeJs at ${DateTime.now()}');
@@ -105,7 +110,7 @@ external Future<String> fllamaChatTemplateGetJs(dynamic modelPath);
 
 /// Returns the chat template embedded in the .gguf file.
 /// If none is found, returns an empty string.
-/// 
+///
 /// See [fllamaSanitizeChatTemplate] for using sensible fallbacks for gguf
 /// files that don't have a chat template or have incorrect chat templates.
 Future<String> fllamaChatTemplateGet(String modelPath) async {
@@ -114,7 +119,7 @@ Future<String> fllamaChatTemplateGet(String modelPath) async {
     // print('[fllama_html] calling fllamaChatTemplateGetJs at ${DateTime.now()}');
     promiseToFuture(fllamaChatTemplateGetJs(modelPath)).then((value) {
       // print(
-          // '[fllama_html] fllamaChatTemplateGetJs finished with $value at ${DateTime.now()}');
+      // '[fllama_html] fllamaChatTemplateGetJs finished with $value at ${DateTime.now()}');
       completer.complete(value);
     });
     // print('[fllama_html] called fllamaChatTemplateGetJs at ${DateTime.now()}');
@@ -140,7 +145,7 @@ Future<String> fllamaEosTokenGet(String modelPath) {
     // print('[fllama_html] calling fllamaEosTokenGet at ${DateTime.now()}');
     promiseToFuture(fllamaEosTokenGetJs(modelPath)).then((value) {
       // print(
-          // '[fllama_html] fllamaEosTokenGet finished with $value at ${DateTime.now()}');
+      // '[fllama_html] fllamaEosTokenGet finished with $value at ${DateTime.now()}');
       completer.complete(value);
     });
     // print('[fllama_html] called fllamaEosTokenGet at ${DateTime.now()}');
@@ -150,4 +155,21 @@ Future<String> fllamaEosTokenGet(String modelPath) {
     print('[fllama_html] fllamaEosTokenGet caught error: $e');
     rethrow;
   }
+}
+
+@JS('fllamaCancelInferenceJs')
+external void fllamaCancelInferenceJs(int requestId);
+
+/// Cancels the inference with the given [requestId].
+/// 
+/// It is recommended you do _not_ update your state based on this.
+/// Use the callbacks, like you would generally.
+/// 
+/// This is supported via:
+/// - Inferences that have not yet started will call their callback with `done` set
+///  to `true` and an empty string.
+/// - Inferences that have started will call their callback with `done` set to
+/// `true` and the final output of the inference.
+void fllamaCancelInference(int requestId) {
+  fllamaCancelInferenceJs(requestId);
 }
