@@ -46,6 +46,12 @@ class _IsolateInferenceRequest {
   const _IsolateInferenceRequest(this.id, this.request);
 }
 
+class _IsolateInferenceCancel {
+  final int id;
+
+  const _IsolateInferenceCancel(this.id);
+}
+
 class _IsolateInferenceResponse {
   final int id;
   final String response;
@@ -151,10 +157,26 @@ Future<SendPort> _helperIsolateSendPort = () async {
   return completer.future;
 }();
 
+/// Cancels the inference with the given [requestId].
+/// Inferences that have not yet started will never call their callback.
+/// Inferences that have started will call their callback with `done` set to
+/// `true` and the final output of the inference.
+void fllamaCancelInference(int requestId) async {
+  final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
+  final _IsolateInferenceCancel isolateCancel =
+      _IsolateInferenceCancel(requestId);
+  helperIsolateSendPort.send(isolateCancel);
+}
+
 void _fllamaInferenceIsolate(SendPort sendPort) async {
   final ReceivePort helperReceivePort = ReceivePort();
   helperReceivePort.listen((dynamic data) {
     try {
+      if (data is _IsolateInferenceCancel) {
+        fllamaBindings.fllama_inference_cancel(data.id);
+        return;
+      }
+
       // On the helper isolate listen to requests and respond to them.
       if (data is! _IsolateInferenceRequest) {
         throw UnsupportedError('Unsupported message type: ${data.runtimeType}');

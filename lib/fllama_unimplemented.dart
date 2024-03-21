@@ -4,7 +4,7 @@ typedef FllamaInferenceCallback = void Function(String response, bool done);
 
 /// Returns the chat template embedded in the .gguf file.
 /// If none is found, returns an empty string.
-/// 
+///
 /// See [fllamaSanitizeChatTemplate] for using sensible fallbacks for gguf
 /// files that don't have a chat template or have incorrect chat templates.
 Future<String> fllamaChatTemplateGet(String modelPath) {
@@ -23,7 +23,7 @@ Future<String> fllamaEosTokenGet(String modelPath) {
 /// Runs standard LLM inference. The future returns immediately after being
 /// called. [callback] is called on each new output token with the response and
 /// a boolean indicating whether the response is the final response.
-/// 
+///
 /// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
 /// template and an EOS token. Use [fllamaChat] instead if you expect this
 /// sort of interface, i.e. an OpenAI-like API.
@@ -32,8 +32,24 @@ Future<int> fllamaInference(
   throw UnimplementedError();
 }
 
-/// Returns the number of tokens in [request.input].
+/// Cancels the inference with the given [requestId].
 /// 
+/// It is recommended you do _not_ update your state based on this.
+/// Use the callbacks, like you would generally.
+/// 
+/// This is supported via:
+/// 
+/// Inferences that have not yet started will call their callback with `done` set
+/// to `true` and an empty string.
+/// 
+/// Inferences that have started will call their callback with `done` set to 
+/// `true` and the final output of the inference.
+void fllamaCancelInference(int requestId) {
+  throw UnimplementedError();
+}
+
+/// Returns the number of tokens in [request.input].
+///
 /// Useful for identifying what messages will be in context when the LLM is run.
 Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   throw UnimplementedError();

@@ -40,6 +40,8 @@ class _MyAppState extends State<MyApp> {
   String latestChatTemplate = '';
   String latestEosToken = '';
 
+  int? _runningRequestId;
+
   @override
   void initState() {
     super.initState();
@@ -134,7 +136,11 @@ class _MyAppState extends State<MyApp> {
                   ),
                   ElevatedButton(
                     onPressed: () {
-                      _runInferencePressed();
+                      if (_runningRequestId != null) {
+                        fllamaCancelInference(_runningRequestId!);
+                      } else {
+                        _runInferencePressed();
+                      }
                     },
                     child: const Text('Run inference'),
                   ),
@@ -267,9 +273,14 @@ class _MyAppState extends State<MyApp> {
             latestOutputTokenCount = value;
           });
         });
+        if (done) {
+          _runningRequestId = null;
+        }
       });
     });
-    print('REQUEST ID: $requestId');
+    setState(() {
+      _runningRequestId = requestId;
+    });
   }
 
   void _openGgufPressed() async {
