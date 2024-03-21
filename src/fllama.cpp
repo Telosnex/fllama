@@ -424,7 +424,9 @@ fllama_inference_sync(fllama_inference_request request,
           buffer.substr(0, buffer.length() - eos_token_as_string.length());
       buffer.erase(0, buffer.length() - eos_token_as_string.length());
     }
+  #if defined(__EMSCRIPTEN__)
     emscripten_sleep(1);
+  #endif
     if (global_inference_queue.is_cancelled(request_id)) {
       fllama_log("Cancelled during generation loop. ID:" +
                      std::to_string(request_id),
