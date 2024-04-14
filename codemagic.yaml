@@ -100,7 +100,7 @@ definitions:
       Write-Host "Environment Variables just before CMake call:"
       Get-ChildItem env:
       Write-Host "Building with Flutter..."
-      cd example & flutter build windows --verbose --no-tree-shake-icons
+      cd example; flutter build windows --verbose --no-tree-shake-icons
   # Required for llama.cpp / cmake. Fixes "NUGET.EXE not found." error on codemagic.
   # codemagic .NET MAUI apps docs referenced for implementation:
   #   https://docs.codemagic.io/yaml-quick-start/building-a-dotnet-maui-app/
