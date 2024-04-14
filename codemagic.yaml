@@ -14,6 +14,9 @@ definitions:
         - james@telosnex.com
       notify:
         failure: true
+  env_keys: &env_keys
+    groups:
+      - app
   # https://docs.codemagic.io/yaml-basic-configuration/yaml-getting-started/#instance-type
   instance_linux: &instance_linux
     instance_type: linux_x2
@@ -139,6 +142,9 @@ definitions:
   script_install_pods: &script_install_pods
     name: Install pods
     script: find . -name "Podfile" -execdir pod install --repo-update \;
+  script_ios_codesign_setup: &script_ios_codesign_setup
+    name: Apple codesign setup
+    script: xcode-project use-profiles
   script_pub_get: &script_pub_get
     name: flutter pub get
     script: flutter pub get
@@ -171,7 +177,11 @@ workflows:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
+      <<: *env_keys
+    integrations:
+      app_store_connect: Codemagic240331
     scripts:
+      - <<: *script_ios_codesign_setup
       - <<: *script_pub_get
       - <<: *script_install_pods
       - <<: *script_ios_build
