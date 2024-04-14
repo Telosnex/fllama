@@ -222,7 +222,6 @@ workflows:
     scripts:
       - <<: *script_pub_get
       - <<: *script_web_build
-      - <<: *script_web_build_zip
     cache:
       <<: *cache_paths
     publishing:
