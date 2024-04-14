@@ -67,7 +67,8 @@ definitions:
       cd example && flutter build macos --verbose --no-tree-shake-icons
   script_web_build: &script_web_build
     name: Web build
-    script: ./scripts/build_web_app.sh
+    script: |
+      cd example && flutter build web --web-renderer canvaskit --no-tree-shake-icons
   script_windows_build: &script_windows_build
     name: Windows build
     script: |
