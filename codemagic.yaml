@@ -156,7 +156,6 @@ workflows:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
-      <<: *env_keys
     scripts:
       - <<: *script_pub_get
       - <<: *script_android_setup
@@ -172,7 +171,6 @@ workflows:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
-      <<: *env_keys
     scripts:
       - <<: *script_pub_get
       - <<: *script_install_pods
@@ -188,7 +186,6 @@ workflows:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
-      <<: *env_keys
     scripts:
       - <<: *script_pub_get
       - <<: *script_linux_build
@@ -203,7 +200,6 @@ workflows:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
-      <<: *env_keys
     scripts:
       - <<: *script_pub_get
       - <<: *script_install_pods
@@ -223,7 +219,6 @@ workflows:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
-      <<: *env_keys
     scripts:
       - <<: *script_pub_get
       - <<: *script_web_build
@@ -239,7 +234,6 @@ workflows:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
-      <<: *env_keys
       vars:
         DOTNET_PATH: $CM_BUILD_DIR\dotnet
         DOTNET: $CM_BUILD_DIR\dotnet\dotnet
