@@ -2,6 +2,7 @@
 #ifndef FLLAMA_INFERENCE_QUEUE_H
 #define FLLAMA_INFERENCE_QUEUE_H
 
+#include <atomic>
 #include <condition_variable>
 #include <exception>
 #include <functional>
@@ -11,6 +12,22 @@
 #include <thread>
 #include <unordered_map>
 #include "fllama.h"
+
+#if defined(__GNUC__) && __GNUC__ < 5 && !defined(__clang__)
+namespace std {
+  template <>
+  struct atomic<bool> {
+    bool _M_i;
+    atomic() noexcept = default;
+    constexpr atomic(bool __i) noexcept : _M_i(__i) {}
+    bool operator=(bool __i) volatile noexcept {
+      _M_i = __i;
+      return __i
+    }
+    operator bool() const volatile noexcept { return _M_i; }
+  };
+}
+#endif 
 
 struct TaskWrapper {
   std::function<void()> task; // Actual task to execute
