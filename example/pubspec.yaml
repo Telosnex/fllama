@@ -30,7 +30,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
   fllama:
     # When depending on this package from a real application you should use:
     #   fllama: ^x.y.z
@@ -57,6 +56,11 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^2.0.0
 
+dependency_overrides:
+  # March 22 2024:
+  # Handle flutter_test depending on meta 1.11.0 while Jinja uses 1.12.0
+  meta: 1.12.0
+  
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
