@@ -57,7 +57,7 @@ definitions:
   script_ios_build: &script_ios_build
     name: Build IPA
     script: |
-      cd example && flutter build --verbose --no-tree-shake-icons
+      cd example && flutter build ios --verbose --no-tree-shake-icons
   script_linux_build: &script_linux_build
     name: Linux build
     script: cd example && flutter build linux --verbose --no-tree-shake-icons
