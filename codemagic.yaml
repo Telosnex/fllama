@@ -178,6 +178,9 @@ workflows:
     environment:
       <<: *env_versions
       <<: *env_keys
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.telosnex.telosnex
     integrations:
       app_store_connect: Codemagic240331
     scripts:
