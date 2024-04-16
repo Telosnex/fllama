@@ -21,20 +21,20 @@ A new Flutter FFI plugin project.
   # `../src/*` so that the C sources can be shared among all target platforms.
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*', 
-                   'llama.cpp/llama.cpp', 
-                   'llama.cpp/ggml.c', 
-                   'llama.cpp/ggml-alloc.c', 
-                   'llama.cpp/ggml-backend.c', 
-                   'llama.cpp/ggml-metal.m'
-                   'llama.cpp/ggml-quants.c', 
+                   'llama.cpp/llama.cpp',
+                   'llama.cpp/ggml.c',
+                   'llama.cpp/ggml-alloc.c',
+                   'llama.cpp/ggml-backend.c',
+                   'llama.cpp/ggml-metal.m',
+                   'llama.cpp/ggml-quants.c',
                    'llama.cpp/unicode.cpp',
                    'llama.cpp/unicode-data.cpp',
-                   'llama.cpp/common/common.cpp', 
-                   'llama.cpp/common/build-info.cpp', 
-                   'llama.cpp/common/grammar-parser.cpp', 
-                   'llama.cpp/common/json-schema-to-grammar.cpp', 
-                   'llama.cpp/common/sampling.cpp', 
-                   'llama.cpp/common/stb_image.h', 
+                   'llama.cpp/common/common.cpp',
+                   'llama.cpp/common/build-info.cpp',
+                   'llama.cpp/common/grammar-parser.cpp',
+                   'llama.cpp/common/json-schema-to-grammar.cpp',
+                   'llama.cpp/common/sampling.cpp',
+                   'llama.cpp/common/stb_image.h',
   s.frameworks = 'Foundation', 'Metal', 'MetalKit'
   s.platform = :osx, '10.11'
   s.pod_target_xcconfig = {
