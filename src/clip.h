@@ -99,7 +99,7 @@ CLIP_API bool clip_model_quantize(const char * fname_inp, const char * fname_out
 }
 
 // Needs to be outside of extern "C" block as it uses C++ features
-static std::pair<int, int> select_best_resolution(const std::pair<int, int> & original_size, const std::vector<std::pair<int, int>> & possible_resolutions);
+std::pair<int, int> select_best_resolution(const std::pair<int, int> & original_size, const std::vector<std::pair<int, int>> & possible_resolutions);
 #endif
 
 #endif // CLIP_H
