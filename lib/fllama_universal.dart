@@ -156,6 +156,16 @@ String fllamaApplyChatTemplate({
     });
   }
 
+  if (jsonMessages.isEmpty) {
+    // Add dummy message.
+    // Gemma 1.1's chat template accesses messages[0] without a condition on it
+    // being empty.
+    jsonMessages.add({
+      'role': 'user',
+      'content': '',
+    });
+  }
+
   // There's a strange chat template first encountered in an early version of
   // LLaVa 1.6 x Mistral 7B.
   //
