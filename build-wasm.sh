@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Seeing error like this? ./build-wasm.sh: line 23: emcc: command not found
-# Remember to cd ~/dev/emsdk && source ./emsdk_env.sh.
+# Remember to cd ~/dev/emsdk && source ./emsdk_env.sh
 set -e
 
 LLAMA_CPP_WASM_BUILD_DIR=wasm_build
