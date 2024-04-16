@@ -202,7 +202,8 @@ int main(int argc, char ** argv) {
     std::mt19937 rng(params.seed);
 
     LOG("%s: llama backend init\n", __func__);
-    llama_backend_init(params.numa);
+    llama_backend_init();
+    llama_numa_init(params.numa);
 
     llama_model * model;
     llama_context * ctx;
@@ -238,6 +239,7 @@ int main(int argc, char ** argv) {
         LOG_TEE("%s\n", get_system_info(params).c_str());
     }
     const bool add_bos = llama_should_add_bos_token(model);
+    GGML_ASSERT(llama_add_eos_token(model) != 1);
     LOG("add_bos: %d\n", add_bos);
 
     bool suff_rm_leading_spc = params.escape;
@@ -278,10 +280,10 @@ int main(int argc, char ** argv) {
     if (ctx_guidance) {
         LOG("cfg_negative_prompt: \"%s\"\n", log_tostr(sparams.cfg_negative_prompt));
 
-        guidance_inp = ::llama_tokenize(ctx_guidance, sparams.cfg_negative_prompt, add_bos);
+        guidance_inp = ::llama_tokenize(ctx_guidance, sparams.cfg_negative_prompt, true);
         LOG("guidance_inp tokenized: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx_guidance, guidance_inp).c_str());
 
-        std::vector<llama_token> original_inp = ::llama_tokenize(ctx, params.prompt, add_bos);
+        std::vector<llama_token> original_inp = ::llama_tokenize(ctx, params.prompt, true);
         LOG("original_inp tokenized: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx, original_inp).c_str());
 
         original_prompt_len = original_inp.size();
@@ -377,10 +379,10 @@ int main(int argc, char ** argv) {
     if (params.interactive) {
         const char *control_message;
         if (params.multiline_input) {
-            control_message = " - To return control to LLaMa, end your input with '\\'.\n"
+            control_message = " - To return control to LLaMA, end your input with '\\'.\n"
                               " - To return control without starting a new line, end your input with '/'.\n";
         } else {
-            control_message = " - Press Return to return control to LLaMa.\n"
+            control_message = " - Press Return to return control to LLaMA.\n"
                               " - To return control without starting a new line, end your input with '/'.\n"
                               " - If you want to submit another line, end your input with '\\'.\n";
         }
@@ -446,8 +448,8 @@ int main(int argc, char ** argv) {
                 LOG("context full, swapping: n_past = %d, n_left = %d, n_ctx = %d, n_keep = %d, n_discard = %d\n",
                     n_past, n_left, n_ctx, params.n_keep, n_discard);
 
-                llama_kv_cache_seq_rm   (ctx, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
-                llama_kv_cache_seq_shift(ctx, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
+                llama_kv_cache_seq_rm (ctx, 0, params.n_keep + 1            , params.n_keep + n_discard + 1);
+                llama_kv_cache_seq_add(ctx, 0, params.n_keep + 1 + n_discard, n_past, -n_discard);
 
                 n_past -= n_discard;
 
