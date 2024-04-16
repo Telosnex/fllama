@@ -71,7 +71,6 @@ Future<int> fllamaInference(FllamaInferenceRequest dartRequest,
       fllamaInferenceJs(jsRequest, allowInterop((String response, bool done) {
     callback(response, done);
   }))).then((value) {
-    print('RequestId is $value');
     completer.complete(value);
   });
   return completer.future;
