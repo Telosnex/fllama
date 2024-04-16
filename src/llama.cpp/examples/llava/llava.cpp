@@ -100,7 +100,7 @@ static bool clip_llava_handle_patches(clip_ctx * ctx_clip, std::vector<float *> 
     int num_patches_width  = grid_shape.first;  // grid 1-4
     int num_patches_height = grid_shape.second; // grid 1-4
 
-    const size_t num_images = num_patches_width + num_patches_height + 1;
+    const size_t num_images = num_patches_width * num_patches_height + 1;
 
     // TODO: size calculation is not calculated - it's only tens of MB
     size_t ctx_size = 0;
@@ -152,7 +152,7 @@ static bool clip_llava_handle_patches(clip_ctx * ctx_clip, std::vector<float *> 
 
     ggml_tensor * newline_tmp = clip_get_newline_tensor(ctx_clip);
     model.newline = ggml_new_tensor_1d(model.ctx, GGML_TYPE_F32, newline_tmp->ne[0]);
-    if (newline_tmp->backend != GGML_BACKEND_CPU) {
+    if (newline_tmp->backend != GGML_BACKEND_TYPE_CPU) {
         if (newline_tmp->buffer == NULL) {
             printf("newline_tmp tensor buffer is NULL\n");
         }
@@ -223,7 +223,7 @@ static bool encode_image_with_clip(clip_ctx * ctx_clip, int n_threads, const cli
     clip_image_f32_batch img_res_v;
     img_res_v.size = 0;
     img_res_v.data = nullptr;
-    if (!clip_image_preprocess(ctx_clip, img, img_res_v)) {
+    if (!clip_image_preprocess(ctx_clip, img, &img_res_v)) {
         fprintf(stderr, "%s: unable to preprocess image\n", __func__);
         delete[] img_res_v.data;
         return false;
@@ -311,11 +311,10 @@ bool llava_validate_embed_size(const llama_context * ctx_llama, const clip_ctx *
     return true;
 }
 
-static bool llava_image_embed_make_with_clip_img(clip_ctx * ctx_clip, int n_threads, const clip_image_u8 * img, float ** image_embd_out, int * n_img_pos_out) {
+bool llava_image_embed_make_with_clip_img(clip_ctx * ctx_clip, int n_threads, const clip_image_u8 * img, float ** image_embd_out, int * n_img_pos_out) {
     float * image_embd = (float *)malloc(clip_embd_nbytes(ctx_clip)*6); // TODO: base on gridsize/llava model
     if (!image_embd) {
         fprintf(stderr, "Unable to allocate memory for image embeddings\n");
-        free(image_embd);
         return false;
     }
 
