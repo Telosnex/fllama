@@ -1,7 +1,7 @@
 #include "common.h"
 #include "json.hpp"
 #include "json-schema-to-grammar.h"
-#include "llama.h"
+#include "../llama.h"
 
 #include <algorithm>
 #include <cassert>

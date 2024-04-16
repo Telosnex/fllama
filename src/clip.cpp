@@ -1,41 +1,41 @@
 // NOTE: This is modified from clip.cpp only for LLaVA,
 // so there might be still unnecessary artifacts hanging around
 // I'll gradually clean and extend it
-
+// Note: Even when using identical normalized image inputs (see normalize_image_u8_to_f32()) we have a significant difference in resulting embeddings compared to pytorch
 #include "clip.h"
 
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
-
-#define STB_IMAGE_IMPLEMENTATION
 #if TARGET_OS_IOS
 // iOS-specific includes
 #include "../ios/llama.cpp/ggml.h"
 #include "../ios/llama.cpp/ggml-alloc.h"
 #include "../ios/llama.cpp/ggml-backend.h"
-#include "../ios/llama.cpp/ggml-metal.h"
-#include "../ios/llama.cpp/common/stb_image.h"
+// #include "../ios/llama.cpp/ggml-metal.h"
+// #include "../ios/llama.cpp/common/stb_image.h"
 #elif TARGET_OS_OSX
 // macOS-specific includes
 #include "../macos/llama.cpp/ggml.h"
 #include "../macos/llama.cpp/ggml-alloc.h"
 #include "../macos/llama.cpp/ggml-backend.h"
 #include "../macos/llama.cpp/ggml-metal.h"
-#include "../macos/llama.cpp/common/stb_image.h"
+// #include "../macos/llama.cpp/common/stb_image.h"
 #else
 // Other platforms
 #include "ggml.h"
 #include "ggml-alloc.h"
 #include "ggml-backend.h"
-#include "stb_image.h"
+// #include "stb_image.h"
 #endif
 
-#ifdef GGML_USE_CUBLAS
+#ifdef GGML_USE_CUDA
 #include "ggml-cuda.h"
 #endif
 
+// #ifdef GGML_USE_METAL
+// #include "ggml-metal.h"
+// #endif
+
 #define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 #include <cassert>
 #include <cmath>
@@ -121,6 +121,7 @@ static std::string format(const char * fmt, ...) {
 #define TN_LLAVA_PROJ      "mm.%d.%s"
 #define TN_MVLM_PROJ_MLP   "mm.model.mlp.%d.%s"
 #define TN_MVLM_PROJ_BLOCK "mm.model.mb_block.%d.block.%d.%s"
+#define TN_MVLM_PROJ_PEG   "mm.model.peg.%d.%s"
 #define TN_IMAGE_NEWLINE   "model.image_newline"
 
 
@@ -128,12 +129,14 @@ enum projector_type {
     PROJECTOR_TYPE_MLP,
     PROJECTOR_TYPE_MLP_NORM,
     PROJECTOR_TYPE_LDP,
+    PROJECTOR_TYPE_LDPV2,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
 static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_MLP, "mlp" },
     { PROJECTOR_TYPE_LDP, "ldp" },
+    { PROJECTOR_TYPE_LDPV2, "ldpv2"},
 };
 
 
@@ -477,6 +480,14 @@ struct clip_vision_model {
     struct ggml_tensor * mm_model_block_2_block_2_0_w;
     struct ggml_tensor * mm_model_block_2_block_2_1_w;
     struct ggml_tensor * mm_model_block_2_block_2_1_b;
+
+    // MobileVLM_V2 projection
+    struct ggml_tensor * mm_model_mlp_0_w;
+    struct ggml_tensor * mm_model_mlp_0_b;
+    struct ggml_tensor * mm_model_mlp_2_w;
+    struct ggml_tensor * mm_model_mlp_2_b;
+    struct ggml_tensor * mm_model_peg_0_w;
+    struct ggml_tensor * mm_model_peg_0_b;
 };
 
 struct clip_ctx {
@@ -499,7 +510,6 @@ struct clip_ctx {
 
     // memory buffers to evaluate the model
     ggml_backend_buffer_t params_buffer  = NULL;
-    ggml_backend_buffer_t compute_buffer = NULL;
 
     ggml_backend_t backend       = NULL;
     ggml_gallocr_t compute_alloc = NULL;
@@ -618,9 +628,9 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             KQ = ggml_soft_max_inplace(ctx0, KQ);
             struct ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
             KQV = ggml_reshape_4d(ctx0, KQV, d_head, num_positions, n_head, batch_size);
-            KQV = ggml_cont(ctx0, ggml_permute(ctx0, KQV, 0, 2, 1, 3));
+            KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
 
-            cur = ggml_cpy(ctx0, KQV, ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, hidden_size, num_positions, batch_size));
+            cur = ggml_cont_3d(ctx0, KQV, hidden_size, num_positions, batch_size);
         }
 
         // attention output
@@ -810,6 +820,30 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             }
             embeddings = block_1;
         }
+        else if (ctx->proj_type == PROJECTOR_TYPE_LDPV2)
+        {
+            int n_patch = 24;
+            struct ggml_tensor * mlp_0 = ggml_mul_mat(ctx0, model.mm_model_mlp_0_w, embeddings);
+            mlp_0 = ggml_add(ctx0, mlp_0, model.mm_model_mlp_0_b);
+            mlp_0 = ggml_gelu(ctx0, mlp_0);
+            struct ggml_tensor * mlp_2 = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, mlp_0);
+            mlp_2 = ggml_add(ctx0, mlp_2, model.mm_model_mlp_2_b);
+            // mlp_2 ne = [2048, 576, 1, 1]
+            // // AVG Pool Layer 2*2, strides = 2
+            mlp_2 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_2, 1, 0, 2, 3));
+            // mlp_2 ne = [576, 2048, 1, 1]
+            mlp_2 = ggml_reshape_4d(ctx0, mlp_2, n_patch, n_patch, mlp_2->ne[1], mlp_2->ne[2]);
+            // mlp_2 ne [24, 24, 2048, 1]
+            mlp_2 = ggml_pool_2d(ctx0, mlp_2, GGML_OP_POOL_AVG, 2, 2, 2, 2, 0, 0);
+            // weight ne = [3, 3, 2048, 1]
+            struct ggml_tensor * peg_0 = ggml_conv_depthwise_2d(ctx0, model.mm_model_peg_0_w, mlp_2, 1, 1, 1, 1, 1, 1);
+            peg_0 = ggml_cont(ctx0, ggml_permute(ctx0, peg_0, 1, 2, 0, 3));
+            peg_0 = ggml_add(ctx0, peg_0, model.mm_model_peg_0_b);
+            mlp_2 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_2, 1, 2, 0, 3));
+            peg_0 = ggml_add(ctx0, peg_0, mlp_2);
+            peg_0 = ggml_reshape_3d(ctx0, peg_0, peg_0->ne[0], peg_0->ne[1] * peg_0->ne[2], peg_0->ne[3]);
+            embeddings = peg_0;
+        }
         else {
             GGML_ASSERT(false);
         }
@@ -937,7 +971,7 @@ struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
         }
     }
 
-#ifdef GGML_USE_CUBLAS
+#ifdef GGML_USE_CUDA
     new_clip->backend = ggml_backend_cuda_init(0);
     printf("%s: CLIP using CUDA backend\n", __func__);
 #endif
@@ -997,6 +1031,7 @@ struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
         if (!new_clip->ctx_data) {
             fprintf(stderr, "%s: ggml_init() failed\n", __func__);
             clip_free(new_clip);
+            gguf_free(ctx);
             return nullptr;
         }
 
@@ -1004,6 +1039,7 @@ struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
         if (!fin) {
             printf("cannot open model file for loading tensors\n");
             clip_free(new_clip);
+            gguf_free(ctx);
             return nullptr;
         }
 
@@ -1025,6 +1061,7 @@ struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
             if (!fin) {
                 printf("%s: failed to seek for tensor %s\n", __func__, name);
                 clip_free(new_clip);
+                gguf_free(ctx);
                 return nullptr;
             }
             int num_bytes = ggml_nbytes(cur);
@@ -1105,7 +1142,7 @@ struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
             printf("v_image_mean       %f %f %f\n", new_clip->image_mean[0], new_clip->image_mean[1], new_clip->image_mean[2]);
             printf("v_image_std        %f %f %f\n", new_clip->image_std[0], new_clip->image_std[1], new_clip->image_std[2]);
             printf("v_image_grid_pinpoints: ");
-            for (int i = 0; i < 32 & hparams.image_grid_pinpoints[i]!=0; ++i) {
+            for (int i = 0; i < 32 && (hparams.image_grid_pinpoints[i] != 0); ++i) {
                 printf("%d ", hparams.image_grid_pinpoints[i]);
             }
             printf("\n");
@@ -1177,7 +1214,18 @@ struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
             vision_model.mm_model_block_2_block_2_0_w   = get_tensor(new_clip->ctx_data, format(TN_MVLM_PROJ_BLOCK, 2, 2, "0.weight"));
             vision_model.mm_model_block_2_block_2_1_w   = get_tensor(new_clip->ctx_data, format(TN_MVLM_PROJ_BLOCK, 2, 2, "1.weight"));
             vision_model.mm_model_block_2_block_2_1_b   = get_tensor(new_clip->ctx_data, format(TN_MVLM_PROJ_BLOCK, 2, 2, "1.bias"));
-        } else {
+        }
+        else if (new_clip->proj_type == PROJECTOR_TYPE_LDPV2)
+        {
+            // MobilVLM_V2 projection
+            vision_model.mm_model_mlp_0_w = get_tensor(new_clip->ctx_data, format(TN_MVLM_PROJ_MLP, 0, "weight"));
+            vision_model.mm_model_mlp_0_b = get_tensor(new_clip->ctx_data, format(TN_MVLM_PROJ_MLP, 0, "bias"));
+            vision_model.mm_model_mlp_2_w = get_tensor(new_clip->ctx_data, format(TN_MVLM_PROJ_MLP, 2, "weight"));
+            vision_model.mm_model_mlp_2_b = get_tensor(new_clip->ctx_data, format(TN_MVLM_PROJ_MLP, 2, "bias"));
+            vision_model.mm_model_peg_0_w = get_tensor(new_clip->ctx_data, format(TN_MVLM_PROJ_PEG, 0, "weight"));
+            vision_model.mm_model_peg_0_b = get_tensor(new_clip->ctx_data, format(TN_MVLM_PROJ_PEG, 0, "bias"));
+        }
+        else {
             std::string proj_type = PROJECTOR_TYPE_NAMES[new_clip->proj_type];
             throw std::runtime_error(format("%s: don't support projector with: %s currently\n", __func__, proj_type.c_str()));
         }
@@ -1232,18 +1280,18 @@ struct clip_image_f32 * clip_image_f32_init() {
     return new clip_image_f32();
 }
 
-void clip_image_u8_free (struct clip_image_u8  * img) { delete img; }
+void clip_image_u8_free(struct clip_image_u8  * img) { delete img; }
 void clip_image_f32_free(struct clip_image_f32 * img) { delete img; }
-void clip_image_u8_batch_free(struct clip_image_u8_batch  & batch) {
-    if (batch.size > 0) {
-        delete[] batch.data;
-        batch.size = 0;
+void clip_image_u8_batch_free(struct clip_image_u8_batch  * batch) {
+    if (batch->size > 0) {
+        delete[] batch->data;
+        batch->size = 0;
     }
 }
-void clip_image_f32_batch_free(struct clip_image_f32_batch  & batch) {
-    if (batch.size > 0) {
-        delete[] batch.data;
-        batch.size = 0;
+void clip_image_f32_batch_free(struct clip_image_f32_batch  * batch) {
+    if (batch->size > 0) {
+        delete[] batch->data;
+        batch->size = 0;
     }
 }
 
@@ -1445,7 +1493,7 @@ static void resize_and_pad_image(const clip_image_u8& image, clip_image_u8 &imag
  * @param possible_resolutions A list of possible resolutions in the format [(width1, height1), (width2, height2), ...].
  * @return The best fit resolution in the format (width, height).
  */
-std::pair<int, int> select_best_resolution(const std::pair<int, int> & original_size, const std::vector<std::pair<int, int>> & possible_resolutions) {
+static std::pair<int, int> select_best_resolution(const std::pair<int, int> & original_size, const std::vector<std::pair<int, int>> & possible_resolutions) {
     int original_width = original_size.first;
     int original_height = original_size.second;
     std::pair<int, int> best_fit;
@@ -1496,7 +1544,7 @@ static std::vector<clip_image_u8*> divide_to_patches_u8(const clip_image_u8 & im
 
 // returns the normalized float tensor for llava-1.5, for spatial_unpad with anyres processing for llava-1.6 it returns the normalized image patch tensors as a vector
 // res_imgs memory is being allocated here, previous allocations will be freed if found
-bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, clip_image_f32_batch & res_imgs) {
+bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, clip_image_f32_batch * res_imgs) {
     bool pad_to_square = true;
     if (!ctx->has_vision_encoder) {
         printf("This gguf file seems to have no vision encoder\n");
@@ -1508,11 +1556,11 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, cli
         pad_to_square = false;
     }
     // free the previous res_imgs if any set
-    if (res_imgs.size > 0) {
+    if (res_imgs->size > 0) {
         clip_image_f32_batch_free(res_imgs);
     }
-    res_imgs.data = nullptr;
-    res_imgs.size = 0;
+    res_imgs->data = nullptr;
+    res_imgs->size = 0;
 
     // the logic below is to pad the shorter side to the longer side with a background color: rgb(122, 116, 104)
     // see https://github.com/haotian-liu/LLaVA/blob/e854a2bf85118c504f6f16bf5c3c7c92f8fa8c6b/llava/conversation.py#L113-L156
@@ -1567,11 +1615,11 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, cli
             bicubic_resize(*img, *image_original_resize, params.image_size, params.image_size); // in python this is "shortest_edge", but all CLIP are square
             patches.insert(patches.begin(), image_original_resize);
             // clip_image_f32_batch_init(patches.size());
-            res_imgs.size = patches.size();
-            res_imgs.data = new clip_image_f32[res_imgs.size];
+            res_imgs->size = patches.size();
+            res_imgs->data = new clip_image_f32[res_imgs->size];
             int num=0;
             for (auto& patch : patches) {
-                normalize_image_u8_to_f32(patch, &res_imgs.data[num], ctx->image_mean, ctx->image_std);
+                normalize_image_u8_to_f32(patch, &res_imgs->data[num], ctx->image_mean, ctx->image_std);
                 num++;
             }
 
@@ -1659,9 +1707,9 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, cli
     // }
     // res_imgs.push_back(res);
 
-    res_imgs.size = 1;
-    res_imgs.data = new clip_image_f32[res_imgs.size];
-    res_imgs.data[0] = *res;
+    res_imgs->size = 1;
+    res_imgs->data = new clip_image_f32[res_imgs->size];
+    res_imgs->data[0] = *res;
     clip_image_f32_free(res);
 
     return true;
@@ -1675,6 +1723,9 @@ void clip_free(clip_ctx * ctx) {
     ggml_free(ctx->ctx_data);
     gguf_free(ctx->ctx_gguf);
 
+    ggml_backend_buffer_free(ctx->params_buffer);
+    ggml_backend_free(ctx->backend);
+    ggml_gallocr_free(ctx->compute_alloc);
     delete ctx;
 }
 
@@ -1707,7 +1758,7 @@ int clip_n_patches(const struct clip_ctx * ctx) {
 
     int n_patches = (params.image_size / params.patch_size) * (params.image_size / params.patch_size);
 
-    if (ctx->proj_type == PROJECTOR_TYPE_LDP) {
+    if (ctx->proj_type == PROJECTOR_TYPE_LDP || ctx->proj_type == PROJECTOR_TYPE_LDPV2) {
         n_patches /= 4;
     }
 
@@ -1864,7 +1915,6 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
 
     std::vector<uint8_t> work(512);
     std::vector<float> conv_buf(512);
-    std::vector<int64_t> hist_all(1 << 4, 0);
     size_t total_size_org = 0;
     size_t total_size_new = 0;
 
@@ -1911,6 +1961,7 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
                 break;
             default:
                 printf("Please use an input file in f32 or f16\n");
+                gguf_free(ctx_out);
                 return false;
             }
 
@@ -1919,48 +1970,7 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
             }
             new_data = work.data();
 
-            std::vector<int64_t> hist_cur(1 << 4, 0);
-
-            switch (new_type) {
-                case GGML_TYPE_Q4_0: {
-                    new_size = ggml_quantize_q4_0(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                case GGML_TYPE_Q4_1: {
-                    new_size = ggml_quantize_q4_1(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                case GGML_TYPE_Q5_0: {
-                    new_size = ggml_quantize_q5_0(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                case GGML_TYPE_Q5_1: {
-                    new_size = ggml_quantize_q5_1(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                case GGML_TYPE_Q8_0: {
-                    new_size = ggml_quantize_q8_0(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                case GGML_TYPE_Q2_K: {
-                    new_size = ggml_quantize_q2_K(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                case GGML_TYPE_Q3_K: {
-                    new_size = ggml_quantize_q3_K(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                case GGML_TYPE_Q4_K: {
-                    new_size = ggml_quantize_q4_K(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                case GGML_TYPE_Q5_K: {
-                    new_size = ggml_quantize_q5_K(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                case GGML_TYPE_Q6_K: {
-                    new_size = ggml_quantize_q6_K(f32_data, new_data, n_elms, cur->ne[0], hist_cur.data());
-                } break;
-                default: {
-                    fprintf(stderr, "%s: unsupported quantization type %d\n", __func__, new_type);
-                    return false;
-                }
-            }
-
-            for (size_t j = 0; j < hist_cur.size(); ++j) {
-                hist_all[j] += hist_cur[j];
-            }
+            new_size = ggml_quantize_chunk(new_type, f32_data, new_data, 0, n_elms/cur->ne[0], cur->ne[0], nullptr);
         } else {
             new_type = cur->type;
             new_data = cur->data;
@@ -1995,17 +2005,6 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
     {
         printf("%s: original  size = %8.2f MB\n", __func__, total_size_org / 1024.0 / 1024.0);
         printf("%s: quantized size = %8.2f MB\n", __func__, total_size_new / 1024.0 / 1024.0);
-
-        int64_t sum_all = 0;
-        for (size_t i = 0; i < hist_all.size(); ++i) {
-            sum_all += hist_all[i];
-        }
-
-        printf("%s: hist: ", __func__);
-        for (size_t i = 0; i < hist_all.size(); ++i) {
-            printf("%5.3f ", hist_all[i] / (float)sum_all);
-        }
-        printf("\n");
     }
 
     return true;
@@ -2014,6 +2013,9 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
 int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
     if (ctx->proj_type == PROJECTOR_TYPE_LDP) {
         return ctx->vision_model.mm_model_block_1_block_2_1_b->ne[0];
+    }
+    if (ctx->proj_type == PROJECTOR_TYPE_LDPV2) {
+        return ctx->vision_model.mm_model_peg_0_b->ne[0];
     }
     if (ctx->proj_type == PROJECTOR_TYPE_MLP) {
         return ctx->vision_model.mm_2_b->ne[0];

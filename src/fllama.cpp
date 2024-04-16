@@ -157,7 +157,7 @@ fllama_inference_sync(fllama_inference_request request,
   std::cout << "[fllama] Penalty_repeat: " << params.sparams.penalty_repeat
             << std::endl;
   std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
-                                              llama_sampler_type::TEMP};
+                                              llama_sampler_type::TEMPERATURE};
   params.sparams.samplers_sequence = samplers;
   params.sparams.top_p = request.top_p;
   // std::cout << "[fllama] Top_p: " << params.sparams.top_p << std::endl;
@@ -179,7 +179,7 @@ fllama_inference_sync(fllama_inference_request request,
 #endif
   std::cout << "[fllama] Number of GPU layers requested: "
             << params.n_gpu_layers << std::endl;
-  llama_backend_init(params.numa);
+  llama_backend_init();
   std::cout << "[fllama] Backend initialized." << std::endl;
 
   // Check if a Dart logger function is provided, use it if available.

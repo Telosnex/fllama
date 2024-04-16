@@ -115,7 +115,7 @@ static bool clip_llava_handle_patches(clip_ctx * ctx_clip, std::vector<float *> 
 
     ggml_tensor * newline_tmp = clip_get_newline_tensor(ctx_clip);
     model.newline = ggml_new_tensor_1d(model.ctx, GGML_TYPE_F32, newline_tmp->ne[0]);
-    if (newline_tmp->backend != GGML_BACKEND_CPU) {
+    if (newline_tmp->backend != GGML_BACKEND_TYPE_CPU) {
         if (newline_tmp->buffer == NULL) {
             printf("newline_tmp tensor buffer is NULL\n");
         }
@@ -186,7 +186,7 @@ static bool encode_image_with_clip(clip_ctx * ctx_clip, int n_threads, const cli
     clip_image_f32_batch img_res_v;
     img_res_v.size = 0;
     img_res_v.data = nullptr;
-    if (!clip_image_preprocess(ctx_clip, img, img_res_v)) {
+    if (!clip_image_preprocess(ctx_clip, img, &img_res_v)) {
         fprintf(stderr, "%s: unable to preprocess image\n", __func__);
         delete[] img_res_v.data;
         return false;

@@ -110,14 +110,14 @@ std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path) {
     params.n_predict = 0;
     params.sparams.temp = 0;
     std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
-                                                llama_sampler_type::TEMP};
+                                                llama_sampler_type::TEMPERATURE};
     params.sparams.samplers_sequence = samplers;
     params.sparams.top_p = 0;
     params.model = model_path.c_str();
     params.n_gpu_layers = 0;
     llama_model_params mparams = llama_model_params_from_gpt_params(params);
     mparams.vocab_only = true;
-    llama_backend_init(params.numa);
+    llama_backend_init();
     // Using llama_load_model_from_file instead of llama_init_from_gpt_params
     // avoided a crash when tokenization was called in quick succession without
     // this caching mechanism in place.
