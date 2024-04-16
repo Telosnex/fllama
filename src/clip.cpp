@@ -4,26 +4,32 @@
 // Note: Even when using identical normalized image inputs (see normalize_image_u8_to_f32()) we have a significant difference in resulting embeddings compared to pytorch
 #include "clip.h"
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
+#define STB_IMAGE_IMPLEMENTATION
+
 #if TARGET_OS_IOS
 // iOS-specific includes
 #include "../ios/llama.cpp/ggml.h"
 #include "../ios/llama.cpp/ggml-alloc.h"
 #include "../ios/llama.cpp/ggml-backend.h"
-// #include "../ios/llama.cpp/ggml-metal.h"
-// #include "../ios/llama.cpp/common/stb_image.h"
+#include "../ios/llama.cpp/ggml-metal.h"
+#include "../ios/llama.cpp/common/stb_image.h"
 #elif TARGET_OS_OSX
 // macOS-specific includes
 #include "../macos/llama.cpp/ggml.h"
 #include "../macos/llama.cpp/ggml-alloc.h"
 #include "../macos/llama.cpp/ggml-backend.h"
 #include "../macos/llama.cpp/ggml-metal.h"
-// #include "../macos/llama.cpp/common/stb_image.h"
+#include "../macos/llama.cpp/common/stb_image.h"
 #else
 // Other platforms
 #include "ggml.h"
 #include "ggml-alloc.h"
 #include "ggml-backend.h"
-// #include "stb_image.h"
+#include "stb_image.h"
 #endif
 
 #ifdef GGML_USE_CUDA
@@ -34,8 +40,8 @@
 // #include "ggml-metal.h"
 // #endif
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+// #define STB_IMAGE_IMPLEMENTATION
+// #include "stb_image.h"
 
 #include <cassert>
 #include <cmath>

@@ -18,7 +18,7 @@ except ImportError as e:
 KEY_PROPERTIES = [
     "cpu_info", "gpu_info", "n_gpu_layers", "main_gpu", "cuda", "opencl", "metal", "gpu_blas",
     "blas", "model_filename", "model_type", "model_size", "model_n_params", "n_batch", "n_threads",
-    "type_k", "type_v", "no_kv_offload", "mul_mat_q", "tensor_split", "n_prompt", "n_gen"
+    "type_k", "type_v", "no_kv_offload", "tensor_split", "n_prompt", "n_gen"
 ]
 
 # Properties that are boolean and are converted to Yes/No for the table:
@@ -31,7 +31,7 @@ PRETTY_NAMES = {
     "model_size": "Model Size [GiB]", "model_n_params": "Num. of Parameters",
     "n_batch": "Batch size", "n_threads": "Threads", "type_k": "K type", "type_v": "V type",
     "n_gpu_layers": "GPU layers", "main_gpu": "Main GPU", "no_kv_offload": "NKVO",
-    "mul_mat_q": "MMQ", "tensor_split": "Tensor split"
+    "tensor_split": "Tensor split"
 }
 
 DEFAULT_SHOW = ["model_type"]  # Always show these properties by default.
@@ -178,6 +178,9 @@ def get_commit_hexsha8(name):
     for t in repo.tags:
         if t.name == name:
             return t.commit.hexsha[:8]
+    for c in repo.iter_commits("--all"):
+        if c.hexsha[:8] == name[:8]:
+            return c.hexsha[:8]
     return None
 
 
@@ -224,7 +227,7 @@ if known_args.compare is not None:
         hexsha8_compare = get_commit_hexsha8(known_args.compare)
         name_compare = known_args.compare
     if hexsha8_compare is None:
-        print(f"ERROR: cannot find data for baseline={known_args.compare}.")
+        print(f"ERROR: cannot find data for compare={known_args.compare}.")
         sys.exit(1)
 # Otherwise, search for the commit for llama-bench was most recently run
 # and that is not a parent of master:

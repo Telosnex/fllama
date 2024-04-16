@@ -111,13 +111,13 @@ static const char * LLM_TENSOR_FFN_DOWN      = "blk.%d.ffn_down";
 static const char * LLM_TENSOR_FFN_UP        = "blk.%d.ffn_up";
 
 static void print_params(struct my_llama_hparams * params) {
-    printf("%s: n_vocab: %d\n", __func__, params->n_vocab);
-    printf("%s: n_ctx:   %d\n", __func__, params->n_ctx);
-    printf("%s: n_embd:  %d\n", __func__, params->n_embd);
-    printf("%s: n_head:  %d\n", __func__, params->n_head);
-    printf("%s: n_ff:    %d\n", __func__, params->n_ff);
-    printf("%s: n_layer: %d\n", __func__, params->n_layer);
-    printf("%s: n_rot:   %d\n", __func__, params->n_rot);
+    printf("%s: n_vocab: %u\n", __func__, params->n_vocab);
+    printf("%s: n_ctx:   %u\n", __func__, params->n_ctx);
+    printf("%s: n_embd:  %u\n", __func__, params->n_embd);
+    printf("%s: n_head:  %u\n", __func__, params->n_head);
+    printf("%s: n_ff:    %u\n", __func__, params->n_ff);
+    printf("%s: n_layer: %u\n", __func__, params->n_layer);
+    printf("%s: n_rot:   %u\n", __func__, params->n_rot);
 }
 
 static void set_param_model(struct my_llama_model * model) {
@@ -711,6 +711,7 @@ static bool load_checkpoint_file(const char * filename, struct my_llama_model * 
 
     load_checkpoint_gguf(fctx, f_ggml_ctx, model, train);
 
+    gguf_free(fctx);
     return true;
 }
 
@@ -960,7 +961,7 @@ int main(int argc, char ** argv) {
     struct ggml_opt_context * opt   = train->opt;
 
     // set opt params from command line
-    opt->params = ggml_opt_default_params(GGML_OPT_ADAM);
+    opt->params = ggml_opt_default_params(GGML_OPT_TYPE_ADAM);
     opt->params.print_forward_graph     = false;
     opt->params.print_backward_graph    = false;
     opt->params.graph_size              = LLAMA_TRAIN_MAX_NODES;
