@@ -229,12 +229,12 @@ class _MyAppState extends State<MyApp> {
 
     // 2. Inference with chat template.
     final request = OpenAiRequest(
-      maxTokens: 400,
+      maxTokens: 100,
       messages: [
         Message(Role.system, 'You are a chatbot.'),
         Message(Role.user, messageText),
       ],
-      numGpuLayers: 0,
+      numGpuLayers: 99,
       /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
       modelPath: _modelPath!,
       mmprojPath: _mmprojPath,
