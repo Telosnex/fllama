@@ -166,3 +166,5 @@ Commercial licenses are also available. Contact info@telosnex.com. Expect very f
 - Enable WASM via modheader extension, set:
 Cross-Origin-Embedder-Policy: require-corp
 Cross-Origin-Opener-Policy: same-origin
+# FFI development
+- When changes are made to C++ bindings, run `flutter pub run ffigen --config ffigen.yaml` to make them available in Dart.
