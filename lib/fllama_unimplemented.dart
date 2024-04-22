@@ -1,4 +1,9 @@
+import 'dart:ffi';
+
+import 'package:ffi/ffi.dart';
 import 'package:fllama/fllama.dart';
+import 'package:fllama/fllama_io.dart';
+import 'package:fllama/io/fllama_io_helpers.dart';
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
 
@@ -10,6 +15,22 @@ typedef FllamaInferenceCallback = void Function(String response, bool done);
 Future<String> fllamaChatTemplateGet(String modelPath) {
   throw UnimplementedError();
 }
+
+/// Returns the BOS token embedded in the .gguf file.
+/// If none is found, returns an empty string.
+///
+/// See [fllamaApplyChatTemplate] for using sensible fallbacks for gguf
+/// files that don't have an EOS token or have incorrect EOS tokens.
+Future<String> fllamaBosTokenGet(String modelPath) async {
+  final filenamePointer = stringToPointerChar(modelPath);
+  final eosTokenPointer = fllamaBindings.fllama_get_bos_token(filenamePointer);
+  calloc.free(filenamePointer);
+  if (eosTokenPointer == nullptr) {
+    return '';
+  }
+  return pointerCharToString(eosTokenPointer);
+}
+
 
 /// Returns the EOS token embedded in the .gguf file.
 /// If none is found, returns an empty string.

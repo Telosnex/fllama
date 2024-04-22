@@ -88,6 +88,64 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_eos_token(const char *fname) {
   // Return the pointer to the caller. The caller must `delete[]` this memory.
   return heapWord;
 }
+
+EMSCRIPTEN_KEEPALIVE const char *fllama_get_bos_token(const char *fname) {
+  struct ggml_context *meta = NULL;
+
+  struct gguf_init_params params = {
+      /*.no_alloc = */ true,
+      /*.ctx      = */ &meta,
+  };
+
+  struct gguf_context *ctx = gguf_init_from_file(fname, params);
+  if (!ctx) {
+    fprintf(stderr, "Unable to load model: %s\n", fname);
+    return NULL; // Return NULL to indicate failure to load or find the value.
+  }
+
+  const char *tokens_key = "tokenizer.ggml.tokens";
+  const int tokens_idx = gguf_find_key(ctx, tokens_key);
+  printf("%s: tokens_idx: %d\n", __func__, tokens_idx);
+
+  if (tokens_idx < 0) {
+    printf("%s: key '%s' not found.\n", __func__, tokens_key);
+    return ""; // Key not found.
+  }
+
+  const char *bos_id_key = "tokenizer.ggml.bos_token_id";
+  const int bos_id_idx = gguf_find_key(ctx, bos_id_key);
+  if (bos_id_idx < 0) {
+    printf("%s: key '%s' not found.\n", __func__, bos_id_key);
+    return ""; // Key not found.
+  }
+
+  const void *bos_id_val_data = gguf_get_val_data(ctx, bos_id_idx);
+  const int bos_id_index =
+      gguf_data_to_int(gguf_get_kv_type(ctx, bos_id_idx), bos_id_val_data, 0);
+  if (bos_id_index == INT_MIN) {
+    printf("%s: bos_id_val is INT_MIN, indicating an error.\n", __func__);
+    return ""; // Key not found.
+  }
+
+  const uint32_t n_vocab = gguf_get_arr_n(ctx, tokens_idx);
+  if (n_vocab <= tokens_idx) {
+    printf("%s: tokens key found, but index %d is out of bounds for array of "
+           "size %d.\n",
+           __func__, bos_id_idx, n_vocab);
+  }
+
+  std::string word = gguf_get_arr_str(ctx, tokens_idx, bos_id_index);
+  printf("%s: word: %s\n", __func__, word.c_str());
+  char *heapWord = new char[word.length() + 1]; // +1 for the null terminator
+
+  // Copy the contents of `word` to the allocated memory.
+  std::strcpy(heapWord, word.c_str());
+
+  ggml_free(meta);
+  gguf_free(ctx);
+  // Return the pointer to the caller. The caller must `delete[]` this memory.
+  return heapWord;
+}
 }
 
 static int gguf_data_to_int(enum gguf_type type, const void *data, int i) {

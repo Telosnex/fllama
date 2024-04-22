@@ -86,8 +86,12 @@ Future<int> fllamaChat(
   final eosToken = template == chatMlTemplate
       ? chatMlEosToken
       : await fllamaEosTokenGet(request.modelPath);
+  final bosToken = template == chatMlTemplate
+      ? chatMlBosToken
+      : await fllamaBosTokenGet(request.modelPath);
   final text = fllamaApplyChatTemplate(
     chatTemplate: template,
+    bosToken: bosToken,
     eosToken: eosToken,
     request: request,
   );
@@ -135,6 +139,7 @@ Future<int> fllamaChat(
 String fllamaApplyChatTemplate({
   required String chatTemplate,
   required OpenAiRequest request,
+  required String bosToken,
   required String eosToken,
 }) {
   final jsonMessages = <Map<String, dynamic>>[];
@@ -200,6 +205,7 @@ String fllamaApplyChatTemplate({
     'messages': jsonMessages,
     'add_generation_prompt': true,
     'eos_token': eosToken,
+    'bos_token': bosToken,
   });
 }
 
@@ -211,6 +217,7 @@ const chatMlTemplate = '''
 <|im_start|>assistant
 ''';
 
+const chatMlBosToken = '<|im_start|>';
 const chatMlEosToken = '<|im_end|>';
 
 /// Convert a JSON schema to GBNF, a grammar format used by llama.cpp to enforce

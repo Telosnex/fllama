@@ -90,6 +90,21 @@ class FllamaBindings {
   late final _fllama_get_chat_template = _fllama_get_chat_templatePtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
+  ffi.Pointer<ffi.Char> fllama_get_bos_token(
+    ffi.Pointer<ffi.Char> fname,
+  ) {
+    return _fllama_get_bos_token(
+      fname,
+    );
+  }
+
+  late final _fllama_get_bos_tokenPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(
+              ffi.Pointer<ffi.Char>)>>('fllama_get_bos_token');
+  late final _fllama_get_bos_token = _fllama_get_bos_tokenPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
+
   ffi.Pointer<ffi.Char> fllama_get_eos_token(
     ffi.Pointer<ffi.Char> fname,
   ) {

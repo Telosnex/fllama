@@ -62,3 +62,18 @@ Future<String> fllamaEosTokenGet(String modelPath) async {
   }
   return pointerCharToString(eosTokenPointer);
 }
+
+/// Returns the EOS token embedded in the .gguf file.
+/// If none is found, returns an empty string.
+///
+/// See [fllamaApplyChatTemplate] for using sensible fallbacks for gguf
+/// files that don't have an EOS token or have incorrect EOS tokens.
+Future<String> fllamaBosTokenGet(String modelPath) async {
+  final filenamePointer = stringToPointerChar(modelPath);
+  final eosTokenPointer = fllamaBindings.fllama_get_bos_token(filenamePointer);
+  calloc.free(filenamePointer);
+  if (eosTokenPointer == nullptr) {
+    return '';
+  }
+  return pointerCharToString(eosTokenPointer);
+}
