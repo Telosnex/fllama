@@ -130,6 +130,32 @@ Future<String> fllamaChatTemplateGet(String modelPath) async {
   }
 }
 
+@JS('fllamaBosTokenGetJs')
+external Future<String> fllamaBosTokenGetJs(dynamic modelPath);
+
+/// Returns the EOS token embedded in the .gguf file.
+/// If none is found, returns an empty string.
+///
+/// See [fllamaApplyChatTemplate] for using sensible fallbacks for gguf
+/// files that don't have an EOS token or have incorrect EOS tokens.
+Future<String> fllamaBosTokenGet(String modelPath) {
+  try {
+    final completer = Completer<String>();
+    // print('[fllama_html] calling fllamaEosTokenGet at ${DateTime.now()}');
+    promiseToFuture(fllamaBosTokenGetJs(modelPath)).then((value) {
+      // print(
+      // '[fllama_html] fllamaEosTokenGet finished with $value at ${DateTime.now()}');
+      completer.complete(value);
+    });
+    // print('[fllama_html] called fllamaEosTokenGet at ${DateTime.now()}');
+    return completer.future;
+  } catch (e) {
+    // ignore: avoid_print
+    print('[fllama_html] fllamaBosTokenGet caught error: $e');
+    rethrow;
+  }
+}
+
 @JS('fllamaEosTokenGetJs')
 external Future<String> fllamaEosTokenGetJs(dynamic modelPath);
 

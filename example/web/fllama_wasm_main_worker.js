@@ -165,6 +165,22 @@ self.addEventListener('message', async (e) => {
                 });
                 break;
             }
+            case action.GET_BOS_TOKEN: {
+                const virtualModelPath = "/models/model.bin";
+                const virtualModelPathRaw = new TextEncoder().encode(virtualModelPath);
+                let modelPathPtr = module._malloc(virtualModelPathRaw.length + 1);
+                let modelPathChunk = module.HEAPU8.subarray(modelPathPtr, modelPathPtr + virtualModelPathRaw.length + 1);
+                modelPathChunk.set(virtualModelPathRaw);
+                module.HEAPU8[modelPathPtr + virtualModelPathRaw.length] = 0; // explicitly set the null terminator
+
+                const bosToken = module._fllama_get_bos_token_export(modelPathPtr);
+                const decodedString = module.UTF8ToString(bosToken);
+                postMessage({
+                    event: action.GET_BOS_TOKEN_CALLBACK,
+                    bosToken: decodedString,
+                });
+                break;
+            }
             default:
                 console.error("[fllama_wasm_main_worker.js] unexpected message", e);
                 break;

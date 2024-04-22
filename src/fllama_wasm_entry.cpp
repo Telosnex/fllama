@@ -5,6 +5,10 @@
 #include <stdio.h>
 
 extern "C" {
+const char *fllama_get_bos_token_export(const char *fname) {
+  return fllama_get_bos_token(fname);
+}
+
 const char *fllama_get_eos_token_export(const char *fname) {
   return fllama_get_eos_token(fname);
 }

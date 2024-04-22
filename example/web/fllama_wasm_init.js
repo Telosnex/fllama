@@ -178,6 +178,37 @@ function chatTemplateWithWorker(worker, input) {
 
 window.fllamaChatTemplateGetJs = fllamaChatTemplateGetJs;
 
+let bosTokenWorker = null;
+let lastBosTokenTemplateModelPath = '';
+
+async function fllamaBosTokenGetJs(modelPath) {
+    if (bosTokenWorker === null || lastBosTokenTemplateModelPath !== modelPath) {
+        lastBosTokenTemplateModelPath = modelPath;
+        bosTokenWorker = initializeWorker(modelPath);
+    }
+    return bosTokenWorker.then(worker => bosTokenWithWorker(worker));
+}
+
+function bosTokenWithWorker(worker) {
+    return new Promise((resolve, reject) => {
+        const handleMessage = function (e) {
+            console.log('[fllama_wasm_init.js.bosTokenWithWorker] received message', e.data);
+            switch (e.data.event) {
+                case action.GET_BOS_TOKEN_CALLBACK:
+                    worker.removeEventListener('message', handleMessage);
+                    resolve(e.data.bosToken);
+                    break;
+                default:
+                    reject(new Error('Unexpected message'));
+                    break;
+            }
+        };
+        worker.addEventListener('message', handleMessage);
+        worker.postMessage({ event: action.GET_BOS_TOKEN });
+    });
+}
+
+window.fllamaBosTokenGetJs = fllamaBosTokenGetJs;
 
 let eosTokenWorker = null;
 let lastEosTokenTemplateModelPath = '';

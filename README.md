@@ -138,7 +138,7 @@ The code as-is on GitHub is licensed under GPL v2. That requires distribution of
 
 Commercial licenses are also available. Contact info@telosnex.com. Expect very fair terms: our intent is to charge only entities, with a launched app, making a lot of money, with FLLAMA as a core dependency. The base agreement is here: https://github.com/lawndoc/dual-license-templates/blob/main/pdf/Basic-Yearly.pdf
 
-# Drops
+# llama.cpp update process
 - Best practice is:
 1. Check out latest llama.cpp.
 2. Copy checked out llama.cpp to macos/llama.cpp. Commit. DO NOT PUSH.
@@ -158,13 +158,19 @@ Commercial licenses are also available. Contact info@telosnex.com. Expect very f
 - fllama_wasm.js
 - fllama_wasm.wasm
 15. Test using instructions below, then commit and push.
+- Note: Drop usually requires restoring build-info.cpp for macOS and iOS. It's a stock set of values with ex. git commit. That should be updated. Other than that you can leave it alone.
+
 # Web development
 - When C++ changes, use ./build-wasm.sh to build updated WASM files.
 - Copy: fllama_wasm.js, fllama_wasm.wasm, fllama_wasm.worker.mjs from wasm_build/build to example/web directory.
-- flutter run -d web-server --web-hostname=localhost --web-port=1234
+- From example directory: flutter run -d web-server --web-hostname=localhost --web-port=1234
 - Open Chrome and go to http://localhost:1234.
 - Enable WASM via modheader extension, set:
 Cross-Origin-Embedder-Policy: require-corp
 Cross-Origin-Opener-Policy: same-origin
+
 # FFI development
 - When changes are made to C++ bindings, run `flutter pub run ffigen --config ffigen.yaml` to make them available in Dart.
+- `rm -rvf Podfile.lock && rm -rvf Podfile && rm -rvf Pods && flutter clean`
+^ run in example/macos / example/ios when upgrading cpp files, or when getting cryptic errors about build cache.
+

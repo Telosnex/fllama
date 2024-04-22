@@ -39,6 +39,7 @@ class _MyAppState extends State<MyApp> {
   int latestOutputTokenCount = 0;
   String latestChatTemplate = '';
   String latestEosToken = '';
+  String latestBosToken = '';
 
   int? _runningRequestId;
 
@@ -161,6 +162,15 @@ class _MyAppState extends State<MyApp> {
                       style: textStyle,
                     ),
                   ],
+                  if (latestBosToken.isNotEmpty) ...[
+                    spacerSmall,
+                    const Text('Beginning of sequence token:',
+                        style: textStyle),
+                    SelectableText(
+                      latestBosToken,
+                      style: textStyle,
+                    ),
+                  ],
                   if (latestEosToken.isNotEmpty) ...[
                     spacerSmall,
                     const Text('End of sequence token:', style: textStyle),
@@ -261,6 +271,11 @@ class _MyAppState extends State<MyApp> {
     final eosToken = await fllamaEosTokenGet(_modelPath!);
     setState(() {
       latestEosToken = eosToken;
+    });
+
+    final bosToken = await fllamaBosTokenGet(_modelPath!);
+    setState(() {
+      latestBosToken = bosToken;
     });
 
     int requestId = await fllamaChat(request, (response, done) {
