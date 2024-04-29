@@ -1,4 +1,11 @@
 # tests with SPM tokenizer
+#
+# sample usage:
+#
+#   python3 tests/test-tokenizer-0-spm.py ~/Data/huggingface/Llama-2-7b-hf/
+#   python3 tests/test-tokenizer-0-spm.py ~/Data/huggingface/CodeLlama-34b-Instruct-hf/
+#
+
 
 import argparse
 
@@ -20,6 +27,8 @@ tests = [
     "   ",
     "\t",
     "\n",
+    "\n\n",
+    "\n\n\n",
     "\t\n",
     "Hello world",
     " Hello world",
@@ -39,6 +48,19 @@ tests = [
     "   Hello",
     "    Hello",
     "    Hello\n    Hello",
+    " (",
+    "\n =",
+    "' era",
+    "Hello, y'all! How are you 😁 ?我想在apple工作1314151天～",
+    "3",
+    "33",
+    "333",
+    "3333",
+    "33333",
+    "333333",
+    "3333333",
+    "33333333",
+    "333333333",
 ]
 
 

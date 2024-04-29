@@ -1,4 +1,11 @@
 # tests with BPE tokenizer
+#
+# sample usage:
+#
+#   python3 tests/test-tokenizer-0-bpe.py ~/Data/huggingface/Meta-Llama-3-8B-Instruct/
+#   python3 tests/test-tokenizer-0-bpe.py ~/Data/huggingface/falcon-7b/
+#   python3 tests/test-tokenizer-0-bpe.py ~/Data/huggingface/deepseek-coder-6.7b-instruct/
+#
 
 import argparse
 
@@ -20,6 +27,8 @@ tests = [
     "   ",
     "\t",
     "\n",
+    "\n\n",
+    "\n\n\n",
     "\t\n",
     "Hello world",
     " Hello world",
@@ -39,8 +48,19 @@ tests = [
     "   Hello",
     "    Hello",
     "    Hello\n    Hello",
+    " (",
     "\n =",
     "' era",
+    "Hello, y'all! How are you 😁 ?我想在apple工作1314151天～",
+    "3",
+    "33",
+    "333",
+    "3333",
+    "33333",
+    "333333",
+    "3333333",
+    "33333333",
+    "333333333",
 ]
 
 for text in tests:
@@ -76,7 +96,22 @@ if fname_tok:
         # write to file
         with open(fname_out, 'w', encoding='utf-8') as f:
             for x in res:
-                f.write(str(x) + ' \'' + tokenizer.decode(x) + '\'\n')
+                # LLaMA v3 for some reason strips the space for these tokens (and others)
+                # if x == 662:
+                #     f.write(str(x) + ' \' ' + tokenizer.decode(x) + '\'\n')
+                # elif x == 1174:
+                #     f.write(str(x) + ' \' ' + tokenizer.decode(x) + '\'\n')
+                # elif x == 2564:
+                #     f.write(str(x) + ' \' ' + tokenizer.decode(x) + '\'\n')
+                # elif x == 758:
+                #     f.write(str(x) + ' \' ' + tokenizer.decode(x) + '\'\n')
+                # elif x == 949:
+                #     f.write(str(x) + ' \' ' + tokenizer.decode(x) + '\'\n')
+                # elif x == 5354:
+                #     f.write(str(x) + ' \' ' + tokenizer.decode(x) + '\'\n')
+                # else:
+                #     f.write(str(x) + ' \'' + tokenizer.decode(x) + '\'\n')
+                f.write(str(x) + ' \'' + tokenizer.decode(x).strip() + '\'\n')
         print('len(res): ', len(res))
         print('len(lines): ', len(lines))
     print('results written to: ', fname_out)
