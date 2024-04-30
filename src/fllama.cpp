@@ -81,6 +81,9 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
     int n_eval = (int)tokens.size() - i;
     if (n_eval > n_batch)
       n_eval = n_batch;
+    // DEBUG:
+    // int token = tokens[i];
+    // std::cout << "[fllama] Adding token to context: " << token << std::endl;
     if (llama_decode(ctx_llama,
                      llama_batch_get_one(&tokens[i], n_eval, *n_past, 0))) {
       return false; // probably ran out of context
@@ -295,13 +298,13 @@ fllama_inference_sync(fllama_inference_request request,
                  " ms.",
              request.dart_logger);
 
-  // Print the input line by line, numbered:
+  // DEBUG: Print the input line by line, numbered:
   // std::istringstream input_stream(final_request_input);
   // std::string line;
   // int line_number = 1;
   // while (std::getline(input_stream, line)) {
-  //              std::cout << "Input line " << line_number << ": " << line <<
-  //              std::endl << std::flush;
+  //   std::cout << "Input line " << line_number << ": " << line << std::endl
+  //             << std::flush;
   //   line_number++;
   // }
 
@@ -384,7 +387,8 @@ fllama_inference_sync(fllama_inference_request request,
   const auto estimated_total_size = n_max_tokens * 10;
   std::string result;
   result.reserve(estimated_total_size);
-  c_result = (char *)malloc(estimated_total_size); // Allocate once with estimated size
+  c_result =
+      (char *)malloc(estimated_total_size); // Allocate once with estimated size
 
   std::string printOutput = llama_sampling_print(params.sparams);
   std::string orderPrintOutput = llama_sampling_order_print(params.sparams);
@@ -395,6 +399,12 @@ fllama_inference_sync(fllama_inference_request request,
   const auto model_eos_token = llama_token_eos(model);
   const int64_t start_t = ggml_time_ms();
   int64_t t_last = start_t;
+
+  std::vector<std::string> eos_tokens = {
+      eos_token_as_string, // The original EOS token
+      "<|end|>",           // Phi 3 24-04-30
+      "<|eot_id|>"         // Llama 3 24-04-30
+  };
   while (true) {
     // auto sample_start = std::chrono::high_resolution_clock::now();
     const llama_token new_token_id =
@@ -413,7 +423,7 @@ fllama_inference_sync(fllama_inference_request request,
     bool is_eos_model_token = llama_token_is_eog(model, new_token_id);
 
     // Get the token as a string piece
-    std::string token_piece = llama_token_to_piece(ctx, new_token_id, true);
+    std::string token_piece = llama_token_to_piece(ctx, new_token_id, false);
     fprintf(stderr,
             "token_piece from llama_sampling_sample: %s\n. Token ID: %d\n",
             token_piece.c_str(), new_token_id);
@@ -433,12 +443,20 @@ fllama_inference_sync(fllama_inference_request request,
     // then we append the buffer to result and break the loop. It is safe to
     // append down there because of the check up here that ensures the buffer
     // does not contain the EOS token.
-    size_t eos_pos = buffer.find(eos_token_as_string);
-    if (eos_pos != std::string::npos) {
-      // If eos_token is found, append content before eos_token to result and
-      // end generation
-      result += buffer.substr(0, eos_pos);
-      buffer.erase(0, eos_pos + eos_token_as_string.length());
+    bool eos_found = false;
+    for (const auto& eos_token : eos_tokens) {
+        size_t eos_pos = buffer.find(eos_token);
+        if (eos_pos != std::string::npos) {
+            // If eos_token is found, append content before eos_token to result and
+            // end generation
+            fllama_log("Encountered EOS token: " + eos_token + ". Ending generation.", request.dart_logger);
+            result += buffer.substr(0, eos_pos);
+            buffer.erase(0, eos_pos + eos_token.length());
+            eos_found = true;
+            break;
+        }
+    }
+    if (eos_found) {
       break;
     }
     // If the buffer length exceeds the eos_token length, it means the start of

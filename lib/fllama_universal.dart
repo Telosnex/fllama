@@ -1,5 +1,6 @@
 import 'package:fllama/fllama.dart';
 import 'package:fllama/misc/gbnf.dart';
+import 'package:fllama/model/model_override.dart';
 import 'package:jinja/jinja.dart';
 
 /// Parameters needed to run standard LLM inference. Use with [fllamaInference].
@@ -81,20 +82,45 @@ class FllamaTokenizeRequest {
 ///   is valid according to the tool's JSON schema.
 Future<int> fllamaChat(
     OpenAiRequest request, FllamaInferenceCallback callback) async {
-  final template = fllamaSanitizeChatTemplate(
-      await fllamaChatTemplateGet(request.modelPath));
-  final eosToken = template == chatMlTemplate
-      ? chatMlEosToken
-      : await fllamaEosTokenGet(request.modelPath);
-  final bosToken = template == chatMlTemplate
-      ? chatMlBosToken
-      : await fllamaBosTokenGet(request.modelPath);
-  final text = fllamaApplyChatTemplate(
-    chatTemplate: template,
+  final builtInTemplate = await fllamaChatTemplateGet(request.modelPath);
+  final String text;
+  final String eosToken;
+  final String bosToken;
+  final String chatTemplate;
+  final llama3 = Llama3ChatTemplate();
+  final phi3 = Phi3ChatTemplate();
+  if (llama3.matches(builtInTemplate)) {
+    // ignore: avoid_print
+    print('[fllama] Override matched: Llama 3');
+    bosToken = llama3.bosToken;
+    eosToken = llama3.eosToken;
+    chatTemplate = llama3.template;
+    request.messages.insertAll(0, llama3.messages);
+  } else if (phi3.matches(builtInTemplate)) {
+    // ignore: avoid_print
+    print('[fllama] Override matched: Phi 3');
+    bosToken = phi3.bosToken;
+    eosToken = phi3.eosToken;
+    chatTemplate = phi3.template;
+    request.messages.insertAll(0, phi3.messages);
+  } else {
+    chatTemplate = fllamaSanitizeChatTemplate(
+        await fllamaChatTemplateGet(request.modelPath));
+    eosToken = chatTemplate == chatMlTemplate
+        ? chatMlEosToken
+        : await fllamaEosTokenGet(request.modelPath);
+    bosToken = chatTemplate == chatMlTemplate
+        ? chatMlBosToken
+        : await fllamaBosTokenGet(request.modelPath);
+  }
+
+  text = fllamaApplyChatTemplate(
+    chatTemplate: chatTemplate,
     bosToken: bosToken,
     eosToken: eosToken,
     request: request,
   );
+
   final String grammar;
   if (request.tools.isNotEmpty) {
     if (request.tools.length > 1) {
@@ -226,24 +252,21 @@ String fllamaJsonSchemaToGrammar(String jsonSchema) {
   return convertToJsonGrammar(jsonSchema);
 }
 
-final bartoswkiPhi3Sigil = "{% if (message['role'] in ['user', 'system'])";
+final llama3Sigil = "<|start_header_id|>";
 
 /// Given a chat template embedded in a .gguf file, returns the chat template
 /// itself, or a sensible fallback if the chat template is incorrect or missing.
 String fllamaSanitizeChatTemplate(String builtInChatTemplate) {
   final String chatTemplate;
 
-  print('template: $builtInChatTemplate');
   // Order is very important here, be careful.
   // ex. if isNotEmpty branch comes first, the check for an erroroneous
   // template never runs.
-  if (builtInChatTemplate.contains(bartoswkiPhi3Sigil)) {
+  if (builtInChatTemplate.contains(llama3Sigil)) {
     return '''
-<s>
-{% for message in messages %}{% if (message['role'] in ['user', 'system', 'assistant']) %}{{'<|user|>' + '
-' + message['content'] + '<|end|>' + '
-'}}{% elif message['role'] == 'borkbork' %}{{message['content'] + '<|end|>' + '
-'}}{% endif %}{% endfor %}<|assistant|>
+<|begin_of_text|>{% for message in messages %}<|start_header_id|>{{ message['role'] }}<|end_header_id|>
+
+{{ message['content'] }}<|eot_id|>{% endfor %}<|start_header_id|>assistant<|end_header_id|>
 ''';
   } else if (builtInChatTemplate
       .contains('Only user and assistant roles are supported!')) {

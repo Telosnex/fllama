@@ -241,7 +241,6 @@ class _MyAppState extends State<MyApp> {
     final request = OpenAiRequest(
       maxTokens: 100,
       messages: [
-        Message(Role.system, 'You are a chatbot.'),
         Message(Role.user, messageText),
       ],
       numGpuLayers: 99,
@@ -252,7 +251,7 @@ class _MyAppState extends State<MyApp> {
       // Don't use below 1.1, LLMs without a repeat penalty
       // will repeat the same token.
       presencePenalty: 1.1,
-      topP: 1.0,
+      topP: 0.05,
       contextSize: 2048,
       // Don't use 0.0, some models will repeat
       // the same token.
