@@ -212,8 +212,8 @@ String fllamaApplyChatTemplate({
 const chatMlTemplate = '''
 {%- for msg in messages -%}
 <|im_start|>{{ msg.role }}
-{{ msg.content }}<|im_end|>{% if not loop.last %}\n{% endif %}
-{%- endfor %}
+{{ msg.content }}<|im_end|>
+{% endfor %}
 <|im_start|>assistant
 ''';
 
@@ -226,15 +226,26 @@ String fllamaJsonSchemaToGrammar(String jsonSchema) {
   return convertToJsonGrammar(jsonSchema);
 }
 
+final bartoswkiPhi3Sigil = "{% if (message['role'] in ['user', 'system'])";
+
 /// Given a chat template embedded in a .gguf file, returns the chat template
 /// itself, or a sensible fallback if the chat template is incorrect or missing.
 String fllamaSanitizeChatTemplate(String builtInChatTemplate) {
   final String chatTemplate;
 
+  print('template: $builtInChatTemplate');
   // Order is very important here, be careful.
   // ex. if isNotEmpty branch comes first, the check for an erroroneous
   // template never runs.
-  if (builtInChatTemplate
+  if (builtInChatTemplate.contains(bartoswkiPhi3Sigil)) {
+    return '''
+<s>
+{% for message in messages %}{% if (message['role'] in ['user', 'system', 'assistant']) %}{{'<|user|>' + '
+' + message['content'] + '<|end|>' + '
+'}}{% elif message['role'] == 'borkbork' %}{{message['content'] + '<|end|>' + '
+'}}{% endif %}{% endfor %}<|assistant|>
+''';
+  } else if (builtInChatTemplate
       .contains('Only user and assistant roles are supported!')) {
     // There's a strange chat template first encountered in an early version of
     // LLaVa 1.6 x Mistral 7B.
