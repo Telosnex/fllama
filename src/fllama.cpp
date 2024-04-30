@@ -228,8 +228,24 @@ fllama_inference_sync(fllama_inference_request request,
       should_load_clip = true;
     }
   }
-  llama_model *model;
-  llama_context *ctx;
+
+  llama_model *model = nullptr;
+  llama_context *ctx = nullptr;
+  struct llama_sampling_context *ctx_sampling = nullptr;
+  std::vector<llava_image_embed *> image_embeddings;
+  char *c_result = nullptr;
+
+  auto cleanup = [&]() {
+    if (model)
+      llama_free_model(model);
+    if (ctx_sampling)
+      llama_sampling_free(ctx_sampling);
+    if (ctx)
+      llama_free(ctx);
+    llama_backend_free();
+    free(c_result);
+  };
+
   fllama_log("Initializing llama model...", request.dart_logger);
   std::tie(model, ctx) = llama_init_from_gpt_params(params);
   if (model == NULL || ctx == NULL) {
@@ -239,15 +255,13 @@ fllama_inference_sync(fllama_inference_request request,
     }
     callback(/* response */ "Error: Unable to load model.", /* done */ true);
     fllama_log("Error: Unable to load model.", request.dart_logger);
+    cleanup();
     return;
   }
 
   fllama_log("Initialized model.", request.dart_logger);
 
   std::string final_request_input = request.input;
-  // !!! Specific to multimodal
-  std::vector<llava_image_embed *>
-      image_embeddings; // Now a vector to hold multiple embeddings
   if (should_load_clip) {
     fllama_log("Loading multimodal model...", request.dart_logger);
     const char *mmproj_path = params.mmproj.c_str();
@@ -286,7 +300,8 @@ fllama_inference_sync(fllama_inference_request request,
   // std::string line;
   // int line_number = 1;
   // while (std::getline(input_stream, line)) {
-  //              std::cout << "Input line " << line_number << ": " << line << std::endl << std::flush;
+  //              std::cout << "Input line " << line_number << ": " << line <<
+  //              std::endl << std::flush;
   //   line_number++;
   // }
 
@@ -341,8 +356,7 @@ fllama_inference_sync(fllama_inference_request request,
   fllama_log("Added input to context.", request.dart_logger);
 
   fllama_log("Initializing sampling context...", request.dart_logger);
-  struct llama_sampling_context *ctx_sampling =
-      llama_sampling_init(params.sparams);
+  ctx_sampling = llama_sampling_init(params.sparams);
   fllama_log("Sampling context initialized.", request.dart_logger);
   const char *eos_token_chars = request.eos_token != NULL
                                     ? request.eos_token
@@ -363,14 +377,14 @@ fllama_inference_sync(fllama_inference_request request,
                    std::to_string(request_id),
                request.dart_logger);
     callback("", true);
+    cleanup();
     return;
   }
   // Reserve result string once to avoid an allocation in loop.
   const auto estimated_total_size = n_max_tokens * 10;
   std::string result;
   result.reserve(estimated_total_size);
-  char *c_result =
-      (char *)malloc(estimated_total_size); // Allocate once with estimated size
+  c_result = (char *)malloc(estimated_total_size); // Allocate once with estimated size
 
   std::string printOutput = llama_sampling_print(params.sparams);
   std::string orderPrintOutput = llama_sampling_order_print(params.sparams);
@@ -400,8 +414,9 @@ fllama_inference_sync(fllama_inference_request request,
 
     // Get the token as a string piece
     std::string token_piece = llama_token_to_piece(ctx, new_token_id, true);
-    fprintf(stderr, "token_piece from llama_sampling_sample: %s\n. Token ID: %d\n",
-    token_piece.c_str(), new_token_id);
+    fprintf(stderr,
+            "token_piece from llama_sampling_sample: %s\n. Token ID: %d\n",
+            token_piece.c_str(), new_token_id);
 
     // Add the current token piece to buffer to check for eos_token
     buffer += token_piece;
@@ -549,11 +564,7 @@ fllama_inference_sync(fllama_inference_request request,
   // compared to amount of RAM consumed by leaving model in memory
   // (~= size of model on disk)
   std::cout << "[fllama] freeing start @ " << ggml_time_us() << std::endl;
-  llama_free_model(model);
-  llama_sampling_free(ctx_sampling);
-  llama_free(ctx);
-  llama_backend_free();
-  free(c_result);
+  cleanup();
   std::cout << "[fllama] freeing and thread end @ " << ggml_time_us()
             << std::endl;
 }
