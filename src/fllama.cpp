@@ -281,6 +281,15 @@ fllama_inference_sync(fllama_inference_request request,
                  " ms.",
              request.dart_logger);
 
+  // Print the input line by line, numbered:
+  // std::istringstream input_stream(final_request_input);
+  // std::string line;
+  // int line_number = 1;
+  // while (std::getline(input_stream, line)) {
+  //              std::cout << "Input line " << line_number << ": " << line << std::endl << std::flush;
+  //   line_number++;
+  // }
+
   std::vector<llama_token> tokens_list;
   tokens_list = ::llama_tokenize(model, final_request_input, true);
   fllama_log("Input token count: " + std::to_string(tokens_list.size()),
@@ -387,12 +396,12 @@ fllama_inference_sync(fllama_inference_request request,
     //            request.dart_logger);
     n_gen += 1;
     // Identify EOS token from the model
-    bool is_eos_model_token = new_token_id == model_eos_token;
+    bool is_eos_model_token = llama_token_is_eog(model, new_token_id);
 
     // Get the token as a string piece
-    std::string token_piece = llama_token_to_piece(ctx, new_token_id);
-    // fprintf(stderr, "token_piece from llama_sampling_sample: %s\n",
-    // token_piece.c_str());
+    std::string token_piece = llama_token_to_piece(ctx, new_token_id, true);
+    fprintf(stderr, "token_piece from llama_sampling_sample: %s\n. Token ID: %d\n",
+    token_piece.c_str(), new_token_id);
 
     // Add the current token piece to buffer to check for eos_token
     buffer += token_piece;
@@ -424,9 +433,9 @@ fllama_inference_sync(fllama_inference_request request,
           buffer.substr(0, buffer.length() - eos_token_as_string.length());
       buffer.erase(0, buffer.length() - eos_token_as_string.length());
     }
-  #if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN__)
     emscripten_sleep(1);
-  #endif
+#endif
     if (global_inference_queue.is_cancelled(request_id)) {
       fllama_log("Cancelled during generation loop. ID:" +
                      std::to_string(request_id),
@@ -481,7 +490,7 @@ fllama_inference_sync(fllama_inference_request request,
     }
 
     // Check for EOS on model tokens
-    if (is_eos_model_token) {
+    if (llama_token_is_eog(model, new_token_id)) {
       fprintf(stderr, "%s: Finish. Model EOS token found.", __func__);
       if (buffer.length() > 0) {
         result += buffer;
