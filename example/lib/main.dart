@@ -252,7 +252,7 @@ class _MyAppState extends State<MyApp> {
       // will repeat the same token.
       presencePenalty: 1.1,
       topP: 0.05,
-      contextSize: 2048,
+      contextSize: 4096,
       // Don't use 0.0, some models will repeat
       // the same token.
       temperature: 0.1,

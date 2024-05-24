@@ -143,6 +143,9 @@ fllama_inference_sync(fllama_inference_request request,
   std::cout << "[fllama] Context size: " << params.n_ctx << std::endl;
   // >=32 needed for BLAS.
   params.n_batch = 512;
+  params.flash_attn = true;
+  std::cout << "[fllama] flash_attn: " << params.flash_attn << std::endl;
+
   params.n_predict = request.max_tokens;
   // std::cout << "[fllama] Max tokens: " << params.n_predict << std::endl;
   params.n_threads = request.num_threads;

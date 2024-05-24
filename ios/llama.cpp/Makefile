@@ -77,11 +77,10 @@ test: $(TEST_TARGETS)
 			./$$test_target $(CURDIR)/models/ggml-vocab-llama-bpe.gguf; \
 			./$$test_target $(CURDIR)/models/ggml-vocab-phi-3.gguf; \
 			./$$test_target $(CURDIR)/models/ggml-vocab-falcon.gguf; \
-			./$$test_target $(CURDIR)/models/ggml-vocab-deepseek-coder.gguf; \
-			./$$test_target $(CURDIR)/models/ggml-vocab-deepseek-llm.gguf; \
 			./$$test_target $(CURDIR)/models/ggml-vocab-bert-bge.gguf; \
 			./$$test_target $(CURDIR)/models/ggml-vocab-starcoder.gguf; \
 			./$$test_target $(CURDIR)/models/ggml-vocab-gpt-2.gguf; \
+			./$$test_target $(CURDIR)/models/ggml-vocab-refact.gguf; \
 		elif [ "$$test_target" = "tests/test-tokenizer-1-spm" ]; then \
 			continue; \
 		elif [ "$$test_target" = "tests/test-tokenizer-1-bpe" ]; then \
@@ -380,13 +379,14 @@ ifneq ($(filter ppc64le%,$(UNAME_M)),)
 	CUDA_POWER_ARCH = 1
 endif
 
+ifneq ($(filter loongarch64%,$(UNAME_M)),)
+	MK_CFLAGS   += -mlasx
+	MK_CXXFLAGS += -mlasx
+endif
+
 else
 	MK_CFLAGS   += -march=rv64gcv -mabi=lp64d
 	MK_CXXFLAGS += -march=rv64gcv -mabi=lp64d
-endif
-
-ifdef LLAMA_QKK_64
-	MK_CPPFLAGS += -DGGML_QKK_64
 endif
 
 ifndef LLAMA_NO_ACCELERATE
@@ -399,13 +399,6 @@ ifndef LLAMA_NO_ACCELERATE
 		MK_LDFLAGS  += -framework Accelerate
 	endif
 endif # LLAMA_NO_ACCELERATE
-
-ifdef LLAMA_MPI
-	MK_CPPFLAGS += -DGGML_USE_MPI
-	MK_CFLAGS   += -Wno-cast-qual
-	MK_CXXFLAGS += -Wno-cast-qual
-	OBJS        += ggml-mpi.o
-endif # LLAMA_MPI
 
 ifdef LLAMA_OPENBLAS
 	MK_CPPFLAGS += -DGGML_USE_OPENBLAS $(shell pkg-config --cflags-only-I openblas)
@@ -434,7 +427,7 @@ ifdef LLAMA_CUDA
 	else
 		CUDA_PATH ?= /usr/local/cuda
 	endif
-	MK_CPPFLAGS  += -DGGML_USE_CUDA -I$(CUDA_PATH)/include -I$(CUDA_PATH)/targets/$(UNAME_M)-linux/include
+	MK_CPPFLAGS  += -DGGML_USE_CUDA -I$(CUDA_PATH)/include -I$(CUDA_PATH)/targets/$(UNAME_M)-linux/include -DGGML_CUDA_USE_GRAPHS
 	MK_LDFLAGS   += -lcuda -lcublas -lculibos -lcudart -lcublasLt -lpthread -ldl -lrt -L$(CUDA_PATH)/lib64 -L/usr/lib64 -L$(CUDA_PATH)/targets/$(UNAME_M)-linux/lib -L/usr/lib/wsl/lib
 	OBJS         += ggml-cuda.o
 	OBJS         += $(patsubst %.cu,%.o,$(wildcard ggml-cuda/*.cu))
@@ -561,10 +554,10 @@ endif # LLAMA_VULKAN
 ifdef LLAMA_HIPBLAS
 	ifeq ($(wildcard /opt/rocm),)
 		ROCM_PATH	?= /usr
-		GPU_TARGETS ?= $(shell $(shell which amdgpu-arch))
+		AMDGPU_TARGETS ?= $(shell $(shell which amdgpu-arch))
 	else
 		ROCM_PATH	?= /opt/rocm
-		GPU_TARGETS ?= $(shell $(ROCM_PATH)/llvm/bin/amdgpu-arch)
+		AMDGPU_TARGETS ?= $(shell $(ROCM_PATH)/llvm/bin/amdgpu-arch)
 	endif
 	HIPCC                   ?= $(CCACHE) $(ROCM_PATH)/bin/hipcc
 	LLAMA_CUDA_DMMV_X       ?= 32
@@ -576,7 +569,7 @@ ifdef LLAMA_HIP_UMA
 endif # LLAMA_HIP_UMA
 	MK_LDFLAGS  += -L$(ROCM_PATH)/lib -Wl,-rpath=$(ROCM_PATH)/lib
 	MK_LDFLAGS	+= -lhipblas -lamdhip64 -lrocblas
-	HIPFLAGS    += $(addprefix --offload-arch=,$(GPU_TARGETS))
+	HIPFLAGS    += $(addprefix --offload-arch=,$(AMDGPU_TARGETS))
 	HIPFLAGS    += -DGGML_CUDA_DMMV_X=$(LLAMA_CUDA_DMMV_X)
 	HIPFLAGS    += -DGGML_CUDA_MMV_Y=$(LLAMA_CUDA_MMV_Y)
 	HIPFLAGS    += -DK_QUANTS_PER_ITERATION=$(LLAMA_CUDA_KQUANTS_ITER)
@@ -629,11 +622,6 @@ ggml-metal-embed.o: ggml-metal.metal ggml-common.h
 	@rm -f ${TEMP_ASSEMBLY}
 endif
 endif # LLAMA_METAL
-
-ifdef LLAMA_MPI
-ggml-mpi.o: ggml-mpi.c ggml-mpi.h
-	$(CC) $(CFLAGS) -c $< -o $@
-endif # LLAMA_MPI
 
 ifndef LLAMA_NO_LLAMAFILE
 sgemm.o: sgemm.cpp sgemm.h ggml.h
