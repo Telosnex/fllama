@@ -92,10 +92,13 @@ Future<int> fllamaChat(
   if (llama3.matches(builtInTemplate)) {
     // ignore: avoid_print
     print('[fllama] Override matched: Llama 3');
+    // ignore: avoid_print
+    print('[fllama] built-in template: $builtInTemplate');
+    // ignore: avoid_print
+    print('[fllama] overriding with template: ${llama3.template}');
     bosToken = llama3.bosToken;
     eosToken = llama3.eosToken;
     chatTemplate = llama3.template;
-    request.messages.insertAll(0, llama3.messages);
   } else if (phi3.matches(builtInTemplate)) {
     // ignore: avoid_print
     print('[fllama] Override matched: Phi 3');
