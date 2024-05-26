@@ -110,10 +110,12 @@ Future<int> fllamaChat(
     eosToken = phi3.eosToken;
     chatTemplate = phi3.template;
     if (request.messages.isEmpty) {
-      request.messages.add(Message(Role.user, 'When you are done writing the assistant message, write <|end|>, like here:'));
+      request.messages.add(Message(Role.user,
+          'When you are done writing the assistant message, write <|end|>, like here:'));
     } else {
       final lastMessage = request.messages.last;
-      final newLastMessage = Message(Role.user, '${lastMessage.text}\nWhen you are done writing the assistant message, write <|end|>, like here:');
+      final newLastMessage = Message(Role.user,
+          '${lastMessage.text}\nWhen you are done writing the assistant message, write <|end|>, like here:');
       request.messages[request.messages.length - 1] = newLastMessage;
     }
   } else {
@@ -231,21 +233,49 @@ String fllamaApplyChatTemplate({
     }
   };
 
-  final env = Environment(
-    globals: globals,
-    loader: null,
-    leftStripBlocks: true,
-    trimBlocks: true,
-    keepTrailingNewLine: true,
-  );
+  // Workaround in case of Jinja2 exception.
+  // Motivation: bartowski's dolphin 2.8 experiment 26
+  // Error: flutter: [fllama] Using ChatML because the chat template could not be applied. Exception: TemplateSyntaxError: Expected token rbracket, got :. Chat template: {% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'] %}{% else %}{% set loop_messages = messages %}{% set system_message = 'You are a helpful assistant.' %}{% endif %}{% if not add_generation_prompt is defined %}{% set add_generation_prompt = false %}{% endif %}{% for message in loop_messages %}{% if loop.index0 == 0 %}{{'<|im_start|>system
+  try {
+    final env = Environment(
+      globals: globals,
+      loader: null,
+      leftStripBlocks: true,
+      trimBlocks: true,
+      keepTrailingNewLine: true,
+    );
 
-  final template = env.fromString(chatTemplate, globals: globals);
-  return template.render({
-    'messages': jsonMessages,
-    'add_generation_prompt': true,
-    'eos_token': eosToken,
-    'bos_token': bosToken,
-  });
+    final template = env.fromString(chatTemplate, globals: globals);
+    return template.render({
+      'messages': jsonMessages,
+      'add_generation_prompt': true,
+      'eos_token': eosToken,
+      'bos_token': bosToken,
+    });
+  } catch (e) {
+    // ignore: avoid_print
+    print('[fllama] Error applying chat template: $e');
+    // ignore: avoid_print
+    print('[fllama] chat template: $chatTemplate');
+    // ignore: avoid_print
+    print('[fllama] messages: $jsonMessages');
+    if (chatTemplate != chatMlTemplate) {
+      // ignore: avoid_print
+      print(
+          '[fllama] Using ChatML because the chat template could not be applied. Exception: $e. Chat template: $chatTemplate. Messages: $jsonMessages.');
+      return fllamaApplyChatTemplate(
+        chatTemplate: chatMlTemplate,
+        request: request,
+        bosToken: bosToken,
+        eosToken: eosToken,
+      );
+    } else {
+      // ignore: avoid_print
+      print(
+          '[fllama] Exception thrown while applying chat template. ChatML could not be used as a fallback. Returning empty string. Exception: $e. Chat template: $chatTemplate. Messages: $jsonMessages.');
+      return '';
+    }
+  }
 }
 
 const chatMlTemplate = '''
