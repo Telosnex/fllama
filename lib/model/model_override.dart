@@ -1,5 +1,3 @@
-import 'package:fllama/fllama.dart';
-
 /// Overrides default settings for a model.
 ///
 /// This is a frustrating but necessary part for keeping up with the latest
@@ -67,11 +65,6 @@ class Phi3ChatTemplate extends ModelOverride {
 
   @override
   String get eosToken => '';
-
-  @override
-  List<Message> get messages => [
-      
-      ];
 
   @override
   bool matches(String template) {
