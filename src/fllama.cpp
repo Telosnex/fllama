@@ -89,6 +89,8 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
       return false; // probably ran out of context
     }
     *n_past += n_eval;
+    std::cout << "[fllama] Added " << n_eval << " tokens to context."
+              << std::endl;
   }
   return true;
 }
@@ -301,16 +303,6 @@ fllama_inference_sync(fllama_inference_request request,
                  " ms.",
              request.dart_logger);
 
-  // DEBUG: Print the input line by line, numbered:
-  // std::istringstream input_stream(final_request_input);
-  // std::string line;
-  // int line_number = 1;
-  // while (std::getline(input_stream, line)) {
-  //   std::cout << "Input line " << line_number << ": " << line << std::endl
-  //             << std::flush;
-  //   line_number++;
-  // }
-
   std::vector<llama_token> tokens_list;
   tokens_list = ::llama_tokenize(model, final_request_input, true);
   fllama_log("Input token count: " + std::to_string(tokens_list.size()),
@@ -354,11 +346,25 @@ fllama_inference_sync(fllama_inference_request request,
     }
   }
 
+  // // DEBUG: Print the input line by line, numbered:
+  // std::istringstream iss(final_request_input);
+  // std::string line;
+  // int line_number = 1;
+
+  // while (std::getline(iss, line)) {
+  //   fllama_log("Line " + std::to_string(line_number) + ": " + line,
+  //              request.dart_logger);
+  //   line_number++;
+  // }
+
   fllama_log("Adding input to context...length: " +
                  std::to_string(final_request_input.length()),
              request.dart_logger);
-  add_string_to_context(ctx, final_request_input.c_str(), params.n_batch,
-                        &n_past, add_bos);
+  fllama_log("Context size: " + std::to_string(params.n_ctx),
+             request.dart_logger);
+  fllama_log("Input tokens: " + std::to_string(tokens_list.size()),
+             request.dart_logger);
+  add_tokens_to_context(ctx, tokens_list, params.n_batch, &n_past);
   fllama_log("Added input to context.", request.dart_logger);
 
   fllama_log("Initializing sampling context...", request.dart_logger);
@@ -447,17 +453,19 @@ fllama_inference_sync(fllama_inference_request request,
     // append down there because of the check up here that ensures the buffer
     // does not contain the EOS token.
     bool eos_found = false;
-    for (const auto& eos_token : eos_tokens) {
-        size_t eos_pos = buffer.find(eos_token);
-        if (eos_pos != std::string::npos) {
-            // If eos_token is found, append content before eos_token to result and
-            // end generation
-            fllama_log("Encountered EOS token: " + eos_token + ". Ending generation.", request.dart_logger);
-            result += buffer.substr(0, eos_pos);
-            buffer.erase(0, eos_pos + eos_token.length());
-            eos_found = true;
-            break;
-        }
+    for (const auto &eos_token : eos_tokens) {
+      size_t eos_pos = buffer.find(eos_token);
+      if (eos_pos != std::string::npos) {
+        // If eos_token is found, append content before eos_token to result and
+        // end generation
+        fllama_log("Encountered EOS token: " + eos_token +
+                       ". Ending generation.",
+                   request.dart_logger);
+        result += buffer.substr(0, eos_pos);
+        buffer.erase(0, eos_pos + eos_token.length());
+        eos_found = true;
+        break;
+      }
     }
     if (eos_found) {
       break;
