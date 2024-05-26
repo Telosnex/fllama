@@ -68,8 +68,8 @@ class Llama3ChatTemplate extends ModelOverride {
 class Phi3ChatTemplate extends ModelOverride {
   @override
   String get template => '''
-{{ bos_token }}{% for message in messages %}<|{{ message['role'] }}|>
-{{ message['content'] }}<|end|>
+{% for message in messages %}<|{{ message['role'] }}|>
+{% if message['content'] %}{{ message['content'] }}{% else %}[Empty message]{% endif %}<|end|>
 {% endfor %}<|assistant|>
 ''';
 
