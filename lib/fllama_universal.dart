@@ -101,14 +101,24 @@ Future<int> fllamaChat(
     chatTemplate = llama3.template;
   } else if (phi3.matches(builtInTemplate)) {
     // ignore: avoid_print
-    print('[fllama] Override matched: Phi 3');
+    print('[fllama] Override matched: Phi 3.');
+    // ignore: avoid_print
+    print('[fllama] built-in template: $builtInTemplate');
+    // ignore: avoid_print
+    print('[fllama] overriding with template: ${phi3.template}');
     bosToken = phi3.bosToken;
     eosToken = phi3.eosToken;
     chatTemplate = phi3.template;
-    request.messages.insertAll(0, phi3.messages);
+    if (request.messages.isEmpty) {
+      request.messages.add(Message(Role.user, 'When you are done writing the assistant message, write <|end|>, like here:'));
+    } else {
+      final lastMessage = request.messages.last;
+      final newLastMessage = Message(Role.user, '${lastMessage.text}\nWhen you are done writing the assistant message, write <|end|>, like here:');
+      request.messages[request.messages.length - 1] = newLastMessage;
+    }
   } else {
     chatTemplate = fllamaSanitizeChatTemplate(
-        await fllamaChatTemplateGet(request.modelPath));
+        await fllamaChatTemplateGet(request.modelPath), request.modelPath);
     eosToken = chatTemplate == chatMlTemplate
         ? chatMlEosToken
         : await fllamaEosTokenGet(request.modelPath);
@@ -255,11 +265,12 @@ String fllamaJsonSchemaToGrammar(String jsonSchema) {
   return convertToJsonGrammar(jsonSchema);
 }
 
-final llama3Sigil = "<|start_header_id|>";
+const llama3Sigil = "<|start_header_id|>";
 
 /// Given a chat template embedded in a .gguf file, returns the chat template
 /// itself, or a sensible fallback if the chat template is incorrect or missing.
-String fllamaSanitizeChatTemplate(String builtInChatTemplate) {
+String fllamaSanitizeChatTemplate(
+    String builtInChatTemplate, String modelPath) {
   final String chatTemplate;
 
   // Order is very important here, be careful.
@@ -298,11 +309,22 @@ String fllamaSanitizeChatTemplate(String builtInChatTemplate) {
     print('[fllama] Using built-in chat template: $chatTemplate');
     // ignore: avoid_print
   } else {
-    // Assume models without one specified intend ChatML.
-    // This is the case for Mistral 7B via OpenHermes.
-    chatTemplate = chatMlTemplate;
+    final lowercaseModelPath = modelPath.toLowerCase();
+    if (lowercaseModelPath.contains('llama-3')) {
+      // ignore: avoid_print
+      print(
+          '[fllama] No built-in chat template found. Using Llama 3 template, because filename contains "llama-3" ($lowercaseModelPath).');
+      chatTemplate = Llama3ChatTemplate().template;
+    } else {
+      // Assume models without one specified intend ChatML.
+      // This is the case for Mistral 7B via OpenHermes.
+      // ignore: avoid_print
+      print(
+          '[fllama] Using ChatML because no built-in chat template was found.');
+      chatTemplate = chatMlTemplate;
+    }
+
     // ignore: avoid_print
-    print('[fllama] Using ChatML because no built-in chat template was found.');
   }
   return chatTemplate;
 }
