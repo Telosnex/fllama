@@ -24,9 +24,6 @@ sealed class ModelOverride {
   /// Placed after the last message.
   String get eosToken;
 
-  /// Chat messages to inject.
-  List<Message> get messages;
-
   bool matches(String template);
 }
 
@@ -46,14 +43,6 @@ class Llama3ChatTemplate extends ModelOverride {
 
   @override
   String get eosToken => '';
-
-  @override
-  List<Message> get messages => [
-        Message(Role.user,
-            'This message just demonstrates the proper format of messages.'),
-        Message(Role.assistant,
-            'This message just demonstrates the proper way to format and end your messages.'),
-      ];
 
   @override
   bool matches(String template) {
@@ -81,10 +70,7 @@ class Phi3ChatTemplate extends ModelOverride {
 
   @override
   List<Message> get messages => [
-        Message(Role.user,
-            'This message just demonstrates the proper format of messages.'),
-        Message(Role.assistant,
-            'This message just demonstrates the proper way to format and end your messages.'),
+      
       ];
 
   @override
