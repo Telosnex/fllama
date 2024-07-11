@@ -2,6 +2,90 @@ import { action } from "./fllama_wasm_actions.js";
 import { loadBinaryResource } from "./fllama_wasm_storage.js";
 import Module from "./fllama_wasm.js";
 
+// WEBLLM
+// via https://github.com/mlc-ai/web-llm/blob/main/examples/simple-chat-js/index.js
+import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+const availableModels = webllm.prebuiltAppConfig.model_list.map(
+    (m) => m.model_id,
+);
+
+// From https://github.com/mlc-ai/web-llm/blob/main/src/config.ts
+// One in simple-chat-js on mlc-ai GitHub is incorrect.
+let llama8b = "Llama-8B-Instruct-q4f32_1-MLC-1k";
+let qwen05b = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
+let tinyLlama = "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC-1k";
+let phi3mini = "Phi-3-mini-4k-instruct-q4f16_1-MLC";
+let openHermesMistral = "OpenHermes-2.5-Mistral-7B-q4f16_1-MLC";
+let selectedModel = openHermesMistral;
+
+function updateEngineInitProgressCallback(report) {
+    console.log("initialize", report);
+}
+
+const engine = new webllm.MLCEngine();
+engine.setInitProgressCallback(updateEngineInitProgressCallback);
+
+async function initializeWebLLMEngine() {
+    const config = {
+        temperature: 1.0,
+        top_p: 1,
+    };
+    await engine.reload(selectedModel, config);
+}
+
+async function streamingGenerating(messages, onUpdate, onFinish, onError) {
+    await initializeWebLLMEngine();
+    try {
+        let curMessage = "";
+        let usage;
+        const completion = await engine.chat.completions.create({
+            stream: true,
+            messages,
+            stream_options: { include_usage: true },
+        });
+        for await (const chunk of completion) {
+            const curDelta = chunk.choices[0]?.delta.content;
+            if (curDelta) {
+                curMessage += curDelta;
+            }
+            if (chunk.usage) {
+                usage = chunk.usage;
+            }
+            onUpdate(curMessage);
+        }
+        const finalMessage = await engine.getMessage();
+        onFinish(finalMessage, usage);
+    } catch (err) {
+        onError(err);
+    }
+}
+
+function onMessageSend() {
+    const message = {
+        content: "oh hello there",
+        role: "user",
+    };
+    const onFinishGenerating = (finalMessage, usage) => {
+        console.log("finalMessage", finalMessage);
+        console.log("usage", usage);
+        const usageText =
+            `prompt_tokens: ${usage.prompt_tokens}, ` +
+            `completion_tokens: ${usage.completion_tokens}, ` +
+            `prefill: ${usage.extra.prefill_tokens_per_s.toFixed(4)} tokens/sec, ` +
+            `decoding: ${usage.extra.decode_tokens_per_s.toFixed(4)} tokens/sec`;
+        console.log(usageText);
+    };
+
+    streamingGenerating(
+        [message],
+        console.log,
+        onFinishGenerating,
+        console.error,
+    );
+}
+
+// END WEBLLM
+
 let module;
 let wroteModel = false;
 
@@ -76,6 +160,8 @@ self.addEventListener('message', async (e) => {
                 break;
             }
             case action.INFERENCE:
+                onMessageSend();
+                return;
                 const { requestId, contextSize, input, maxTokens, modelPath, modelMmprojPath, numGpuLayers, numThreads, temperature, topP, penaltyFrequency, penaltyRepeat, grammar, eosToken } = e.data;
                 const inferenceCallbackJs = module.addFunction((response, isDone) => {
                     postMessage({
