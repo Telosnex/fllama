@@ -16,7 +16,7 @@ typedef FllamaMlcLoadCallback = void Function(
 
 /// The dynamic library in which the symbols for [FllamaBindings] can be found.
 final DynamicLibrary fllamaDylib = () {
-const String fllamaLibName = 'fllama';
+  const String fllamaLibName = 'fllama';
   if (Platform.isMacOS || Platform.isIOS) {
     return DynamicLibrary.open('$fllamaLibName.framework/$fllamaLibName');
   }
@@ -34,7 +34,7 @@ final FllamaBindings fllamaBindings = FllamaBindings(fllamaDylib);
 
 /// Returns the chat template embedded in the .gguf file.
 /// If none is found, returns an empty string.
-/// 
+///
 /// See [fllamaSanitizeChatTemplate] for using sensible fallbacks for gguf
 /// files that don't have a chat template or have incorrect chat templates.
 Future<String> fllamaChatTemplateGet(String modelPath) {
@@ -94,6 +94,7 @@ Future<int> fllamaChatMlcWeb(
     FllamaMlcLoadCallback loadCallback,
     FllamaInferenceCallback callback) async {
   // ignore: avoid_print
-  print('WARNING: fllamaChatMlcWeb on native platform. Using fllamaChat.');
+  print(
+      'WARNING: called fllamaChatMlcWeb on native platform. Using fllamaChat instead.');
   return fllamaChat(request, callback);
 }

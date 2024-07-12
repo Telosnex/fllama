@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:fllama_example/example_tools.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -48,6 +49,8 @@ class _MyAppState extends State<MyApp> {
 
   double? _mlcDownloadProgress;
   double? _mlcLoadProgress;
+
+  ToolFunction? _tool;
 
   @override
   void initState() {
@@ -124,7 +127,9 @@ class _MyAppState extends State<MyApp> {
                       initialSelection: _mlcModelId,
                       dropdownMenuEntries: [
                         ...[
-                          MlcModelId.llama8b1k,
+                          null,
+                          MlcModelId.llama8bInstruct,
+                          MlcModelId.openHermesLlama38b,
                           MlcModelId.openHermesMistral,
                           MlcModelId.phi3mini,
                           MlcModelId.qwen05b,
@@ -146,8 +151,46 @@ class _MyAppState extends State<MyApp> {
                     )
                   ],
                   spacerSmall,
+                  const Text('Tools:', style: textStyle),
+                  const Text(
+                      'Forces the model to output in JSON format, specified by a JSON schema.',
+                      style: textStyle),
+                  if (kIsWeb && _mlcModelId == MlcModelId.qwen05b)
+                    const Text(
+                        'Note: MLC often cannot produce JSON, or any output at all, when using Qwen.',
+                        style: textStyle),
+                  DropdownMenu(
+                    initialSelection: _tool,
+                    dropdownMenuEntries: [
+                      ...[
+                        exampleFlashcardFunction,
+                        exampleOneSearchQueryFunction,
+                        exampleSearchQueriesFunction,
+                        exampleSentimentListFunction,
+                        exampleQaExtractFunction,
+                        null,
+                      ].map(
+                        (tool) {
+                          return DropdownMenuEntry(
+                            value: tool,
+                            label: tool?.name ?? 'None',
+                          );
+                        },
+                      )
+                    ],
+                    onSelected: (value) {
+                      setState(() {
+                        _tool = value;
+                      });
+                    },
+                  ),
+                  spacerSmall,
                   if (_modelPath != null)
                     TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'Prompt',
+                        hintText: 'Type your prompt here',
+                      ),
                       controller: _controller,
                     ),
                   if (_mmprojPath != null && !kIsWeb)
@@ -359,6 +402,13 @@ class _MyAppState extends State<MyApp> {
 
     // 2. Inference with chat template.
     final request = OpenAiRequest(
+      tools: [
+        if (_tool != null)
+          Tool(
+            name: _tool!.name,
+            jsonSchema: jsonEncode(_tool!.parametersAsString),
+          ),
+      ],
       maxTokens: 100,
       messages: [
         Message(Role.user, messageText),

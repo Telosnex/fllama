@@ -121,10 +121,12 @@ async function mlcInferenceWithWorker(worker, request, loadCallback, inferenceCa
             worker.removeEventListener('message', messageHandler);
         };
 
+        var lastInferenceText = '';
         const messageHandler = function(e) {
             const { type, requestId, ...data } = e.data;
             
             if (requestId !== request.requestId) {
+                console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] ', requestId, 'ignoring message for request ID', request.requestId);
                 return; // Ignore messages for other requests
             }
 
@@ -133,12 +135,19 @@ async function mlcInferenceWithWorker(worker, request, loadCallback, inferenceCa
                     loadCallback(data.downloadProgress, data.loadingProgress);
                     break;
                 case 'inferenceProgress':
-                    inferenceCallback(data.text, data.done);
+                    lastInferenceText = data.text;
+                    inferenceCallback(lastInferenceText, data.done);
+                    if (data.done) {
+                        cleanup();
+                    }
                     break;
                 case 'error':
-                    console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] received error message', data.error);
+                    console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] received error message');
                     cleanup();
-                    reject(new Error(data.error));
+                    inferenceCallback(lastInferenceText, true);
+                    break;
+                default:    
+                    console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] unexpected message', e);
                     break;
             }
         };

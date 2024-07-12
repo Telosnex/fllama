@@ -86,6 +86,7 @@ external Future<int> fllamaChatMlcWebJs(
 class _JSFllamaMlcInferenceRequest {
   external factory _JSFllamaMlcInferenceRequest({
     required String messagesAsJsonString,
+    required String toolsAsJsonString,
     required int maxTokens,
     // Must match a model_id in [prebuiltAppConfig] in https://github.com/mlc-ai/web-llm/blob/main/src/config.ts
     required String modelId,
@@ -116,7 +117,18 @@ Future<int> fllamaChatMlcWeb(
             'content': e.text,
           })
       .toList();
+  final toolsAsMaps = request.tools
+      .map((e) => {
+            'type': 'function',
+            'function': {
+              'name': e.name,
+              'description': e.description,
+              'parameters': e.jsonSchema,
+            }
+          })
+      .toList();
   final jsRequest = _JSFllamaMlcInferenceRequest(
+    toolsAsJsonString: jsonEncode(toolsAsMaps),
     messagesAsJsonString: jsonEncode(messagesAsMaps),
     maxTokens: request.maxTokens,
     modelId: request.modelPath,
