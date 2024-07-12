@@ -3,6 +3,19 @@ import 'package:fllama/misc/gbnf.dart';
 import 'package:fllama/model/model_override.dart';
 import 'package:jinja/jinja.dart';
 
+/// [String]s to use in [OpenAiRequest.modelPath] on web when using MLC's web
+/// inference SDK.
+class MlcModelId {
+  const MlcModelId._();
+
+  static const String llama8b1k = "Llama-8B-Instruct-q4f32_1-MLC-1k";
+  static const String qwen05b = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
+  static const String tinyLlama = "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC";
+  static const String phi3mini = "Phi-3-mini-4k-instruct-q4f16_1-MLC";
+  static const String openHermesMistral = "OpenHermes-2.5-Mistral-7B-q4f16_1-MLC";
+}
+
+
 /// Parameters needed to run standard LLM inference. Use with [fllamaInference].
 ///
 /// This is *not* what most people want to use. LLMs post-ChatGPT use a chat

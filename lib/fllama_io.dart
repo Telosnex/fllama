@@ -5,10 +5,14 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:fllama/fllama_universal.dart';
 import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
+import 'package:fllama/misc/openai.dart';
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
+typedef FllamaMlcLoadCallback = void Function(
+    double downloadProgress, double loadProgress);
 
 /// The dynamic library in which the symbols for [FllamaBindings] can be found.
 final DynamicLibrary fllamaDylib = () {
@@ -76,4 +80,20 @@ Future<String> fllamaBosTokenGet(String modelPath) async {
     return '';
   }
   return pointerCharToString(eosTokenPointer);
+}
+
+/// Use MLC's web JS SDK to do chat inference.
+/// If not on web, this will fallback to using [fllamaChat].
+///
+/// llama.cpp converted to WASM is very slow compared to native inference on the
+/// same platform, because it does not use the GPU.
+///
+/// MLC uses WebGPU to achieve ~native inference speeds.
+Future<int> fllamaChatMlcWeb(
+    OpenAiRequest request,
+    FllamaMlcLoadCallback loadCallback,
+    FllamaInferenceCallback callback) async {
+  // ignore: avoid_print
+  print('WARNING: fllamaChatMlcWeb on native platform. Using fllamaChat.');
+  return fllamaChat(request, callback);
 }

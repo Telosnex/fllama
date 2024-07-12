@@ -6,7 +6,9 @@ import 'package:fllama/fllama_io.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
-
+typedef FllamaMlcLoadCallback = void Function(
+    double downloadProgress, double loadProgress);
+    
 /// Returns the chat template embedded in the .gguf file.
 /// If none is found, returns an empty string.
 ///
@@ -31,7 +33,6 @@ Future<String> fllamaBosTokenGet(String modelPath) async {
   return pointerCharToString(eosTokenPointer);
 }
 
-
 /// Returns the EOS token embedded in the .gguf file.
 /// If none is found, returns an empty string.
 ///
@@ -53,15 +54,29 @@ Future<int> fllamaInference(
   throw UnimplementedError();
 }
 
+/// Use MLC's web JS SDK to do chat inference.
+/// If not on web, this will fallback to using [fllamaChat].
+///
+/// llama.cpp converted to WASM is very slow compared to native inference on the
+/// same platform, because it does not use the GPU.
+///
+/// MLC uses WebGPU to achieve ~native inference speeds.
+Future<int> fllamaChatMlcWeb(
+    OpenAiRequest request,
+    FllamaMlcLoadCallback loadCallback,
+    FllamaInferenceCallback callback) async {
+  throw UnimplementedError();
+}
+
 /// Cancels the inference with the given [requestId].
-/// 
+///
 /// It is recommended you do _not_ update your state based on this.
 /// Use the callbacks, like you would generally.
-/// 
+///
 /// This is supported via:
 /// - Inferences that have not yet started will call their callback with `done`
 /// set to `true` and an empty string.
-/// - Inferences that have started will call their callback with `done` set to 
+/// - Inferences that have started will call their callback with `done` set to
 /// `true` and the final output of the inference.
 void fllamaCancelInference(int requestId) {
   throw UnimplementedError();

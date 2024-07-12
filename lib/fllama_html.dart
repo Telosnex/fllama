@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:fllama/fllama.dart';
 
@@ -69,6 +70,66 @@ Future<int> fllamaInference(FllamaInferenceRequest dartRequest,
   final completer = Completer<int>();
   promiseToFuture(
       fllamaInferenceJs(jsRequest, allowInterop((String response, bool done) {
+    callback(response, done);
+  }))).then((value) {
+    completer.complete(value);
+  });
+  return completer.future;
+}
+
+@JS('fllamaChatMlcWebJs')
+external Future<int> fllamaChatMlcWebJs(
+    dynamic request, Function loadCallback, Function callback);
+
+@JS()
+@anonymous
+class _JSFllamaMlcInferenceRequest {
+  external factory _JSFllamaMlcInferenceRequest({
+    required String messagesAsJsonString,
+    required int maxTokens,
+    // Must match a model_id in [prebuiltAppConfig] in https://github.com/mlc-ai/web-llm/blob/main/src/config.ts
+    required String modelId,
+    required double temperature,
+    required double penaltyFrequency,
+    required double penaltyRepeat,
+    required double topP,
+  });
+}
+
+typedef FllamaMlcLoadCallback = void Function(
+    double downloadProgress, double loadProgress);
+
+/// Use MLC's web JS SDK to do chat inference.
+/// If not on web, this will fallback to using [fllamaChat].
+///
+/// llama.cpp converted to WASM is very slow compared to native inference on the
+/// same platform, because it does not use the GPU.
+///
+/// MLC uses WebGPU to achieve ~native inference speeds.
+Future<int> fllamaChatMlcWeb(
+    OpenAiRequest request,
+    FllamaMlcLoadCallback loadCallback,
+    FllamaInferenceCallback callback) async {
+  final messagesAsMaps = request.messages
+      .map((e) => {
+            'role': e.role.openAiName,
+            'content': e.text,
+          })
+      .toList();
+  final jsRequest = _JSFllamaMlcInferenceRequest(
+    messagesAsJsonString: jsonEncode(messagesAsMaps),
+    maxTokens: request.maxTokens,
+    modelId: request.modelPath,
+    temperature: request.temperature,
+    penaltyFrequency: request.frequencyPenalty,
+    penaltyRepeat: request.presencePenalty,
+    topP: request.topP,
+  );
+  final completer = Completer<int>();
+  promiseToFuture(fllamaChatMlcWebJs(jsRequest,
+      allowInterop((double downloadProgress, double loadProgress) {
+    loadCallback(downloadProgress, loadProgress);
+  }), allowInterop((String response, bool done) {
     callback(response, done);
   }))).then((value) {
     completer.complete(value);
@@ -186,10 +247,10 @@ Future<String> fllamaEosTokenGet(String modelPath) {
 external void fllamaCancelInferenceJs(int requestId);
 
 /// Cancels the inference with the given [requestId].
-/// 
+///
 /// It is recommended you do _not_ update your state based on this.
 /// Use the callbacks, like you would generally.
-/// 
+///
 /// This is supported via:
 /// - Inferences that have not yet started will call their callback with `done` set
 ///  to `true` and an empty string.

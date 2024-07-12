@@ -245,22 +245,42 @@ class _MyAppState extends State<MyApp> {
       ],
       numGpuLayers: 99,
       /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
-      modelPath: _modelPath!,
+      modelPath: kIsWeb ? MlcModelId.tinyLlama : _modelPath!,
       mmprojPath: _mmprojPath,
       frequencyPenalty: 0.0,
       // Don't use below 1.1, LLMs without a repeat penalty
       // will repeat the same token.
       presencePenalty: 1.1,
-      topP: 0.05,
+      topP: 1,
       contextSize: 4096,
       // Don't use 0.0, some models will repeat
       // the same token.
-      temperature: 0.1,
+      temperature: 0.4,
       logger: (log) {
         // ignore: avoid_print
         print('[llama.cpp] $log');
       },
     );
+
+    if (kIsWeb) {
+      final requestId =
+          await fllamaChatMlcWeb(request, (downloadProgress, loadProgress) {
+        // ignore: avoid_print
+        print(
+            'Download progress: $downloadProgress, Load progress: $loadProgress');
+      }, (response, done) {
+        setState(() {
+          latestResult = response;
+          if (done) {
+            _runningRequestId = null;
+          }
+        });
+      });
+      setState(() {
+        _runningRequestId = requestId;
+      });
+      return;
+    }
 
     final chatTemplate = await fllamaChatTemplateGet(_modelPath!);
     setState(() {

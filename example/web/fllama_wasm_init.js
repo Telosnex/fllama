@@ -1,5 +1,6 @@
 import { action } from "./fllama_wasm_actions.js";
 import './fllama_wasm_main_worker.js';
+import './fllama_mlc_worker.js';
 
 let nextRequestId = 0;
 let inferenceWorker = null;
@@ -82,6 +83,79 @@ async function fllamaTokenizeJs(modelPath, input) {
     }
     return tokenizeWorker.then(worker => tokenizeWithWorker(worker, input));
 }
+
+let mlcWorker = null;
+let lastMlcModelId = '';
+function fllamaChatMlcWebJs(request, loadCallback, inferenceCallback) {
+    console.log('[fllama_wasm_init.js.fllamaChatMlcWebJs] called with request', request);
+    if (mlcWorker === null || lastMlcModelId !== request.modelId) {
+        lastMlcModelId = request.modelId;
+        mlcWorker = initializeMlcWebWorker(request.modelId);
+    }
+
+    return mlcWorker.then(worker => { 
+        console.log('got the mlc worker', worker); 
+        return mlcInferenceWithWorker(worker, request, loadCallback, inferenceCallback);
+    });
+}
+window.fllamaChatMlcWebJs = fllamaChatMlcWebJs;
+
+
+function initializeMlcWebWorker(modelPath) {
+    return new Promise((resolve, reject) => {
+        try {
+            const worker = new Worker(new URL('fllama_mlc_worker.js', import.meta.url), { type: 'module' });
+            resolve(worker);
+        } catch (error) {
+            console.error('[fllama_wasm_init.js.initializeMlcWebWorker] Error initializing MLC worker:', error);
+            reject(new Error('Failed to initialize MLC worker. Error: ' + error));
+        }
+    });
+}
+
+async function mlcInferenceWithWorker(worker, request, loadCallback, inferenceCallback) {
+    return new Promise((resolve, reject) => {
+        request.requestId = nextRequestId++;
+
+        const cleanup = () => {
+            worker.removeEventListener('message', messageHandler);
+        };
+
+        const messageHandler = function(e) {
+            const { type, requestId, ...data } = e.data;
+            
+            if (requestId !== request.requestId) {
+                return; // Ignore messages for other requests
+            }
+
+            switch (type) {
+                case 'loadProgress':
+                    loadCallback(data.downloadProgress, data.loadingProgress);
+                    break;
+                case 'inferenceProgress':
+                    inferenceCallback(data.text, data.done);
+                    break;
+                case 'error':
+                    console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] received error message', data.error);
+                    cleanup();
+                    reject(new Error(data.error));
+                    break;
+            }
+        };
+        
+        worker.addEventListener('message', messageHandler);
+
+        try {
+            worker.postMessage({ event: action.MLC_INFERENCE, request: request });
+            console.log('[fllama_wasm_init.js.mlcInferenceWithWorker] resolving promise with request ID', request.requestId);
+            resolve(request.requestId);
+        } catch (error) {
+            cleanup();
+            reject(error);
+        }
+    });
+}
+
 
 function initializeWorker(modelPath) {
     return new Promise((resolve, reject) => {
@@ -251,6 +325,9 @@ async function fllamaCancelInferenceJs(requestId) {
     if (inferenceWorker !== null) {
         console.log('[fllama_wasm_init.js.fllamaCancelInferenceJs] inferenceWorker is initialized, sending cancel message');
         inferenceWorker.then(worker => worker.postMessage({ event: action.INFERENCE_CANCEL, requestId }));
+    } else if (mlcWorker !== null) {
+        console.log('[fllama_wasm_init.js.fllamaCancelInferenceJs] mlcWorker is initialized, sending cancel message');
+        mlcWorker.then(worker => worker.postMessage({ event: action.INFERENCE_CANCEL, requestId }));
     } else {
         console.log('[fllama_wasm_init.js.fllamaCancelInferenceJs] inferenceWorker is not initialized, skipping cancel message');
     }

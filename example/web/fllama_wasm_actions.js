@@ -12,4 +12,5 @@ export const action = {
     GET_EOS_TOKEN: 10,
     GET_EOS_TOKEN_CALLBACK: 11,
     INFERENCE_CANCEL: 12,
+    MLC_INFERENCE: 13,
 };

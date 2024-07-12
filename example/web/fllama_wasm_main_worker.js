@@ -60,30 +60,6 @@ async function streamingGenerating(messages, onUpdate, onFinish, onError) {
     }
 }
 
-function onMessageSend() {
-    const message = {
-        content: "oh hello there",
-        role: "user",
-    };
-    const onFinishGenerating = (finalMessage, usage) => {
-        console.log("finalMessage", finalMessage);
-        console.log("usage", usage);
-        const usageText =
-            `prompt_tokens: ${usage.prompt_tokens}, ` +
-            `completion_tokens: ${usage.completion_tokens}, ` +
-            `prefill: ${usage.extra.prefill_tokens_per_s.toFixed(4)} tokens/sec, ` +
-            `decoding: ${usage.extra.decode_tokens_per_s.toFixed(4)} tokens/sec`;
-        console.log(usageText);
-    };
-
-    streamingGenerating(
-        [message],
-        console.log,
-        onFinishGenerating,
-        console.error,
-    );
-}
-
 // END WEBLLM
 
 let module;
@@ -124,7 +100,7 @@ self.addEventListener('message', async (e) => {
                 loadStartTimestamp = Date.now(); // Capture load start
                 await initWorker(e.data.url, e.data.modelSize);
                 loadCompleteTimestamp = Date.now(); // Loading completed here
-                // console.log("[fllama_wasm_main_worker.js.initWorker] worker initialized at", loadCompleteTimestamp, "elapsed", loadCompleteTimestamp - loadStartTimestamp, "ms");
+                console.log("[fllama_wasm_main_worker.js.initWorker] worker initialized at", loadCompleteTimestamp, "elapsed", loadCompleteTimestamp - loadStartTimestamp, "ms");
                 break;
             case action.TOKENIZE: {
                 const { input } = e.data;
@@ -160,8 +136,6 @@ self.addEventListener('message', async (e) => {
                 break;
             }
             case action.INFERENCE:
-                onMessageSend();
-                return;
                 const { requestId, contextSize, input, maxTokens, modelPath, modelMmprojPath, numGpuLayers, numThreads, temperature, topP, penaltyFrequency, penaltyRepeat, grammar, eosToken } = e.data;
                 const inferenceCallbackJs = module.addFunction((response, isDone) => {
                     postMessage({
@@ -211,9 +185,7 @@ self.addEventListener('message', async (e) => {
                     module.HEAPU8[eosTokenPtr + eosTokenRaw.length] = 0; // explicitly set the null terminator
                 }
                 console.log('Request ID being passed to _fllama_inference_export:', requestId);
-
                 module._fllama_inference_export(requestId, contextSize, inputPtr, maxTokens, modelPathPtr, modelMmprojPathPtr, numGpuLayers, numThreads, temperature, topP, penaltyFrequency, penaltyRepeat, grammar, eosTokenPtr, inferenceCallbackJs, logCallbackJs);
-                // console.log("[fllama_wasm_main_worker.js.initWorker] completed inference request", e.data);
                 break;
             case action.INFERENCE_CANCEL:
                 const { cancelRequestId } = e.data;
@@ -265,6 +237,10 @@ self.addEventListener('message', async (e) => {
                     event: action.GET_BOS_TOKEN_CALLBACK,
                     bosToken: decodedString,
                 });
+                break;
+            }
+            case action.WEBLLM_INFERENCE: {
+                console.error("[fllama_wasm_main_worker.js] WEBLLM_INFERENCE received by llama.cpp worker");
                 break;
             }
             default:
