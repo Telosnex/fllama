@@ -28,12 +28,15 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  String _mlcModelId = MlcModelId.qwen05b;
   String? _modelPath;
   // This is only required for multimodal models.
   // Multimodal models are rare.
   String? _mmprojPath;
   Uint8List? _imageBytes;
   final TextEditingController _controller = TextEditingController();
+  var _temperature = 0.5;
+  var _topP = 1.0;
 
   String latestResult = '';
   int latestOutputTokenCount = 0;
@@ -42,6 +45,9 @@ class _MyAppState extends State<MyApp> {
   String latestBosToken = '';
 
   int? _runningRequestId;
+
+  double? _mlcDownloadProgress;
+  double? _mlcLoadProgress;
 
   @override
   void initState() {
@@ -57,7 +63,7 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('fllama'),
+          title: const Text('FLLAMA'),
         ),
         body: Builder(builder: (context) {
           return SingleChildScrollView(
@@ -66,24 +72,24 @@ class _MyAppState extends State<MyApp> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _openGgufPressed,
-                        icon: const Icon(Icons.file_open),
-                        label: const Text('Open .gguf'),
-                      ),
-                      if (_modelPath != null)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8.0),
-                          child: SelectableText(
-                            _modelPath!,
-                            style: textStyle,
-                          ),
-                        ),
-                    ],
-                  ),
                   if (!kIsWeb) ...[
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _openGgufPressed,
+                          icon: const Icon(Icons.file_open),
+                          label: const Text('Open .gguf'),
+                        ),
+                        if (_modelPath != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8.0),
+                            child: SelectableText(
+                              _modelPath!,
+                              style: textStyle,
+                            ),
+                          ),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -108,6 +114,36 @@ class _MyAppState extends State<MyApp> {
                           ),
                       ],
                     ),
+                  ],
+                  if (kIsWeb) ...[
+                    const Text(
+                      'Web version powered by MLC & WebGPU',
+                      style: textStyle,
+                    ),
+                    DropdownMenu(
+                      initialSelection: _mlcModelId,
+                      dropdownMenuEntries: [
+                        ...[
+                          MlcModelId.llama8b1k,
+                          MlcModelId.openHermesMistral,
+                          MlcModelId.phi3mini,
+                          MlcModelId.qwen05b,
+                          MlcModelId.tinyLlama,
+                        ].map(
+                          (modelId) {
+                            return DropdownMenuEntry(
+                              value: modelId,
+                              label: modelId.toString(),
+                            );
+                          },
+                        )
+                      ],
+                      onSelected: (value) {
+                        setState(() {
+                          _mlcModelId = value ?? _mlcModelId;
+                        });
+                      },
+                    )
                   ],
                   spacerSmall,
                   if (_modelPath != null)
@@ -135,6 +171,75 @@ class _MyAppState extends State<MyApp> {
                   const SizedBox(
                     height: 8,
                   ),
+                  Row(
+                    children: [
+                      Tooltip(
+                        message:
+                            'Temperature controls the randomness of the output. Between 0.0 and 2.0, between 0.5 and 1.0 is recommended.',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                                'Temperature: ${_temperature.toStringAsFixed(1)}',
+                                style: textStyle),
+                            const SizedBox(
+                              width: 4,
+                            ),
+                            const Icon(
+                              Icons.info,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Slider.adaptive(
+                            label:
+                                'Temperature: ${_temperature.toStringAsFixed(1)}',
+                            value: _temperature,
+                            max: 2.0,
+                            onChanged: (newTemperature) {
+                              setState(() {
+                                _temperature = newTemperature;
+                              });
+                            }),
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Tooltip(
+                        message:
+                            'Top P controls what percentiles of the probability distribution are considered when sampling the next token. Between 0.0 and 1.0, 1.0 is recommended.',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                                'Top P: ${(_topP * 100).clamp(0, 100).round()}%',
+                                style: textStyle),
+                            const SizedBox(
+                              width: 4,
+                            ),
+                            const Icon(
+                              Icons.info,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Slider.adaptive(
+                            label: 'Top P: ${(_topP * 100).clamp(0, 100)}%',
+                            value: _topP,
+                            max: 1.0,
+                            onChanged: (newTopP) {
+                              setState(() {
+                                _topP = newTopP;
+                              });
+                            }),
+                      ),
+                    ],
+                  ),
                   ElevatedButton(
                     onPressed: () {
                       if (_runningRequestId != null) {
@@ -143,13 +248,29 @@ class _MyAppState extends State<MyApp> {
                         _runInferencePressed();
                       }
                     },
-                    child: const Text('Run inference'),
+                    child: _runningRequestId != null
+                        ? const Text('Cancel')
+                        : const Text('Run'),
                   ),
+                  if (kIsWeb && _mlcDownloadProgress != null) ...[
+                    const Text('Downloading model file...', style: textStyle),
+                    LinearProgressIndicator(
+                      value: _mlcDownloadProgress,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (kIsWeb && _mlcLoadProgress != null) ...[
+                    const Text('Loading model...', style: textStyle),
+                    LinearProgressIndicator(
+                      value: _mlcLoadProgress,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   SelectableText(
                     latestResult,
                     style: textStyle,
                   ),
-                  if (latestResult.isNotEmpty) ...[
+                  if (!kIsWeb && latestResult.isNotEmpty) ...[
                     spacerSmall,
                     Text('Output token count: $latestOutputTokenCount',
                         style: textStyle),
@@ -190,7 +311,6 @@ class _MyAppState extends State<MyApp> {
 
   void _runInferencePressed() async {
     if (_modelPath == null) {
-      // Show a snackbar to the user.
       SnackBar snackBar = const SnackBar(
         content: Text('Please open a .gguf file.'),
       );
@@ -245,17 +365,17 @@ class _MyAppState extends State<MyApp> {
       ],
       numGpuLayers: 99,
       /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
-      modelPath: kIsWeb ? MlcModelId.tinyLlama : _modelPath!,
+      modelPath: kIsWeb ? _mlcModelId : _modelPath!,
       mmprojPath: _mmprojPath,
       frequencyPenalty: 0.0,
       // Don't use below 1.1, LLMs without a repeat penalty
       // will repeat the same token.
       presencePenalty: 1.1,
-      topP: 1,
+      topP: _topP,
       contextSize: 4096,
       // Don't use 0.0, some models will repeat
       // the same token.
-      temperature: 0.4,
+      temperature: _temperature,
       logger: (log) {
         // ignore: avoid_print
         print('[llama.cpp] $log');
@@ -265,11 +385,17 @@ class _MyAppState extends State<MyApp> {
     if (kIsWeb) {
       final requestId =
           await fllamaChatMlcWeb(request, (downloadProgress, loadProgress) {
-        // ignore: avoid_print
-        print(
-            'Download progress: $downloadProgress, Load progress: $loadProgress');
+        setState(() {
+          _mlcDownloadProgress = downloadProgress;
+          _mlcLoadProgress = loadProgress;
+          // ignore: avoid_print
+          print(
+              'Download progress: $downloadProgress, Load progress: $loadProgress');
+        });
       }, (response, done) {
         setState(() {
+          _mlcDownloadProgress = null;
+          _mlcLoadProgress = null;
           latestResult = response;
           if (done) {
             _runningRequestId = null;
