@@ -98,3 +98,16 @@ Future<int> fllamaChatMlcWeb(
       'WARNING: called fllamaChatMlcWeb on native platform. Using fllamaChat instead.');
   return fllamaChat(request, callback);
 }
+
+Future<void> fllamaMlcWebModelDelete(String modelId) async {
+  // ignore: avoid_print
+  print(
+      'WARNING: called fllamaMlcWebModelDelete on native platform. Ignoring.');
+}
+
+Future<bool> fllamaMlcIsWebModelDownloaded(String modelId) async {
+  // ignore: avoid_print
+  print(
+      'WARNING: called fllamaMlcIsWebModelDownloaded on native platform. Returning false.');
+  return false;
+}

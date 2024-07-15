@@ -100,6 +100,22 @@ function fllamaChatMlcWebJs(request, loadCallback, inferenceCallback) {
 }
 window.fllamaChatMlcWebJs = fllamaChatMlcWebJs;
 
+async function fllamaMlcWebModelDeleteJs(modelId) {
+    console.log('[fllama_wasm_init.js.fllamaMlcWebModelDeleteJs] called with model id', modelId);
+    await webllm.deleteModelAllInfoInCache(selectedModel, appConfig);
+    console.log('[fllama_wasm_init.js.fllamaMlcWebModelDeleteJs] deleted model', modelId);
+}
+window.fllamaMlcWebModelDeleteJs = fllamaMlcWebModelDeleteJs;
+
+async function fllamaMlcIsWebModelDownloadedJs(modelId) {
+    console.log('[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] called with model id', modelId);
+    const appConfig = webllm.prebuiltAppConfig;
+    // 2. Check whether model weights are cached
+    let modelCached = await webllm.hasModelInCache(modelId, appConfig);
+    console.log("[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] model id", modelId, "is cached:", modelCached);
+    return modelCached;
+}
+window.fllamaMlcIsWebModelDownloadedJs = fllamaMlcIsWebModelDownloadedJs;
 
 function initializeMlcWebWorker(modelPath) {
     return new Promise((resolve, reject) => {

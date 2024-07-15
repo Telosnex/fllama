@@ -68,6 +68,14 @@ Future<int> fllamaChatMlcWeb(
   throw UnimplementedError();
 }
 
+Future<void> fllamaMlcWebModelDelete(String modelId) async {  
+  throw UnimplementedError();
+}
+
+Future<bool> fllamaMlcIsWebModelDownloaded(String modelId) async {  
+  throw UnimplementedError();
+}
+
 /// Cancels the inference with the given [requestId].
 ///
 /// It is recommended you do _not_ update your state based on this.

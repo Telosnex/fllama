@@ -77,6 +77,12 @@ Future<int> fllamaInference(FllamaInferenceRequest dartRequest,
   return completer.future;
 }
 
+@JS('fllamaMlcWebModelDeleteJs')
+external Future<void> fllamaMlcWebModelDeleteJs(String modelId);
+
+@JS('fllamaMlcIsWebModelDownloadedJs')
+external Future<bool> fllamaMlcIsWebModelDownloadedJs(String modelId);
+
 @JS('fllamaChatMlcWebJs')
 external Future<int> fllamaChatMlcWebJs(
     dynamic request, Function loadCallback, Function callback);
@@ -147,6 +153,10 @@ Future<int> fllamaChatMlcWeb(
     completer.complete(value);
   });
   return completer.future;
+}
+
+Future<void> fllamaMlcWebModelDelete(String modelId) async {
+  return promiseToFuture(fllamaMlcWebModelDeleteJs(modelId));
 }
 
 // Tokenize
