@@ -81,7 +81,7 @@ async function processNextRequest(progressCallback) {
         processNextRequest(progressCallback);
         return;
     }
-    const selectedModel = request.modelId || phi3mini;
+    const selectedModel = request.modelId;
     try {
         let engine;
         if (lastEngine && selectedModel === lastSelectedModel) {
