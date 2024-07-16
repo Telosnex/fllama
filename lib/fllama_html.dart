@@ -106,6 +106,10 @@ class _JSFllamaMlcInferenceRequest {
 typedef FllamaMlcLoadCallback = void Function(
     double downloadProgress, double loadProgress);
 
+Future<bool> fllamaMlcIsWebModelDownloaded(String modelId) async {
+  return promiseToFuture(fllamaMlcIsWebModelDownloadedJs(modelId));
+}
+
 /// Use MLC's web JS SDK to do chat inference.
 /// If not on web, this will fallback to using [fllamaChat].
 ///
@@ -156,6 +160,7 @@ Future<int> fllamaChatMlcWeb(
 }
 
 Future<void> fllamaMlcWebModelDelete(String modelId) async {
+  print('about to call fllamaMlcWebModelDeleteJs');
   return promiseToFuture(fllamaMlcWebModelDeleteJs(modelId));
 }
 

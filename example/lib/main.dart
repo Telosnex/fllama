@@ -139,6 +139,40 @@ class _MyAppState extends State<MyApp> {
                             return DropdownMenuEntry(
                               value: modelId,
                               label: modelId.toString(),
+                              leadingIcon: modelId == null
+                                  ? const CircularProgressIndicator()
+                                  : FutureBuilder(
+                                      future: fllamaMlcIsWebModelDownloaded(
+                                          modelId),
+                                      builder: (context, snapshot) {
+                                        final data = snapshot.data;
+                                        if (data == null) {
+                                          return const CircularProgressIndicator();
+                                        }
+                                        return Icon(
+                                          data
+                                              ? Icons.check_circle
+                                              : Icons.cancel,
+                                        );
+                                      },
+                                    ),
+                              trailingIcon: modelId == null
+                                  ? const CircularProgressIndicator()
+                                  : FutureBuilder(
+                                      future: fllamaMlcIsWebModelDownloaded(
+                                          modelId),
+                                      builder: (context, snapshot) {
+                                        final data = snapshot.data;
+                                        if (data == null) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        return ElevatedButton(
+                                          onPressed: () {
+                                            fllamaMlcWebModelDelete(modelId);
+                                          },
+                                          child: const Text('Delete'),
+                                        );
+                                      }),
                             );
                           },
                         )
@@ -353,7 +387,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _runInferencePressed() async {
-    if (_modelPath == null) {
+    if (_modelPath == null && _mlcModelId.isEmpty) {
       SnackBar snackBar = const SnackBar(
         content: Text('Please open a .gguf file.'),
       );

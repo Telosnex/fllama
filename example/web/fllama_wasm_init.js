@@ -1,3 +1,4 @@
+import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 import { action } from "./fllama_wasm_actions.js";
 import './fllama_wasm_main_worker.js';
 import './fllama_mlc_worker.js';
@@ -93,8 +94,8 @@ function fllamaChatMlcWebJs(request, loadCallback, inferenceCallback) {
         mlcWorker = initializeMlcWebWorker(request.modelId);
     }
 
-    return mlcWorker.then(worker => { 
-        console.log('got the mlc worker', worker); 
+    return mlcWorker.then(worker => {
+        console.log('got the mlc worker', worker);
         return mlcInferenceWithWorker(worker, request, loadCallback, inferenceCallback);
     });
 }
@@ -102,18 +103,28 @@ window.fllamaChatMlcWebJs = fllamaChatMlcWebJs;
 
 async function fllamaMlcWebModelDeleteJs(modelId) {
     console.log('[fllama_wasm_init.js.fllamaMlcWebModelDeleteJs] called with model id', modelId);
-    await webllm.deleteModelAllInfoInCache(selectedModel, appConfig);
+    try {
+        const appConfig = webllm.prebuiltAppConfig;
+        await webllm.deleteModelAllInfoInCache(modelId, appConfig);
+    } catch (error) {
+        console.error('[fllama_wasm_init.js.fllamaMlcWebModelDeleteJs] Error deleting model:', error);
+    }
     console.log('[fllama_wasm_init.js.fllamaMlcWebModelDeleteJs] deleted model', modelId);
 }
 window.fllamaMlcWebModelDeleteJs = fllamaMlcWebModelDeleteJs;
 
 async function fllamaMlcIsWebModelDownloadedJs(modelId) {
-    console.log('[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] called with model id', modelId);
-    const appConfig = webllm.prebuiltAppConfig;
-    // 2. Check whether model weights are cached
-    let modelCached = await webllm.hasModelInCache(modelId, appConfig);
-    console.log("[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] model id", modelId, "is cached:", modelCached);
-    return modelCached;
+    try {
+        console.log('[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] called with model id', modelId);
+        const appConfig = webllm.prebuiltAppConfig;
+        // 2. Check whether model weights are cached
+        let modelCached = await webllm.hasModelInCache(modelId, appConfig);
+        console.log("[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] model id", modelId, "is cached:", modelCached);
+        return modelCached;
+    } catch (error) {
+        console.error('[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] Error checking model cache:', error);
+        return false;
+    }
 }
 window.fllamaMlcIsWebModelDownloadedJs = fllamaMlcIsWebModelDownloadedJs;
 
@@ -138,9 +149,9 @@ async function mlcInferenceWithWorker(worker, request, loadCallback, inferenceCa
         };
 
         var lastInferenceText = '';
-        const messageHandler = function(e) {
+        const messageHandler = function (e) {
             const { type, requestId, ...data } = e.data;
-            
+
             if (requestId !== request.requestId) {
                 console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] ', requestId, 'ignoring message for request ID', request.requestId);
                 return; // Ignore messages for other requests
@@ -162,12 +173,12 @@ async function mlcInferenceWithWorker(worker, request, loadCallback, inferenceCa
                     cleanup();
                     inferenceCallback(lastInferenceText, true);
                     break;
-                default:    
+                default:
                     console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] unexpected message', e);
                     break;
             }
         };
-        
+
         worker.addEventListener('message', messageHandler);
 
         try {

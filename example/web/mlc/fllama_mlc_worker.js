@@ -23,15 +23,6 @@ let isProcessing = false;
 let lastEngine = null;
 let lastSelectedModel = null;
 
-function initializeMlcModule(callback) {
-    console.log("[fllama_mlc_module] Initializing MLC module");
-    callback({
-        type: 'init',
-        availableModels,
-    });
-    // Any initialization code can go here
-}
-
 export async function handleMlcMessage(message, progressCallback) {
     const { event, request } = message;
     if (event === action.MLC_INFERENCE) {
