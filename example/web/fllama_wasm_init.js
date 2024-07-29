@@ -169,9 +169,25 @@ async function mlcInferenceWithWorker(worker, request, loadCallback, inferenceCa
                     }
                     break;
                 case 'error':
-                    console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] received error message');
+                    const errorMessage = data.error;
+                    if (errorMessage) {
+                        console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] received error message:', errorMessage);
+                    } else {
+                        console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] received error without message');
+                    }
+                    // If lastInferenceText isn't null/empty, and errorMessage is not null/empty, append two newlines then error message.
+                    // If lastInference text is null/empty, and the error message is not, just show the error message. 
+                    // If both are null/empty, send 'Unknown error' to the callback.
                     cleanup();
-                    inferenceCallback(lastInferenceText, true);
+                    let finalMessage;
+                    if (lastInferenceText && lastInferenceText.length > 0 && errorMessage) {
+                        finalMessage = lastInferenceText + '\n\n' + errorMessage;
+                    } else if (!lastInferenceText && errorMessage) {
+                        finalMessage = errorMessage;
+                    } else {
+                        finalMessage = 'Unknown error';
+                    }
+                    inferenceCallback(finalMessage, true);
                     break;
                 default:
                     console.error('[fllama_wasm_init.js.mlcInferenceWithWorker] unexpected message', e);
