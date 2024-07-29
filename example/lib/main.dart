@@ -219,7 +219,7 @@ class _MyAppState extends State<MyApp> {
                     },
                   ),
                   spacerSmall,
-                  if (_modelPath != null)
+                  if (_modelPath != null || _mlcModelId.isNotEmpty)
                     TextField(
                       decoration: const InputDecoration(
                         labelText: 'Prompt',
