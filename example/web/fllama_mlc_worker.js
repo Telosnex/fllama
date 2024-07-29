@@ -97,6 +97,13 @@ async function processNextRequest() {
         const toolsAsJsonString = request.toolsAsJsonString;
         const tools = JSON.parse(toolsAsJsonString);
 
+        // MLC only supports system messages at the start of the conversation.
+        messages.forEach((message, index) => {
+            if (index > 0 && message.role === "system") {
+                message.role = "user";
+            }
+        });
+
         // Note error for tools:
         // fllama_wasm_init.js:139 [fllama_wasm_init.js.mlcInferenceWithWorker] received error message Qwen2-0.5B-Instruct-q4f16_1-MLC is not supported for ChatCompletionRequest.tools. Currently, models that support function calling are: Hermes-2-Pro-Llama-3-8B-q4f16_1-MLC, Hermes-2-Pro-Llama-3-8B-q4f32_1-MLC, Hermes-2-Pro-Mistral-7B-q4f16_1-MLC
         const supportedModels = ["Hermes-2-Pro-Llama-3-8B-q4f16_1-MLC", "Hermes-2-Pro-Llama-3-8B-q4f32_1-MLC", "Hermes-2-Pro-Mistral-7B-q4f16_1-MLC"];
