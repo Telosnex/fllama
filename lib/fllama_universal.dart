@@ -8,7 +8,8 @@ import 'package:jinja/jinja.dart';
 class MlcModelId {
   const MlcModelId._();
 
-  static const String llama8bInstruct = "Llama-3-8B-Instruct-q4f16_1-MLC";
+  static const String llama38bInstruct = "Llama-3-8B-Instruct-q4f16_1-MLC";
+  static const String llama318bInstruct = "Llama-3.1-8B-Instruct-q4f16_1-MLC";
   static const String qwen05b = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
   static const String tinyLlama = "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC";
   static const String phi3mini = "Phi-3-mini-4k-instruct-q4f16_1-MLC";
