@@ -3,6 +3,12 @@ import 'package:fllama/misc/gbnf.dart';
 import 'package:fllama/model/model_override.dart';
 import 'package:jinja/jinja.dart';
 
+/// Returns true if the given [output] indicates that the model failed to load.
+/// Output is the output from [fllamaInference] or [fllamaChat].
+bool fllamaOutputIndicatesLoadError(String output) {
+  return output.contains('Error: Unable to load model.');
+}
+
 /// [String]s to use in [OpenAiRequest.modelPath] on web when using MLC's web
 /// inference SDK.
 class MlcModelId {
