@@ -13,8 +13,8 @@
 #include "../ios/llama.cpp/llama.h"
 #elif TARGET_OS_OSX
 // macOS-specific includes
-#include "../macos/llama.cpp/ggml.h"
-#include "../macos/llama.cpp/llama.h"
+#include "../macos/llama.cpp/ggml/include/ggml.h"
+#include "../macos/llama.cpp/include/llama.h"
 #else
 // Other platforms
 #include "ggml.h"

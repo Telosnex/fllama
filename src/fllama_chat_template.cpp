@@ -12,7 +12,7 @@
 #if TARGET_OS_IOS
 #include "../ios/llama.cpp/ggml.h"
 #elif TARGET_OS_OSX
-#include "../macos/llama.cpp/ggml.h"
+#include "../macos/llama.cpp/ggml/include/ggml.h"
 #else
 #include "ggml.h"
 #endif

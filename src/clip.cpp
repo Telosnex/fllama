@@ -19,10 +19,10 @@
 #include "../ios/llama.cpp/common/stb_image.h"
 #elif TARGET_OS_OSX
 // macOS-specific includes
-#include "../macos/llama.cpp/ggml.h"
-#include "../macos/llama.cpp/ggml-alloc.h"
-#include "../macos/llama.cpp/ggml-backend.h"
-#include "../macos/llama.cpp/ggml-metal.h"
+#include "../macos/llama.cpp/ggml/include/ggml.h"
+#include "../macos/llama.cpp/ggml/include/ggml-alloc.h"
+#include "../macos/llama.cpp/ggml/include/ggml-backend.h"
+#include "../macos/llama.cpp/ggml/include/ggml-metal.h"
 #include "../macos/llama.cpp/common/stb_image.h"
 #else
 // Other platforms

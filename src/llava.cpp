@@ -8,7 +8,7 @@
 #include "../ios/llama.cpp/common/common.h"
 #elif TARGET_OS_OSX
 // macOS-specific includes
-#include "../macos/llama.cpp/llama.h"
+#include "../macos/llama.cpp/include/llama.h"
 #include "../macos/llama.cpp/common/base64.hpp"
 #include "../macos/llama.cpp/common/common.h"
 #else

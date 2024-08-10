@@ -15,8 +15,8 @@
 #include "../macos/llama.cpp/common/base64.hpp"
 #include "../macos/llama.cpp/common/common.h"
 #include "../macos/llama.cpp/common/sampling.h"
-#include "../macos/llama.cpp/ggml.h"
-#include "../macos/llama.cpp/llama.h"
+#include "../macos/llama.cpp/ggml/include/ggml.h"
+#include "../macos/llama.cpp/include/llama.h"
 #else
 // Other platforms
 #include "base64.hpp"

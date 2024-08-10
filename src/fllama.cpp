@@ -24,8 +24,8 @@
 #include "../macos/llama.cpp/common/base64.hpp"
 #include "../macos/llama.cpp/common/common.h"
 #include "../macos/llama.cpp/common/sampling.h"
-#include "../macos/llama.cpp/ggml.h"
-#include "../macos/llama.cpp/llama.h"
+#include "../macos/llama.cpp/ggml/include/ggml.h"
+#include "../macos/llama.cpp/include/llama.h"
 #else
 // Other platforms
 #include "base64.hpp"
@@ -255,7 +255,9 @@ fllama_inference_sync(fllama_inference_request request,
   };
 
   fllama_log("Initializing llama model...", request.dart_logger);
-  std::tie(model, ctx) = llama_init_from_gpt_params(params);
+  llama_init_result init_result = llama_init_from_gpt_params(params);
+  model = init_result.model;
+  ctx = init_result.context;
   if (model == NULL || ctx == NULL) {
     std::cout << "[fllama] Unable to load model." << std::endl;
     if (model != NULL) {
