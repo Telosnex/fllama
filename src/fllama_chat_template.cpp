@@ -10,7 +10,7 @@
 #include <TargetConditionals.h>
 #endif
 #if TARGET_OS_IOS
-#include "../ios/llama.cpp/ggml.h"
+#include "../ios/llama.cpp/ggml/include/ggml.h"
 #elif TARGET_OS_OSX
 #include "../macos/llama.cpp/ggml/include/ggml.h"
 #else

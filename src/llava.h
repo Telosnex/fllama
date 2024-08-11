@@ -9,8 +9,8 @@
 
 #if TARGET_OS_IOS
 // iOS-specific includes
-#include "../ios/llama.cpp/ggml.h"
-#include "../ios/llama.cpp/llama.h"
+#include "../ios/llama.cpp/ggml/include/ggml.h"
+#include "../ios/llama.cpp/include/llama.h"
 #elif TARGET_OS_OSX
 // macOS-specific includes
 #include "../macos/llama.cpp/ggml/include/ggml.h"

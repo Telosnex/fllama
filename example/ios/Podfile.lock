@@ -76,11 +76,11 @@ SPEC CHECKSUMS:
   DKImagePickerController: b512c28220a2b8ac7419f21c491fc8534b7601ac
   DKPhotoGallery: fdfad5125a9fdda9cc57df834d49df790dbb4179
   file_picker: 15fd9539e4eb735dc54bae8c0534a7a9511a03de
-  file_selector_ios: 78baf21d03f1e37a7df97bb2494f9cd86de8fa5d
-  fllama: 8775be4c1f7dfcefd6749cdada018bb3f2ecf521
+  file_selector_ios: f0670c1064a8c8450e38145d8043160105d0b97c
+  fllama: e006300bb08a003a1b14bb918961f8a173d2e0bc
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
   SDWebImage: 40b0b4053e36c660a764958bff99eed16610acbb
-  shared_preferences_foundation: b4c3b4cddf1c21f02770737f147a3f5da9d39695
+  shared_preferences_foundation: fcdcbc04712aee1108ac7fda236f363274528f78
   SwiftyGif: 706c60cf65fa2bc5ee0313beece843c8eb8194d4
 
 PODFILE CHECKSUM: 819463e6a0290f5a72f145ba7cde16e8b6ef0796
