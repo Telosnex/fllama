@@ -9,7 +9,7 @@ if(EMSCRIPTEN)
   set(BUILD_SHARED_LIBS OFF) # Emscripten does better with static libraries for WebAssembly
   message(STATUS "Emscripten detected, switching to static libraries")
 else()
-  set(BUILD_SHARED_LIBS ON)
+  set(BUILD_SHARED_LIBS OFF)
 endif()
 
 # Otherwise ex. Android build on macOS fails with `error: unknown target CPU 'cyclone'`
@@ -19,6 +19,11 @@ if(ANDROID)
     set(CMAKE_C_FLAGS "-DCMAKE_TOOLCHAIN_FILE=~/Library/Android/sdk/ndk/26.1.10909125/build/cmake/android.toolchain.cmake${CMAKE_C_FLAGS} -DANDROID_ABI=arm64-v8a -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 -O3")
     set(CMAKE_CXX_FLAGS "-DCMAKE_TOOLCHAIN_FILE=~/Library/Android/sdk/ndk/26.1.10909125/build/cmake/android.toolchain.cmake ${CMAKE_CXX_FLAGS} -DANDROID_ABI=arm64-v8a -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 -O3")
     # See discussion @ https://github.com/ggerganov/llama.cpp/pull/4926
+endif()
+
+if(WIN32)
+  set(LLAMA_VULKAN ON CACHE BOOL "llama: enable Vulkan" FORCE)
+  message(STATUS "Windows detected, enabling LLAMA_VULKAN")
 endif()
 
 add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)

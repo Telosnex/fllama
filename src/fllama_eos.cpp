@@ -20,7 +20,7 @@
 #else
 // Other platforms
 #include "base64.hpp"
-#include "common/common.h"
+#include "common.h"
 #include "ggml.h"
 #include "llama.h"
 #include <climits>

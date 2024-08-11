@@ -14,8 +14,8 @@
 #else
 // Other platforms
 #include "llama.h"
-#include "common/common.h"
-#include "common/base64.hpp"
+#include "common.h"
+#include "base64.hpp"
 #endif
 
 #include <cstdio>
