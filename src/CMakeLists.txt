@@ -5,6 +5,13 @@ cmake_minimum_required(VERSION 3.10)
 
 project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 
+# Create the missing cmake directory and an empty build-info-gen-cpp.cmake file
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common/cmake")
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common/cmake/build-info-gen-cpp.cmake" "# Placeholder file")
+
+# Optional: Print a message to confirm the file was created
+message(STATUS "Created placeholder build-info-gen-cpp.cmake file")
+
 if(EMSCRIPTEN)
   set(BUILD_SHARED_LIBS OFF) # Emscripten does better with static libraries for WebAssembly
   message(STATUS "Emscripten detected, switching to static libraries")
