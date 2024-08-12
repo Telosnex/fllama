@@ -53,25 +53,26 @@ definitions:
   script_android_build: &script_android_build
     name: Build AAB
     script:  |
-      cd example && flutter build appbundle --verbose --no-tree-shake-icons
+      cd example && flutter build appbundle --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt 
   script_android_setup: &script_android_setup
     name: Android setup
     script: echo "flutter.sdk=$HOME/programs/flutter" > "$CM_BUILD_DIR/android/local.properties"
   script_ios_build: &script_ios_build
     name: Build IPA
     script: |
-      cd example && flutter build ios --verbose --no-tree-shake-icons
+      cd example && flutter build ios --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_linux_build: &script_linux_build
     name: Linux build
-    script: cd example && flutter build linux --verbose --no-tree-shake-icons
+    script: |
+      cd example && flutter build linux --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_macos_build: &script_macos_build
     name: macOS build
     script: |
-      cd example && flutter build macos --verbose --no-tree-shake-icons
+      cd example && flutter build macos --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_web_build: &script_web_build
     name: Web build
     script: |
-      cd example && flutter build web --web-renderer canvaskit --no-tree-shake-icons
+      cd example && flutter build web --web-renderer canvaskit --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_windows_build: &script_windows_build
     name: Windows build
     script: |
@@ -103,7 +104,8 @@ definitions:
       Write-Host "Environment Variables just before CMake call:"
       Get-ChildItem env:
       Write-Host "Building with Flutter..."
-      cd example; flutter build windows --verbose --no-tree-shake-icons
+      cd example
+      flutter build windows --verbose --no-tree-shake-icons *>&1 | Tee-Object -FilePath flutter_build_output.txt
   # Required for llama.cpp / cmake. Fixes "NUGET.EXE not found." error on codemagic.
   # codemagic .NET MAUI apps docs referenced for implementation:
   #   https://docs.codemagic.io/yaml-quick-start/building-a-dotnet-maui-app/
@@ -151,13 +153,14 @@ definitions:
   flutter_test_artifacts: &flutter_test_artifacts
     - flutter_drive.log
     - test-results/flutter.json
+    - example/flutter_build_output.txt
   flutter_test_artifacts_windows: &flutter_test_artifacts_windows
     - C:\Users\builder\clone\test-results\flutter.json
 
 workflows:
   android-build:
     name: Android Build
-    <<: *instance_mac_release_build # 31m vs. linux_x2 57m on 2023 12 22.
+    <<: *instance_mac_release_build # 31m vs. linux_x2 57m on 2023 12 22. (for Telosnex)
     triggering:
       <<: *trigger_on_push
     environment:
