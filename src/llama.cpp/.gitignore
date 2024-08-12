@@ -45,6 +45,7 @@ tags
 build*
 !build-info.cmake
 !build-info.cpp.in
+!build-info.cpp
 !build-info.sh
 !build.zig
 !docs/build.md
