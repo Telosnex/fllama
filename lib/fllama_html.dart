@@ -1,22 +1,12 @@
 import 'dart:async';
+import 'dart:js_interop';
 import 'dart:convert';
 
 import 'package:fllama/fllama.dart';
 
-@JS()
-import 'package:js/js.dart';
-import 'package:js/js_util.dart';
-
-@JS()
-class Promise<T> {
-  external Promise(
-      void Function(void Function(T result) resolve, Function reject) executor);
-  external Promise then(void Function(T result) onFulfilled,
-      [Function onRejected]);
-}
 
 @JS('fllamaInferenceJs')
-external Future<int> fllamaInferenceJs(dynamic request, Function callback);
+external JSPromise<JSNumber> fllamaInferenceJs(dynamic request, Function callback);
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
 

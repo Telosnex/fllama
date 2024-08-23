@@ -17,8 +17,6 @@ dependencies:
     git:
       url: https://github.com/Telosnex/jinja.dart.git
       ref: main
-  # match FONNX/record
-  js: ^0.6.7
   uuid: ^4.3.3
 
 dev_dependencies:
