@@ -4,16 +4,14 @@ import 'dart:convert';
 
 import 'package:fllama/fllama.dart';
 
-
 @JS('fllamaInferenceJs')
-external JSPromise<JSNumber> fllamaInferenceJs(dynamic request, Function callback);
+external JSPromise<JSNumber> fllamaInferenceJs(
+    JSAny request, JSFunction callback);
 
 typedef FllamaInferenceCallback = void Function(String response, bool done);
 
 // Keep in sync with fllama_inference_request.dart to pass correctly from Dart to JS
-@JS()
-@anonymous
-class _JSFllamaInferenceRequest {
+extension type _JSFllamaInferenceRequest._(JSObject _)  implements JSObject {
   external factory _JSFllamaInferenceRequest({
     required int contextSize,
     required String input,
@@ -31,6 +29,7 @@ class _JSFllamaInferenceRequest {
     // INTENTIONALLY MISSING: logger
   });
 }
+
 
 /// Runs standard LLM inference. The future returns immediately after being
 /// called. [callback] is called on each new output token with the response and
@@ -58,29 +57,29 @@ Future<int> fllamaInference(FllamaInferenceRequest dartRequest,
   );
 
   final completer = Completer<int>();
-  promiseToFuture(
-      fllamaInferenceJs(jsRequest, allowInterop((String response, bool done) {
+  callbackFn(String response, bool done) {
     callback(response, done);
-  }))).then((value) {
-    completer.complete(value);
+  }
+  fllamaInferenceJs(jsRequest, callbackFn.toJS).toDart.then((value) {
+    completer.complete(value.toDartInt);
   });
   return completer.future;
 }
 
+// JSAny used to be void. JSVoid does not work.
 @JS('fllamaMlcWebModelDeleteJs')
-external Future<void> fllamaMlcWebModelDeleteJs(String modelId);
+external JSPromise<JSAny> fllamaMlcWebModelDeleteJs(String modelId);
 
 @JS('fllamaMlcIsWebModelDownloadedJs')
-external Future<bool> fllamaMlcIsWebModelDownloadedJs(String modelId);
+external JSPromise<JSBoolean> fllamaMlcIsWebModelDownloadedJs(String modelId);
 
 @JS('fllamaChatMlcWebJs')
-external Future<int> fllamaChatMlcWebJs(
-    dynamic request, Function loadCallback, Function callback);
+external JSPromise<JSNumber> fllamaChatMlcWebJs(
+    // ignore: library_private_types_in_public_api
+    _JSFllamaMlcInferenceRequest request, JSFunction loadCallback, JSFunction callback);
 
-@JS()
-@anonymous
-class _JSFllamaMlcInferenceRequest {
-  external factory _JSFllamaMlcInferenceRequest({
+extension type _JSFllamaMlcInferenceRequest._(JSObject _)  implements JSObject {
+   external _JSFllamaMlcInferenceRequest({
     required String messagesAsJsonString,
     required String toolsAsJsonString,
     required int maxTokens,
@@ -97,7 +96,9 @@ typedef FllamaMlcLoadCallback = void Function(
     double downloadProgress, double loadProgress);
 
 Future<bool> fllamaMlcIsWebModelDownloaded(String modelId) async {
-  return promiseToFuture(fllamaMlcIsWebModelDownloadedJs(modelId));
+  return fllamaMlcIsWebModelDownloadedJs(modelId).toDart.then((value) {
+    return value.toDart;
+  });
 }
 
 /// Use MLC's web JS SDK to do chat inference.
@@ -138,25 +139,26 @@ Future<int> fllamaChatMlcWeb(
     topP: request.topP,
   );
   final completer = Completer<int>();
-  promiseToFuture(fllamaChatMlcWebJs(jsRequest,
-      allowInterop((double downloadProgress, double loadProgress) {
+  firstCallback(double downloadProgress, double loadProgress) {
     loadCallback(downloadProgress, loadProgress);
-  }), allowInterop((String response, bool done) {
+  } 
+  secondCallback(String response, bool done) {
     callback(response, done);
-  }))).then((value) {
-    completer.complete(value);
+  }
+  fllamaChatMlcWebJs(jsRequest, firstCallback.toJS, secondCallback.toJS).toDart.then((value) {
+    completer.complete(value.toDartInt);
   });
   return completer.future;
 }
 
 Future<void> fllamaMlcWebModelDelete(String modelId) async {
   print('about to call fllamaMlcWebModelDeleteJs');
-  return promiseToFuture(fllamaMlcWebModelDeleteJs(modelId));
+  await fllamaMlcWebModelDeleteJs(modelId).toDart;
 }
 
 // Tokenize
 @JS('fllamaTokenizeJs')
-external Future<int> fllamaTokenizeJs(dynamic modelPath, dynamic input);
+external JSPromise<JSNumber> fllamaTokenizeJs(String modelPath, String input);
 
 /// Returns the number of tokens in [request.input].
 ///
@@ -166,11 +168,10 @@ Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
     final completer = Completer<int>();
     // print('[fllama_html] calling fllamaTokenizeJs at ${DateTime.now()}');
 
-    promiseToFuture(fllamaTokenizeJs(request.modelPath, request.input))
-        .then((value) {
+    fllamaTokenizeJs(request.modelPath, request.input).toDart.then((value) {
       // print(
       // '[fllama_html] fllamaTokenizeAsync finished with $value at ${DateTime.now()}');
-      completer.complete(value);
+      completer.complete(value.toDartInt);
     });
     // print('[fllama_html] called fllamaTokenizeJs at ${DateTime.now()}');
     return completer.future;
@@ -183,7 +184,7 @@ Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
 
 // Chat template
 @JS('fllamaChatTemplateGetJs')
-external Future<String> fllamaChatTemplateGetJs(dynamic modelPath);
+external JSPromise<JSString> fllamaChatTemplateGetJs(String modelPath);
 
 /// Returns the chat template embedded in the .gguf file.
 /// If none is found, returns an empty string.
@@ -194,10 +195,10 @@ Future<String> fllamaChatTemplateGet(String modelPath) async {
   try {
     final completer = Completer<String>();
     // print('[fllama_html] calling fllamaChatTemplateGetJs at ${DateTime.now()}');
-    promiseToFuture(fllamaChatTemplateGetJs(modelPath)).then((value) {
+    fllamaChatTemplateGetJs(modelPath).toDart.then((value) {
       // print(
       // '[fllama_html] fllamaChatTemplateGetJs finished with $value at ${DateTime.now()}');
-      completer.complete(value);
+      completer.complete(value.toDart);
     });
     // print('[fllama_html] called fllamaChatTemplateGetJs at ${DateTime.now()}');
     return completer.future;
@@ -209,7 +210,7 @@ Future<String> fllamaChatTemplateGet(String modelPath) async {
 }
 
 @JS('fllamaBosTokenGetJs')
-external Future<String> fllamaBosTokenGetJs(dynamic modelPath);
+external JSPromise<JSString?> fllamaBosTokenGetJs(String modelPath);
 
 /// Returns the EOS token embedded in the .gguf file.
 /// If none is found, returns an empty string.
@@ -220,10 +221,10 @@ Future<String> fllamaBosTokenGet(String modelPath) {
   try {
     final completer = Completer<String>();
     // print('[fllama_html] calling fllamaEosTokenGet at ${DateTime.now()}');
-    promiseToFuture(fllamaBosTokenGetJs(modelPath)).then((value) {
+    fllamaBosTokenGetJs(modelPath).toDart.then((value) {
       // print(
       // '[fllama_html] fllamaEosTokenGet finished with $value at ${DateTime.now()}');
-      completer.complete(value);
+      completer.complete(value?.toDart ?? '');
     });
     // print('[fllama_html] called fllamaEosTokenGet at ${DateTime.now()}');
     return completer.future;
@@ -235,7 +236,7 @@ Future<String> fllamaBosTokenGet(String modelPath) {
 }
 
 @JS('fllamaEosTokenGetJs')
-external Future<String> fllamaEosTokenGetJs(dynamic modelPath);
+external JSPromise<JSString> fllamaEosTokenGetJs(String modelPath);
 
 /// Returns the EOS token embedded in the .gguf file.
 /// If none is found, returns an empty string.
@@ -246,10 +247,10 @@ Future<String> fllamaEosTokenGet(String modelPath) {
   try {
     final completer = Completer<String>();
     // print('[fllama_html] calling fllamaEosTokenGet at ${DateTime.now()}');
-    promiseToFuture(fllamaEosTokenGetJs(modelPath)).then((value) {
+    fllamaEosTokenGetJs(modelPath).toDart.then((value) {
       // print(
       // '[fllama_html] fllamaEosTokenGet finished with $value at ${DateTime.now()}');
-      completer.complete(value);
+      completer.complete(value.toDart);
     });
     // print('[fllama_html] called fllamaEosTokenGet at ${DateTime.now()}');
     return completer.future;
