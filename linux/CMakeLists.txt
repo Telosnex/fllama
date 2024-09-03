@@ -7,6 +7,11 @@ cmake_minimum_required(VERSION 3.10)
 set(PROJECT_NAME "fllama")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
+# Sept 3 2024: Added PIC due to this error (there were a bunch more of same form): 
+# plugins/fllama/shared/llama.cpp/common/libcommon.a(grammar-parser.cpp.o): relocation R_X86_64_32 against `.rodata.str1.1' can not be used when making a shared object; recompile with -fPIC
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+add_compile_options(-fPIC)
+
 # Invoke the build for native code shared with the other target platforms.
 # This can be changed to accommodate different builds.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DIR}/shared")
