@@ -19,6 +19,7 @@ class MlcModelId {
   static const String qwen05b = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
   static const String tinyLlama = "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC";
   static const String phi3mini = "Phi-3-mini-4k-instruct-q4f16_1-MLC";
+  static const String phi35mini = "Phi-3.5-mini-instruct-q4f16_1-MLC";
   static const String openHermesMistral =
       "OpenHermes-2.5-Mistral-7B-q4f16_1-MLC";
   static const String openHermesLlama38b =
