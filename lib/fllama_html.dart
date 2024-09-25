@@ -152,7 +152,6 @@ Future<int> fllamaChatMlcWeb(
 }
 
 Future<void> fllamaMlcWebModelDelete(String modelId) async {
-  print('about to call fllamaMlcWebModelDeleteJs');
   await fllamaMlcWebModelDeleteJs(modelId).toDart;
 }
 
