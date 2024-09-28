@@ -12,6 +12,7 @@ const availableModels = webllm.prebuiltAppConfig.model_list.map(
 // From https://github.com/mlc-ai/web-llm/blob/main/src/config.ts
 // One in simple-chat-js on mlc-ai GitHub is incorrect.
 let llama8b = "Llama-8B-Instruct-q4f32_1-MLC-1k";
+let llama321b = "Llama-3.2-1B-Instruct-q4f16_1-MLC";
 let qwen05b = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
 let tinyLlama = "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC-1k";
 let phi3mini = "Phi-3-mini-4k-instruct-q4f16_1-MLC";

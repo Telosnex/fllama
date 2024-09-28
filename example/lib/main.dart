@@ -128,6 +128,8 @@ class _MyAppState extends State<MyApp> {
                       dropdownMenuEntries: [
                         ...[
                           null,
+                          MlcModelId.llama321bInstruct,
+                          MlcModelId.llama323bInstruct,
                           MlcModelId.llama318bInstruct,
                           MlcModelId.openHermesLlama38b,
                           MlcModelId.openHermesMistral,

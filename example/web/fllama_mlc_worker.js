@@ -96,6 +96,10 @@ async function processNextRequest() {
         const messages = JSON.parse(messagesAsJsonString);
         const toolsAsJsonString = request.toolsAsJsonString;
         const tools = JSON.parse(toolsAsJsonString);
+        // If there are no messages, MLC's code crashes due to trying to access 'role' on a null object
+        if (messages.length === 0) {
+            messages.push({ role: "system", content: "" });
+        }
 
         // MLC only supports system messages at the start of the conversation.
         messages.forEach((message, index) => {
@@ -103,6 +107,14 @@ async function processNextRequest() {
                 message.role = "user";
             }
         });
+
+        // MLC only supports user or tool messages at the end of the conversation.
+        if (messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+            if (lastMessage.role !== "user" && lastMessage.role !== "tool") {
+                messages.push({ role: "user", content: "Continue from there." });
+            }
+        }
 
         // Note error for tools:
         // fllama_wasm_init.js:139 [fllama_wasm_init.js.mlcInferenceWithWorker] received error message Qwen2-0.5B-Instruct-q4f16_1-MLC is not supported for ChatCompletionRequest.tools. Currently, models that support function calling are: Hermes-2-Pro-Llama-3-8B-q4f16_1-MLC, Hermes-2-Pro-Llama-3-8B-q4f32_1-MLC, Hermes-2-Pro-Mistral-7B-q4f16_1-MLC
@@ -180,6 +192,7 @@ async function processNextRequest() {
         });
         console.log("Posted inference result.");
     } catch (error) {
+        console.log("Error processing request", error);
         self.postMessage({
             type: 'error',
             requestId,
@@ -240,9 +253,14 @@ async function processNextRequest() {
             // It seems the default config JSON for the model will always be used. So either:
             // - we rehost the models and change the config JSON for each
             // - we poke at the engine object after it's been initialized
-            engine.config.conv_template.system_message = "";
-            return engine;
+            // 2024-09-02: For some reason Phi-3.5 throws on this.
+            try {
+                engine.config.conv_template.system_message = "";
+            } catch (systemMessageError) {
+                console.warn("Error setting system_message to empty string:", systemMessageError);
+            }
 
+            return engine;
         } catch (error) {
             console.error("Error initializing engine", error);
             throw error;
