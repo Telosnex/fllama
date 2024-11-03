@@ -89,8 +89,8 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
       return false; // probably ran out of context
     }
     *n_past += n_eval;
-    std::cout << "[fllama] Added " << n_eval << " tokens to context."
-              << std::endl;
+    // std::cout << "[fllama] Added " << n_eval << " tokens to context."
+    //           << std::endl;
   }
   return true;
 }
@@ -437,9 +437,9 @@ fllama_inference_sync(fllama_inference_request request,
 
       // Get the token as a string piece
       std::string token_piece = llama_token_to_piece(ctx, new_token_id, false);
-      fprintf(stderr,
-              "token_piece from llama_sampling_sample: %s\n. Token ID: %d\n",
-              token_piece.c_str(), new_token_id);
+      // fprintf(stderr,
+              // "token_piece from llama_sampling_sample: `%s`. Token ID: %d\n",
+              // token_piece.c_str(), new_token_id);
 
       // Add the current token piece to buffer to check for eos_token
       buffer += token_piece;
