@@ -2,6 +2,8 @@ import 'package:fllama/fllama.dart';
 import 'package:fllama/misc/gbnf.dart';
 import 'package:jinja/jinja.dart';
 
+import 'model/model_override.dart';
+
 /// Returns true if the given [output] indicates that the model failed to load.
 /// Output is the output from [fllamaInference] or [fllamaChat].
 bool fllamaOutputIndicatesLoadError(String output) {
@@ -251,7 +253,22 @@ String fllamaApplyChatTemplate({
     // ignore: avoid_print
     print('[fllama] messages: $jsonMessages');
     if (chatTemplate != chatMlTemplate) {
+      final llamaChatTemplate = Llama3ChatTemplate();
       // ignore: avoid_print
+
+      if (llamaChatTemplate.matches(chatTemplate)) {
+        // ex. bartowski's llama 3.2 8B cannot be parsed, but it is
+        // desirable to use. ChatML as a fallback breaks it. First response
+        // generally works, then it fails.
+        print(
+            '[fllama] Using Llama 3 chat template as a fallback because the chat template could not be applied. Exception: $e. Chat template: $chatTemplate. Messages: $jsonMessages.');
+        return fllamaApplyChatTemplate(
+          chatTemplate: llamaChatTemplate.template,
+          request: request,
+          bosToken: llamaChatTemplate.bosToken,
+          eosToken: llamaChatTemplate.eosToken,
+        );
+      }
       print(
           '[fllama] Using ChatML because the chat template could not be applied. Exception: $e. Chat template: $chatTemplate. Messages: $jsonMessages.');
       return fllamaApplyChatTemplate(
