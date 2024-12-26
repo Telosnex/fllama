@@ -1,5 +1,6 @@
 #include "fllama_tokenize.h"
 
+#include <memory>
 #include <mutex>
 
 #if TARGET_OS_IOS
