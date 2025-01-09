@@ -21,8 +21,8 @@
 #include "llama.cpp/common/base64.hpp"
 #include "llama.cpp/common/common.h"
 #include "llama.cpp/common/sampling.h"
-#include "llama.cpp/ggml/include/ggml.h"
 #include "llama.cpp/ggml/include/gguf.h"
+#include "llama.cpp/ggml/include/ggml.h"
 #include "llama.cpp/include/llama.h"
 #endif
 
