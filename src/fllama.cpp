@@ -204,8 +204,18 @@ fllama_inference_sync(fllama_inference_request request,
     ctx_params.n_ctx = requested_context_size;
     std::cout << "[fllama] Context size: " << ctx_params.n_ctx << std::endl;
     // >=32 needed for BLAS.
-    uint32_t n_batch = 512;
-    ctx_params.n_batch = n_batch;
+    // # Why is n_batch = context size? 
+    // Post-Jan 2025 update, the llama.cpp inference imitates simple-chat.cpp, which
+    // adds the entire prompt in one call. There isn't a downside to this, in early 2024,
+    // there used to be an issue with memory headroom and context size on extremely constrained
+    // devices, but that's no longer the case.
+    //
+    // Now, if we try using a batch size < input token count, there will be an assertion failure. 
+    // In general, it seems batch_size = context_size is the best way because that guarantees as
+    // the batch updates after each inference run, there won't be any issues. (the idea there might
+    // be an issue assumes batch = input + all tokens generated thus far, which may not be the case)
+    uint32_t n_batch = requested_context_size;
+    ctx_params.n_batch = requested_context_size;
     std::cout << "[fllama] Batch size: " << ctx_params.n_batch << std::endl;
     ctx_params.flash_attn = false;
     std::cout << "[fllama] flash_attn: " << ctx_params.flash_attn << std::endl;
