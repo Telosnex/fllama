@@ -14,7 +14,7 @@ A new Flutter FFI plugin project.
   s.author           = { 'Your Company' => 'email@example.com' }
 
   s.dependency 'Flutter'
-  s.platform = :ios, '11.0'
+  s.platform = :ios, '13.0'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
@@ -28,6 +28,14 @@ A new Flutter FFI plugin project.
   # `../src/*` so that the C sources can be shared among all target platforms.
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*', 
+                    'llama.cpp/src/*.cpp',
+                    'llama.cpp/common/*.cpp',
+                    'llama.cpp/ggml/src/*.cpp',
+                    'llama.cpp/ggml/src/ggml-cpu/*.cpp',
+                    'llama.cpp/ggml/src/ggml-cpu/*.c',
+                    'llama.cpp/ggml/src/ggml-metal/*.cpp',
+                    'llama.cpp/ggml/src/ggml-metal/*.m',
+                    'llama.cpp/src/*.c',
                    'llama.cpp/src/llama.cpp',
                    'llama.cpp/src/llama-sampling.cpp',
                    'llama.cpp/src/llama-grammar.cpp',
@@ -45,31 +53,40 @@ A new Flutter FFI plugin project.
                    'llama.cpp/common/grammar-parser.cpp',
                    'llama.cpp/common/json-schema-to-grammar.cpp',
                    'llama.cpp/common/sampling.cpp',
-                    'llama.cpp/common/stb_image.h',
+                   'llama.cpp/common/stb_image.h',
   s.frameworks = 'Foundation', 'Metal', 'MetalKit'
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'USER_HEADER_SEARCH_PATHS' => [
+      '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include/*.h',
       '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include',
       '$(PODS_TARGET_SRCROOT)/../llama.cpp/include',
       '$(PODS_TARGET_SRCROOT)/../llama.cpp/src',
       '$(PODS_TARGET_SRCROOT)/../llama.cpp/**/*.h', 
-      '$(PODS_TARGET_SRCROOT)/../llama.cpp/common/**/*.h',],
+      '$(PODS_TARGET_SRCROOT)/../llama.cpp/common/**/*.h',
+      '$(PODS_TARGET_SRCROOT)/llama.cpp/ggml/include',
+      '$(PODS_TARGET_SRCROOT)/llama.cpp/ggml/src',
+      '$(PODS_TARGET_SRCROOT)/llama.cpp/ggml/src/ggml-cpu',
+      '$(PODS_TARGET_SRCROOT)/llama.cpp/include',
+      '$(PODS_TARGET_SRCROOT)/llama.cpp/src',
+      '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include',
+      '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/src'],
       'HEADER_SEARCH_PATHS' => [
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include',
+        '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include/*.h',
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/include',
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/src',
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/**/*.h', 
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/common/**/*.h',],
     # -w is to suppress warnings from llama.cpp, there's tons of them
-    'OTHER_CFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc', '-w', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include',],
-    'OTHER_CPLUSPLUSFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc', '-w', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include',],
+    'OTHER_CFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc', '-w', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include', '-DGGML_LLAMAFILE=OFF', '-DGGML_USE_CPU'],
+    'OTHER_CPLUSPLUSFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc', '-w', '-std=c++17', '-fpermissive', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include', '-DGGML_LLAMAFILE=OFF', '-DGGML_USE_CPU'],
     'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', 'GGML_USE_METAL=1'],
   }
   s.script_phases = [
     {
       :name => 'Build Metal Library',
-      :input_files => ["${PODS_TARGET_SRCROOT}/llama.cpp/ggml-metal.metal"],
+      :input_files => ["${PODS_TARGET_SRCROOT}/llama.cpp/ggml/src/ggml-metal.metal"],
       :output_files => ["${METAL_LIBRARY_OUTPUT_DIR}/default.metallib"],
       :execution_position => :after_compile,
       :script => <<-SCRIPT
@@ -77,7 +94,7 @@ set -e
 set -u
 set -o pipefail
 cd "${PODS_TARGET_SRCROOT}/llama.cpp"
-xcrun metal -target "air64-${LLVM_TARGET_TRIPLE_VENDOR}-${LLVM_TARGET_TRIPLE_OS_VERSION}${LLVM_TARGET_TRIPLE_SUFFIX:-\"\"}" -ffast-math -std=ios-metal2.3 -o "${METAL_LIBRARY_OUTPUT_DIR}/default.metallib" ggml/src/*.metal
+xcrun metal -target "air64-${LLVM_TARGET_TRIPLE_VENDOR}-${LLVM_TARGET_TRIPLE_OS_VERSION}${LLVM_TARGET_TRIPLE_SUFFIX:-\"\"}" -ffast-math -std=ios-metal2.3 -o "${METAL_LIBRARY_OUTPUT_DIR}/default.metallib" ggml/src/ggml-metal/*.metal
 SCRIPT
     }
   ]

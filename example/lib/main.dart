@@ -449,7 +449,7 @@ class _MyAppState extends State<MyApp> {
       messages: [
         Message(Role.user, messageText),
       ],
-      numGpuLayers: 0,
+      numGpuLayers: 99,
       /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
       modelPath: kIsWeb ? _mlcModelId : _modelPath!,
       mmprojPath: _mmprojPath,
@@ -579,11 +579,13 @@ Future<String?> _pickGgufPath() async {
   }
 
   final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
-    const XTypeGroup(
-      label: '.gguf',
-      extensions: ['gguf'],
+     XTypeGroup(
+      // Only on iOS, macOS is fine.
+      // [ERROR:flutter/runtime/dart_vm_initializer.cc(40)] Unhandled Exception: Invalid argument(s): The provided type group Instance of 'XTypeGroup' should either allow all files, or have a non-empty "uniformTypeIdentifiers"
+      label: defaultTargetPlatform == TargetPlatform.iOS ? '' : '.gguf',
+      extensions:  defaultTargetPlatform == TargetPlatform.iOS ? [] : ['gguf'],
       // UTIs are required for iOS, which does not have a .gguf UTI.
-      uniformTypeIdentifiers: [],
+      uniformTypeIdentifiers: const [],
     ),
   ]);
 

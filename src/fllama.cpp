@@ -236,7 +236,7 @@ fllama_inference_sync(fllama_inference_request request,
     // std::cout << "[fllama] Model path: " << params.model << std::endl;
 // Force CPU if iOS simulator: no GPU support available, hangs.
 #if TARGET_IPHONE_SIMULATOR
-    params.n_gpu_layers = 0;
+    model_params.n_gpu_layers = 0;
 // Otherwise, for physical iOS devices and other platforms
 #else
     model_params.n_gpu_layers = request.num_gpu_layers;
@@ -589,7 +589,7 @@ fllama_inference_sync(fllama_inference_request request,
       //                " milliseconds.",
       //            request.dart_logger);
     }
-
+    log_message("[DEBUG] token generation loop complete", request.dart_logger);
     // If EOS token is found, above loop does not add it to buffer, and the
     // loop stops immediately.
     //
