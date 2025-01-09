@@ -11,7 +11,7 @@
 #elif TARGET_OS_OSX
 #include "../macos/llama.cpp/common/base64.hpp"
 #else
-#include "base64.hpp"
+#include "llama.cpp/common/base64.hpp"
 #endif
 
 #include <cstring>
@@ -46,9 +46,6 @@ bool add_image_embed_to_context(struct llama_context *ctx_llama,
         nullptr,
         nullptr,
         nullptr,
-        *n_past,
-        1,
-        0,
     };
     if (llama_decode(ctx_llama, batch)) {
       fprintf(stderr, "%s : failed to eval\n", __func__);

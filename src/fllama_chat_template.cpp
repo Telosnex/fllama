@@ -9,16 +9,12 @@
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #endif
-#if TARGET_OS_IOS
-#include "../ios/llama.cpp/ggml/include/ggml.h"
-#elif TARGET_OS_OSX
-#include "../macos/llama.cpp/ggml/include/ggml.h"
-#else
-#include "ggml.h"
-#endif
+// Use consistent paths for includes
+#include "llama.h"
+#include "gguf.h"
 
 extern "C" {
-EMSCRIPTEN_KEEPALIVE const char *fllama_get_chat_template(const char *fname) {
+const char *fllama_get_chat_template(const char *fname) {
   struct ggml_context *meta = NULL;
 
   struct gguf_init_params params = {

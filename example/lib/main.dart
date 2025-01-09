@@ -449,7 +449,7 @@ class _MyAppState extends State<MyApp> {
       messages: [
         Message(Role.user, messageText),
       ],
-      numGpuLayers: 99,
+      numGpuLayers: 0,
       /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
       modelPath: kIsWeb ? _mlcModelId : _modelPath!,
       mmprojPath: _mmprojPath,

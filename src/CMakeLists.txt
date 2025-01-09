@@ -34,6 +34,7 @@ if(WIN32)
 endif()
 
 add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)
+add_subdirectory("llama.cpp/common" EXCLUDE_FROM_ALL)
 
 add_library(fllama SHARED
   "fllama_chat_template.cpp"
@@ -52,6 +53,11 @@ set_target_properties(fllama PROPERTIES
 )
 
 target_compile_definitions(fllama PUBLIC DART_SHARED_LIB)
+
+if (ANDROID)
+  # Support Android 15 16k page size.
+  target_link_options(fllama PRIVATE "-Wl,-z,max-page-size=16384")
+endif()
 target_include_directories(fllama PUBLIC .)
 add_executable(fllama_wasm fllama_wasm_entry.cpp)
 target_link_libraries(fllama_wasm fllama) # Link against your library

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../ggml/include/ggml.h"
+#include "ggml.h"
 // Change JSON_ASSERT from assert() to GGML_ASSERT:
 #define JSON_ASSERT GGML_ASSERT
 #include "json.hpp"

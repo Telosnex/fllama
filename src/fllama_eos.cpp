@@ -9,7 +9,6 @@
 #include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml/include/ggml.h"
 #include "../ios/llama.cpp/include/llama.h"
-
 #elif TARGET_OS_OSX
 // macOS-specific includes
 #include "../macos/llama.cpp/common/base64.hpp"
@@ -19,12 +18,17 @@
 #include "../macos/llama.cpp/include/llama.h"
 #else
 // Other platforms
-#include "base64.hpp"
-#include "common.h"
-#include "ggml.h"
-#include "llama.h"
-#include <climits>
+#include "llama.cpp/common/base64.hpp"
+#include "llama.cpp/common/common.h"
+#include "llama.cpp/common/sampling.h"
+#include "llama.cpp/ggml/include/ggml.h"
+#include "llama.cpp/ggml/include/gguf.h"
+#include "llama.cpp/include/llama.h"
 #endif
+
+// Use consistent include paths
+
+#include <climits>
 
 #include "fllama_eos.h"
 

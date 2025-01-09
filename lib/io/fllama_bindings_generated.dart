@@ -75,6 +75,7 @@ class FllamaBindings {
   late final _fllama_inference_cancel =
       _fllama_inference_cancelPtr.asFunction<void Function(int)>();
 
+  /// Chat template functions
   ffi.Pointer<ffi.Char> fllama_get_chat_template(
     ffi.Pointer<ffi.Char> fname,
   ) {

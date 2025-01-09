@@ -1,7 +1,9 @@
 #include "fllama_tokenize.h"
 
+#include <iostream>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 
 #if TARGET_OS_IOS
 // iOS-specific includes
@@ -10,7 +12,6 @@
 #include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml/include/ggml.h"
 #include "../ios/llama.cpp/include/llama.h"
-
 #elif TARGET_OS_OSX
 // macOS-specific includes
 #include "../macos/llama.cpp/common/base64.hpp"
@@ -20,8 +21,8 @@
 #include "../macos/llama.cpp/include/llama.h"
 #else
 // Other platforms
-#include "base64.hpp"
-#include "common.h"
+#include "llama.cpp/common/base64.hpp"
+#include "llama.cpp/common/common.h"
 #include "ggml.h"
 #include "llama.h"
 #endif
@@ -59,7 +60,20 @@ size_t fllama_tokenize(struct fllama_tokenize_request request) {
 /* DISABLED: Tokenization logs.
   auto start_time_tokenize = std::chrono::high_resolution_clock::now();
 */
-  std::vector<llama_token> tokens_list = ::llama_tokenize(model, request.input, true);
+  std::vector<llama_token> tokens_list;
+  const size_t input_len = strlen(request.input);
+  tokens_list.resize(input_len + 3);  // add extra space for special tokens
+  const int n_tokens = ::llama_tokenize(model,
+                                     request.input,
+                                     input_len,
+                                     tokens_list.data(), 
+                                     tokens_list.size(),
+                                     true,   // add BOS
+                                     true);  // parse special tokens
+  if (n_tokens < 0) {
+      return 0;  // Error case
+  }
+  tokens_list.resize(n_tokens);
 /* DISABLED: Tokenization logs.
   auto end_time_tokenize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double, std::milli> tokenize_duration =
@@ -104,20 +118,11 @@ std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path) {
     iter->second.last_access = std::chrono::steady_clock::now();
     return iter->second.model;
   } else {
-    // std::cout << "[fllama] Cache miss, tokenize loading model: " << model_path << std::endl;
-    gpt_params params;
-    params.n_ctx = 0;
-    params.n_batch = 0;
-    params.n_predict = 0;
-    params.sparams.temp = 0;
-    std::vector<llama_sampler_type> samplers = {llama_sampler_type::TOP_P,
-                                                llama_sampler_type::TEMPERATURE};
-    params.sparams.samplers_sequence = samplers;
-    params.sparams.top_p = 0;
-    params.model = model_path.c_str();
-    params.n_gpu_layers = 0;
-    llama_model_params mparams = llama_model_params_from_gpt_params(params);
+    // Initialize model params with defaults
+    llama_model_params mparams = llama_model_default_params();
     mparams.vocab_only = true;
+    mparams.use_mmap = true;
+    mparams.n_gpu_layers = 0;
     llama_backend_init();
     // Using llama_load_model_from_file instead of llama_init_from_gpt_params
     // avoided a crash when tokenization was called in quick succession without

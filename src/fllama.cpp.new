@@ -1,0 +1,41 @@
+static bool add_tokens_to_context(struct llama_context *ctx_llama,
+                                  const std::vector<llama_token>& tokens, int n_batch,
+                                  int *n_past, fllama_log_callback logger) {
+    log_message("[DEBUG] add_tokens_to_context start", logger);
+    const int N = (int)tokens.size();
+    log_message("[DEBUG] token count: " + std::to_string(N), logger);
+    if (N == 0) return true;
+
+    // Create vector to hold tokens while batch processes them (matches simple-chat.cpp)
+    std::vector<llama_token> prompt_tokens = tokens;
+    log_message("[DEBUG] about to call llama_batch_get_one", logger);
+    llama_batch batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
+    log_message("[DEBUG] got batch, n_tokens: " + std::to_string(batch.n_tokens), logger);
+    
+    // Check context space
+    int n_ctx = llama_n_ctx(ctx_llama);
+    int n_ctx_used = llama_get_kv_cache_used_cells(ctx_llama);
+    log_message("[DEBUG] ctx space: used=" + std::to_string(n_ctx_used) + ", total=" + std::to_string(n_ctx), logger);
+    
+    if (n_ctx_used + batch.n_tokens > n_ctx) {
+        log_message("context size exceeded", logger);
+        llama_batch_free(batch);
+        return false;
+    }
+
+    log_message("[DEBUG] about to decode, n_past=" + std::to_string(*n_past), logger);
+    log_message("[DEBUG] calling llama_decode with batch size " + std::to_string(batch.n_tokens), logger);
+    int decode_result = llama_decode(ctx_llama, batch);
+    log_message("[DEBUG] llama_decode result: " + std::to_string(decode_result), logger);
+    if (decode_result) {
+        log_message("failed to decode", logger);
+        llama_batch_free(batch);
+        return false;
+    }
+    log_message("[DEBUG] decode successful", logger);
+
+    llama_batch_free(batch);
+    *n_past = llama_get_kv_cache_used_cells(ctx_llama);
+    log_message("[DEBUG] add_tokens_to_context complete, n_past: " + std::to_string(*n_past), logger);
+    return true;
+}

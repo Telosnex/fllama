@@ -7,19 +7,9 @@
 #include <TargetConditionals.h>
 #endif
 
-#if TARGET_OS_IOS
-// iOS-specific includes
-#include "../ios/llama.cpp/ggml/include/ggml.h"
-#include "../ios/llama.cpp/include/llama.h"
-#elif TARGET_OS_OSX
-// macOS-specific includes
-#include "../macos/llama.cpp/ggml/include/ggml.h"
-#include "../macos/llama.cpp/include/llama.h"
-#else
-// Other platforms
+// Use consistent include paths
 #include "ggml.h"
 #include "llama.h"
-#endif
 
 #ifdef LLAMA_SHARED
 #    if defined(_WIN32) && !defined(__MINGW32__)
