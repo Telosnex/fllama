@@ -608,38 +608,35 @@ fllama_inference_sync(fllama_inference_request request,
     // times, this will be _after_ this function returns. In that case, the
     // final output is a bunch of null characters: they look like 6 vertical
     // lines stacked.
+
     std::strcpy(c_result, result.c_str());
     if (callback != NULL) {
+      log_message("[DEBUG] Invoking final callback", request.dart_logger);
       callback(/* response */ c_result, /* done */ true);
+      log_message("[DEBUG] Final callback invoked", request.dart_logger);
     } else {
       log_message("WARNING: callback is NULL. Output: " + result,
                  request.dart_logger);
     }
 
+    log_message("About to write speed of generation", request.dart_logger);
+
     const auto t_now = ggml_time_ms();
 
-    log_message("Generated " + std::to_string(n_gen) + " tokens in " +
-                   std::to_string((t_now - start_t) / 1000.0) + " s, speed: " +
-                   std::to_string(n_gen / ((t_now - start_t) / 1000.0)) +
-                   " t/s.",
-               request.dart_logger);
+    const auto speed_string =
+        "Generated " + std::to_string(n_gen) + " tokens in " +
+        std::to_string((t_now - start_t) / 1000.0) + " s, speed: " +
+        std::to_string(n_gen / ((t_now - start_t) / 1000.0)) + " t/s.";
 
-    // Log finished
-    const auto t_main_end = ggml_time_ms();
-    const auto t_main = t_main_end - context_setup_complete;
-    // TODO: restore timing log
-    // LOG_TEE("%s: generated %d tokens in %.2f s, speed: %.2f t/s\n", __func__,
-    //         n_gen, t_main / 1000.0,
-    //         n_gen / ((t_main_end - context_setup_complete) / 1000.0));
-    // llama_print_timings(ctx);
+    log_message(speed_string, request.dart_logger);
 
+    log_message("Wrote speed of generation.", request.dart_logger);
     // Free everything. Model loading time is negligible, especially when
     // compared to amount of RAM consumed by leaving model in memory
     // (~= size of model on disk)
-    std::cout << "[fllama] freeing start @ " << ggml_time_us() << std::endl;
+    log_message("Freeing resources...", request.dart_logger);
     cleanup();
-    std::cout << "[fllama] freeing and thread end @ " << ggml_time_us()
-              << std::endl;
+    log_message("Freed resources.", request.dart_logger);
   } catch (const std::exception &e) {
     std::string error_msg = "Unhandled error: " + std::string(e.what());
     if (callback != NULL) {
