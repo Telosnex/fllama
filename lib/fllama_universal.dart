@@ -188,10 +188,16 @@ String fllamaApplyChatTemplate({
     final tools = request.tools.map((tool) {
       return tool.typescriptDefinition;
     }).join('\n\n');
-    jsonMessages.add({
-      'role': 'user',
-      'content':
-          '$tools\n\nThose are our tools, Typescript functions that take a JSON object as an argument.\nSilently pick a tool. Now, write a JSON object to use as an argument for that tool, based on our earlier conversation. The answer is validated JSON format representing a JSON object.',
+    jsonMessages.insert(0, {
+      'role': 'system',
+      'content': '''
+You have access to the following functions:
+$tools
+
+You are a helpful assistant with tool calling capabilities.
+When you receive a tool call response, use the output to format an answer to the orginal use question.
+If you are using tools, respond in the format {"name": function name, "parameters": dictionary of function arguments}. If multiple tools are used, use array format.
+''',
     });
   }
 
