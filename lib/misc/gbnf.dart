@@ -1,7 +1,17 @@
 import 'dart:convert';
 
 String convertToJsonGrammar(String jsonSchema) {
-  final schema = json.decode(jsonSchema) as Map<String, dynamic>;
+  var result = json.decode(jsonSchema);
+  if (result is String) {
+    result = json.decode(result);
+  }
+
+  if (result is! Map<String, dynamic>) {
+    throw Exception(
+        'Expected Map<String, dynamic> but got type ${result.runtimeType}:\n\n$result. Input was:\n\n$jsonSchema');
+  }
+
+  final schema = result;
   final Map<String, String> rules = {'space': _spaceRule};
 
   String formatLiteral(dynamic literal) {

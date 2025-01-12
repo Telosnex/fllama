@@ -50,11 +50,18 @@ String formatFunctionDefinition(Map<String, dynamic> function) {
     lines.add('// $description ');
   }
 
-  final parametersProperties = function['parameters']?['properties'];
+  var parameters = function['parameters'];
+  if (parameters is String) {
+    parameters = jsonDecode(parameters);
+  }
+  if (parameters is! Map<String, dynamic>) {
+    throw Exception('Expected Map<String, dynamic> but got type ${parameters.runtimeType}:\n\n$parameters');
+  }
+  final parametersProperties = parameters['properties'];
   if (parametersProperties != null &&
       parametersProperties is Map<String, dynamic>) {
     lines.add('type ${function['name']} = (_: {');
-    lines.add(_formatObjectProperties(function['parameters']!, 0));
+    lines.add(_formatObjectProperties(parameters, 0));
     lines.add('}) => any;');
   } else {
     lines.add('type ${function['name']} = () => any;');
