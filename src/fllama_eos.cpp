@@ -29,6 +29,7 @@
 // Use consistent include paths
 
 #include <climits>
+#include <cstring>
 
 #include "fllama_eos.h"
 
