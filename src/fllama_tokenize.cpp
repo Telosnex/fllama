@@ -1,5 +1,6 @@
 #include "fllama_tokenize.h"
 
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <mutex>
