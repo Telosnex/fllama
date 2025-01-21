@@ -19,6 +19,12 @@ file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/../src/llama.cpp/common/cmake/build-info
 # Optional: Print a message to confirm the file was created
 message(STATUS "Created placeholder build-info-gen-cpp.cmake file")
 
+# Fix issue after January 2025 drop:
+# C:\Users\builder\clone\windows\**\ephemeral\.plugin_symlinks\fllama\src\llama.cpp\ggml\src\ggml-cpu\ggml-cpu.cpp(280,13): error C2664: 'LSTATUS RegOpenKeyExW(HKEY,LPCWSTR,DWORD,REGSAM,PHKEY)': cannot convert argument 2 from 'const char [47]' to 'LPCWSTR' 
+if(WIN32)
+    add_definitions(-DUNICODE -D_UNICODE)
+endif()
+
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
 # external build triggered from this build file.
