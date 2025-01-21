@@ -8,13 +8,6 @@ cmake_minimum_required(VERSION 3.14)
 set(PROJECT_NAME "fllama")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
-# Fix issue after January 2025 drop:
-# C:\Users\builder\clone\windows\**\ephemeral\.plugin_symlinks\fllama\src\llama.cpp\ggml\src\ggml-cpu\ggml-cpu.cpp(280,13): error C2664: 'LSTATUS RegOpenKeyExW(HKEY,LPCWSTR,DWORD,REGSAM,PHKEY)': cannot convert argument 2 from 'const char [47]' to 'LPCWSTR' 
-if(WIN32)
-    add_definitions(-DUNICODE -D_UNICODE)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /utf-8")  # Add UTF-8 source encoding
-endif()
-
 # Invoke the build for native code shared with the other target platforms.
 # This can be changed to accommodate different builds.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DIR}/shared")

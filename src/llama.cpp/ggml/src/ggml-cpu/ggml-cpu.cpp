@@ -278,13 +278,13 @@ struct ggml_backend_cpu_device_context {
 #elif defined(_WIN32)
         HKEY hKey;
         if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-                        "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0",
+                        TEXT("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0"),
                         0,
                         KEY_READ,
                         &hKey) == ERROR_SUCCESS) {
             DWORD cpu_brand_size = 0;
             if (RegQueryValueExA(hKey,
-                                "ProcessorNameString",
+                                TEXT("ProcessorNameString"),
                                 NULL,
                                 NULL,
                                 NULL,
