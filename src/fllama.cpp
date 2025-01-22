@@ -471,7 +471,27 @@ fllama_inference_sync(fllama_inference_request request,
       cleanup();
       return;
     }
-    // Reserve result string once to avoid an allocation in loop.
+
+    // Issue empty callback with done = false. This is to provide a signal
+    // that inference is about to start, with the intention of giving clients 
+    // a way to detect if the previous inference crashed. 
+    // 
+    // That has to be done here, instead of client-side, because the client
+    // cannot differentiate between a request being queued and immediately executed.
+    // 
+    // With this, it can flip a "isRunning" flag to true, persist it, and then
+    // if it later tries running inference when the flag is true, it can assume
+    // the previous inference crashed.
+    //
+    // The root cause here is model files come in a variety of shapes and sizes,
+    // For example, there were q4_0_0 models in H2 2024 that had significantly faster
+    // inference on ARM. However, running those same models on macOS ARM would crash
+    // due to an assertion failure deep in ggml.cpp. 
+    // - try / catch in C++ still led to the assertion
+    // - signal handlers are fraught and did not work anyway
+    // - being in a separate executable/process is not an option on at least iOS.
+    callback("", false);
+    
     const auto estimated_total_size = n_max_tokens * 10;
     std::string result;
     result.reserve(estimated_total_size);
