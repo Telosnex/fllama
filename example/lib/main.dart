@@ -45,6 +45,8 @@ class _MyAppState extends State<MyApp> {
   String latestChatTemplate = '';
   String latestEosToken = '';
   String latestBosToken = '';
+  double _tokensPerSecond = 0;
+  DateTime? _inferenceStartTime;
 
   int? _runningRequestId;
 
@@ -377,15 +379,19 @@ class _MyAppState extends State<MyApp> {
                     ),
                     const SizedBox(height: 8),
                   ],
+                  if (!kIsWeb && latestResult.isNotEmpty) ...[
+                    if (_tokensPerSecond > 0)
+                      Text(
+                        'Speed: ${_tokensPerSecond.toStringAsFixed(1)} tokens/s',
+                        style: const TextStyle(fontFamily: 'monospace'),
+                      ),
+                    Text('Output token count: $latestOutputTokenCount',
+                        style: textStyle),
+                  ],
                   SelectableText(
                     latestResult,
                     style: textStyle,
                   ),
-                  if (!kIsWeb && latestResult.isNotEmpty) ...[
-                    spacerSmall,
-                    Text('Output token count: $latestOutputTokenCount',
-                        style: textStyle),
-                  ],
                   if (latestChatTemplate.isNotEmpty) ...[
                     spacerSmall,
                     const Text('Chat template:', style: textStyle),
@@ -541,18 +547,28 @@ class _MyAppState extends State<MyApp> {
       latestBosToken = bosToken;
     });
 
+    _inferenceStartTime = DateTime.now();
+
     int requestId = await fllamaChat(request, (response, done) {
       setState(() {
         latestResult = response;
         fllamaTokenize(FllamaTokenizeRequest(
                 input: latestResult, modelPath: _modelPath!))
             .then((value) {
+          final now = DateTime.now();
+          final elapsedSeconds = _inferenceStartTime != null
+              ? now.difference(_inferenceStartTime!).inMilliseconds / 1000.0
+              : 0;
           setState(() {
             latestOutputTokenCount = value;
+            if (elapsedSeconds > 0) {
+              _tokensPerSecond = value / elapsedSeconds;
+            }
           });
         });
         if (done) {
           _runningRequestId = null;
+          _inferenceStartTime = null;
         }
       });
     });
