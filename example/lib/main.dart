@@ -38,6 +38,7 @@ class _MyAppState extends State<MyApp> {
   final TextEditingController _controller = TextEditingController();
   var _temperature = 0.5;
   var _topP = 1.0;
+  int _maxTokens = 100;
 
   String latestResult = '';
   int latestOutputTokenCount = 0;
@@ -319,6 +320,37 @@ class _MyAppState extends State<MyApp> {
                       ),
                     ],
                   ),
+                  Row(
+                    children: [
+                      Tooltip(
+                        message:
+                            'Maximum number of tokens to generate in the response.',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Max tokens: ${_maxTokens.round()}',
+                                style: textStyle),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.info),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Slider.adaptive(
+                          label: 'Max tokens: ${_maxTokens.round()}',
+                          value: _maxTokens.toDouble(),
+                          min: 10,
+                          max: 2000,
+                          onChanged: (newMaxTokens) {
+                            setState(() {
+                              _maxTokens = newMaxTokens.round();
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                   ElevatedButton(
                     onPressed: () {
                       if (_runningRequestId != null) {
@@ -445,7 +477,7 @@ class _MyAppState extends State<MyApp> {
             jsonSchema: jsonEncode(_tool!.parametersAsString),
           ),
       ],
-      maxTokens: 100,
+      maxTokens: _maxTokens.round(),
       messages: [
         Message(Role.user, messageText),
       ],
