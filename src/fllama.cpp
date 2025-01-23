@@ -170,10 +170,11 @@ static bool add_string_to_context(struct llama_context *ctx_llama,
                                   const char *str, int n_batch, int *n_past,
                                   bool add_bos, fllama_log_callback logger) {
   std::string str2 = str;
+  const llama_vocab * vocab = llama_model_get_vocab(llama_get_model(ctx_llama));
   const int n_prompt_tokens = -llama_tokenize(
-      llama_get_model(ctx_llama), str2.c_str(), str2.length(), NULL, 0, add_bos, true);
+      vocab, str2.c_str(), str2.length(), NULL, 0, add_bos, true);
   std::vector<llama_token> embd_inp(n_prompt_tokens);
-  if (llama_tokenize(llama_get_model(ctx_llama), str2.c_str(), str2.length(), embd_inp.data(),
+  if (llama_tokenize(vocab, str2.c_str(), str2.length(), embd_inp.data(),
                      embd_inp.size(), add_bos, true) < 0) {
     log_message("tokenization failed", logger);
     return false;
@@ -375,11 +376,13 @@ fllama_inference_sync(fllama_inference_request request,
 
     // Tokenize the prompt
     const int n_ctx = llama_n_ctx(ctx);
+    const llama_vocab * vocab = llama_model_get_vocab(model);
+
     const int n_prompt_tokens =
-        -llama_tokenize(model, final_request_input.c_str(),
+        -llama_tokenize(vocab, final_request_input.c_str(),
                         final_request_input.length(), NULL, 0, true, true);
     std::vector<llama_token> tokens_list(n_prompt_tokens);
-    if (llama_tokenize(model, final_request_input.c_str(),
+    if (llama_tokenize(vocab, final_request_input.c_str(),
                        final_request_input.length(), tokens_list.data(),
                        tokens_list.size(), true, true) < 0) {
       fprintf(stderr, "%s: tokenization failed\n", __func__);
@@ -397,7 +400,7 @@ fllama_inference_sync(fllama_inference_request request,
 
     // 2. Load the prompt into the context.
     int n_past = 0;
-    bool add_bos = llama_add_bos_token(model);
+    bool add_bos = llama_add_bos_token(vocab);
     int idx_embedding = 0;
     for (auto *embedding : image_embeddings) {
       if (embedding != NULL) {
@@ -504,7 +507,7 @@ fllama_inference_sync(fllama_inference_request request,
     int n_gen = 0;
     std::string buffer; // Buffer to accumulate potential EOS token sequences
 
-    const auto model_eos_token = llama_token_eos(model);
+    const auto model_eos_token = llama_token_eos(vocab);
     const int64_t start_t = ggml_time_ms();
     int64_t t_last = start_t;
 
@@ -546,7 +549,7 @@ fllama_inference_sync(fllama_inference_request request,
     
         // Convert current token to text and output it
         char token_text[256];
-        int token_len = llama_token_to_piece(model, new_token_id, token_text, sizeof(token_text), 0, true);
+        int token_len = llama_token_to_piece(vocab, new_token_id, token_text, sizeof(token_text), 0, true);
         if (token_len < 0) {
             log_message("[DEBUG] failed to convert token to text", request.dart_logger);
             break;
@@ -570,7 +573,7 @@ fllama_inference_sync(fllama_inference_request request,
         new_token_id = llama_sampler_sample(smpl, ctx, -1);
     
         // Check for end conditions
-        if (llama_token_is_eog(model, new_token_id)) {
+        if (llama_token_is_eog(vocab, new_token_id)) {
             log_message("[DEBUG] end of generation detected", request.dart_logger);
             break;
         }
@@ -605,7 +608,7 @@ fllama_inference_sync(fllama_inference_request request,
       }
 
       // Check for EOS on model tokens
-      if (llama_token_is_eog(model, new_token_id)) {
+      if (llama_token_is_eog(vocab, new_token_id)) {
         fprintf(stderr, "%s: Finish. Model EOS token found.", __func__);
         if (buffer.length() > 0) {
           result += buffer;

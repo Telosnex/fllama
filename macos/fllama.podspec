@@ -64,17 +64,21 @@ A new Flutter FFI plugin project.
       '$(PODS_TARGET_SRCROOT)/llama.cpp/include',
       '$(PODS_TARGET_SRCROOT)/llama.cpp/src',
       '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include',
-      '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/src'],
+      '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/src',
+      '$(PODS_TARGET_SRCROOT)/llama.cpp/common',
+      '$(PODS_TARGET_SRCROOT)/../llama.cpp/common'],
       'HEADER_SEARCH_PATHS' => [
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include',
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include/*.h',
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/include',
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/src',
         '$(PODS_TARGET_SRCROOT)/../llama.cpp/**/*.h', 
-        '$(PODS_TARGET_SRCROOT)/../llama.cpp/common/**/*.h',],
+        '$(PODS_TARGET_SRCROOT)/../llama.cpp/common/**/*.h',
+        '$(PODS_TARGET_SRCROOT)/llama.cpp/common',
+        '$(PODS_TARGET_SRCROOT)/../llama.cpp/common',],
     # -w is to suppress warnings from llama.cpp, there's tons of them
-    'OTHER_CFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc', '-w', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include', '-DGGML_LLAMAFILE=OFF', '-DGGML_USE_CPU'],
-    'OTHER_CPLUSPLUSFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc', '-w', '-std=c++17', '-fpermissive', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include', '-DGGML_LLAMAFILE=OFF', '-DGGML_USE_CPU'],
+    'OTHER_CFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc', '-w', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/common', '-DGGML_LLAMAFILE=OFF', '-DGGML_USE_CPU'],
+    'OTHER_CPLUSPLUSFLAGS' => ['$(inherited)', '-O3', '-flto', '-fno-objc-arc', '-w', '-std=c++17', '-fpermissive', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/ggml/include', '-I$(PODS_TARGET_SRCROOT)/../llama.cpp/common', '-DGGML_LLAMAFILE=OFF', '-DGGML_USE_CPU'],
     'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', 'GGML_USE_METAL=1'],
   }
   s.script_phases = [

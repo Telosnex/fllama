@@ -64,7 +64,8 @@ size_t fllama_tokenize(struct fllama_tokenize_request request) {
   std::vector<llama_token> tokens_list;
   const size_t input_len = strlen(request.input);
   tokens_list.resize(input_len + 3);  // add extra space for special tokens
-  const int n_tokens = ::llama_tokenize(model,
+  const llama_vocab * vocab = llama_model_get_vocab(model);
+  const int n_tokens = ::llama_tokenize(vocab,
                                      request.input,
                                      input_len,
                                      tokens_list.data(), 
