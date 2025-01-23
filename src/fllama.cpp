@@ -300,9 +300,7 @@ fllama_inference_sync(fllama_inference_request request,
               "file.",
               request.dart_logger);
       } else {
-        // TODO: End of multimodal? :|
-        // params.mmproj = mmproj;
-        // should_load_clip = true;
+        should_load_clip = true;
       }
     }
 
@@ -340,15 +338,17 @@ fllama_inference_sync(fllama_inference_request request,
 
     std::string final_request_input = request.input;
     // TODO: CLIP support
-    // if (should_load_clip) {
-    //   fllama_log("Loading multimodal model...", request.dart_logger);
-    //   const char *mmproj_path = params.mmproj.c_str();
-    //   auto ctx_clip = clip_model_load(mmproj_path, /*verbosity=*/1);
-    //   std::cout << "Loaded model" << std::endl;
-    //   image_embeddings = llava_image_embed_make_with_prompt_base64(
-    //       ctx_clip, 1 /* or params.n_threads */, final_request_input);
-    //   clip_free(ctx_clip);
-    // }
+    if (should_load_clip) {
+      std::string mmproj_path_std_str =
+          request.model_mmproj_path == NULL ? "" : request.model_mmproj_path;
+      log_message("Loading multimodal model...", request.dart_logger);
+      const char *mmproj_path = mmproj_path_std_str.c_str();
+      auto ctx_clip = clip_model_load(mmproj_path, /*verbosity=*/1);
+      std::cout << "Loaded model" << std::endl;
+      image_embeddings = llava_image_embed_make_with_prompt_base64(
+          ctx_clip, 1 /* or params.n_threads */, final_request_input);
+      clip_free(ctx_clip);
+    }
 
     // It is important that this runs regardless of whether CLIP needs to be
     // loaded. For example, for an errorneus request that doesn't provide the
