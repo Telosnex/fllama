@@ -1041,26 +1041,24 @@ fllama_inference_sync(fllama_inference_request request,
       log_message("[DEBUG] Invoking final callback", request.dart_logger);
 
       // Parse the result using common_chat_parse to extract tool calls
-      json completion_response;
-      auto json_string = completion_response.dump().c_str();
+      auto json_string = "";
 
       if (!has_valid_json) {
         // If we never got valid JSON, return empty content
-        completion_response = to_json_oaicompat_chat(
+        auto completion_response = to_json_oaicompat_chat(
             "", request.model_path,
             "cmpl-" + std::to_string(request.request_id), "" /* build info */,
             STOP_TYPE_LIMIT, common_chat_format, n_gen, n_prompt_tokens);
-        json_string = completion_response.dump().c_str();
-        auto is_valid_string = is_valid_utf8(json_string);
+        json_string = completion_response == NULL ? NULL : completion_response.dump().c_str();
+        auto is_valid_string = json_string == NULL ? false : is_valid_utf8(json_string);
         if (is_valid_string) {
           // Never had valid JSON, was able to produce valid JSON for an empty
           // message.
-          callback(c_result, "final case a", true);
+          callback(c_result, json_string, true);
         } else {
           // Never had valid JSON, could not produce valid JSON for an empty
           // message.
-
-          callback(c_result, "final case b", true);
+          callback(c_result, "Never had valid JSON, could not produce valid JSON for an empty message.", true);
         }
       } else {
         if (is_valid_utf8(last_valid_json_string)) {
