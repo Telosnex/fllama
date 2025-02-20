@@ -548,9 +548,10 @@ class _MyAppState extends State<MyApp> {
     });
 
     _inferenceStartTime = DateTime.now();
-
+    List<String> allResponses = [];
     int requestId = await fllamaChat(request, (response, responseJson, done) {
       setState(() {
+        allResponses.add(responseJson);
         latestResult = response;
         fllamaTokenize(FllamaTokenizeRequest(
                 input: latestResult, modelPath: _modelPath!))
@@ -569,6 +570,12 @@ class _MyAppState extends State<MyApp> {
         if (done) {
           _runningRequestId = null;
           _inferenceStartTime = null;
+
+          // Useful for debugging JSON relay.
+          // // Write all responses to a file.
+          // final file = File('responses.json');
+          // file.writeAsStringSync(jsonEncode(allResponses));
+          // print('Wrote responses to: ${file.absolute.path}');
         }
       });
     });
@@ -627,11 +634,11 @@ Future<String?> _pickGgufPath() async {
   }
 
   final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
-     XTypeGroup(
+    XTypeGroup(
       // Only on iOS, macOS is fine.
       // [ERROR:flutter/runtime/dart_vm_initializer.cc(40)] Unhandled Exception: Invalid argument(s): The provided type group Instance of 'XTypeGroup' should either allow all files, or have a non-empty "uniformTypeIdentifiers"
       label: defaultTargetPlatform == TargetPlatform.iOS ? '' : '.gguf',
-      extensions:  defaultTargetPlatform == TargetPlatform.iOS ? [] : ['gguf'],
+      extensions: defaultTargetPlatform == TargetPlatform.iOS ? [] : ['gguf'],
       // UTIs are required for iOS, which does not have a .gguf UTI.
       uniformTypeIdentifiers: const [],
     ),

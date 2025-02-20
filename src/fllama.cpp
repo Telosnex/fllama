@@ -15,9 +15,9 @@
 // iOS-specific includes
 #include "../ios/llama.cpp/common/base64.hpp"
 #include "../ios/llama.cpp/common/chat.h"
+#include "../ios/llama.cpp/common/common.h"
 #include "../ios/llama.cpp/common/json.hpp"
 #include "../ios/llama.cpp/common/minja/minja.hpp"
-#include "../ios/llama.cpp/common/common.h"
 #include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml/include/ggml.h"
 #include "../ios/llama.cpp/include/llama.h"
@@ -26,9 +26,9 @@
 // macOS-specific includes
 #include "../macos/llama.cpp/common/base64.hpp"
 #include "../macos/llama.cpp/common/chat.h"
+#include "../macos/llama.cpp/common/common.h"
 #include "../macos/llama.cpp/common/json.hpp"
 #include "../macos/llama.cpp/common/minja/minja.hpp"
-#include "../macos/llama.cpp/common/common.h"
 #include "../macos/llama.cpp/common/sampling.h"
 #include "../macos/llama.cpp/ggml/include/ggml.h"
 #include "../macos/llama.cpp/include/llama.h"
@@ -36,9 +36,9 @@
 // Other platforms
 #include "llama.cpp/common/base64.hpp"
 #include "llama.cpp/common/chat.h"
+#include "llama.cpp/common/common.h"
 #include "llama.cpp/common/json.hpp"
 #include "llama.cpp/common/minja/minja.hpp"
-#include "llama.cpp/common/common.h"
 #include "llama.cpp/common/sampling.h"
 #include "llama.cpp/ggml/include/ggml.h"
 #include "llama.cpp/include/llama.h"
@@ -71,87 +71,92 @@
 #include "llama.cpp/src/llama-sampling.h"
 
 // Forward declare logging functions
-static void log_message(const char *message, fllama_log_callback dart_logger = nullptr);
-static void log_message(const std::string &message, fllama_log_callback dart_logger = nullptr);
+static void log_message(const char *message,
+                        fllama_log_callback dart_logger = nullptr);
+static void log_message(const std::string &message,
+                        fllama_log_callback dart_logger = nullptr);
 
 // Implement logging functions
 static void log_message(const char *message, fllama_log_callback dart_logger) {
-    if (dart_logger == nullptr) {
-        fprintf(stderr, "%s\n", message);
-        fflush(stderr);  // Ensure output is written immediately
-    } else {
-        // Create a copy of the message to ensure it stays alive
-        std::string msg_copy(message);
-        dart_logger(msg_copy.c_str());
-    }
+  if (dart_logger == nullptr) {
+    fprintf(stderr, "%s\n", message);
+    fflush(stderr); // Ensure output is written immediately
+  } else {
+    // Create a copy of the message to ensure it stays alive
+    std::string msg_copy(message);
+    dart_logger(msg_copy.c_str());
+  }
 }
 
-static void log_message(const std::string &message, fllama_log_callback dart_logger) {
-    // Create a stable string that won't be destroyed
-    std::string msg_copy = message;
-    log_message(msg_copy.c_str(), dart_logger);
+static void log_message(const std::string &message,
+                        fllama_log_callback dart_logger) {
+  // Create a stable string that won't be destroyed
+  std::string msg_copy = message;
+  log_message(msg_copy.c_str(), dart_logger);
 }
 
 static InferenceQueue global_inference_queue;
 
-
 enum stop_type {
-    STOP_TYPE_NONE,
-    STOP_TYPE_EOS,
-    STOP_TYPE_WORD,
-    STOP_TYPE_LIMIT,
+  STOP_TYPE_NONE,
+  STOP_TYPE_EOS,
+  STOP_TYPE_WORD,
+  STOP_TYPE_LIMIT,
 };
 
 template <typename T>
-static T json_value(const json & body, const std::string & key, const T & default_value) {
-    // Fallback null to default value
-    if (body.contains(key) && !body.at(key).is_null()) {
-        try {
-            return body.at(key);
-        } catch (NLOHMANN_JSON_NAMESPACE::detail::type_error const &) {
-            //  LOG_WRN("Wrong type supplied for parameter '%s'. Expected '%s', using default value\n", key.c_str(), json(default_value).type_name());
-            return default_value;
-        }
-    } else {
-        return default_value;
+static T json_value(const json &body, const std::string &key,
+                    const T &default_value) {
+  // Fallback null to default value
+  if (body.contains(key) && !body.at(key).is_null()) {
+    try {
+      return body.at(key);
+    } catch (NLOHMANN_JSON_NAMESPACE::detail::type_error const &) {
+      //  LOG_WRN("Wrong type supplied for parameter '%s'. Expected '%s', using
+      //  default value\n", key.c_str(), json(default_value).type_name());
+      return default_value;
     }
+  } else {
+    return default_value;
+  }
 }
 
-
-static json oaicompat_completion_params_parse(const json & body) {
+static json oaicompat_completion_params_parse(const json &body) {
   json llama_params;
 
   if (!body.contains("prompt")) {
-      throw std::runtime_error("\"prompt\" is required");
+    throw std::runtime_error("\"prompt\" is required");
   }
 
   // Handle "stop" field
   if (body.contains("stop") && body.at("stop").is_string()) {
-      llama_params["stop"] = json::array({body.at("stop").get<std::string>()});
+    llama_params["stop"] = json::array({body.at("stop").get<std::string>()});
   } else {
-      llama_params["stop"] = json_value(body, "stop", json::array());
+    llama_params["stop"] = json_value(body, "stop", json::array());
   }
 
   // Handle "n" field
   int n_choices = json_value(body, "n", 1);
   if (n_choices != 1) {
-      throw std::runtime_error("Only one completion choice is allowed");
+    throw std::runtime_error("Only one completion choice is allowed");
   }
 
   // Params supported by OAI but unsupported by llama.cpp
-  static const std::vector<std::string> unsupported_params { "best_of", "echo", "suffix" };
-  for (const auto & param : unsupported_params) {
-      if (body.contains(param)) {
-          throw std::runtime_error("Unsupported param: " + param);
-      }
+  static const std::vector<std::string> unsupported_params{"best_of", "echo",
+                                                           "suffix"};
+  for (const auto &param : unsupported_params) {
+    if (body.contains(param)) {
+      throw std::runtime_error("Unsupported param: " + param);
+    }
   }
 
   // Copy remaining properties to llama_params
-  for (const auto & item : body.items()) {
-      // Exception: if "n_predict" is present, we overwrite the value specified earlier by "max_tokens"
-      if (!llama_params.contains(item.key()) || item.key() == "n_predict") {
-          llama_params[item.key()] = item.value();
-      }
+  for (const auto &item : body.items()) {
+    // Exception: if "n_predict" is present, we overwrite the value specified
+    // earlier by "max_tokens"
+    if (!llama_params.contains(item.key()) || item.key() == "n_predict") {
+      llama_params[item.key()] = item.value();
+    }
   }
 
   return llama_params;
@@ -161,165 +166,173 @@ static json oaicompat_completion_params_parse(const json & body) {
 #include <vector>
 
 // Helper function to validate UTF-8
-bool is_valid_utf8(const std::string& str) {
-    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(str.c_str());
-    size_t len = str.length();
-    
-    for (size_t i = 0; i < len; i++) {
-        if (bytes[i] <= 0x7F) {  // Single byte character
-            continue;
-        }
-        
-        // Get number of bytes in this character
-        int extra_bytes;
-        if ((bytes[i] & 0xE0) == 0xC0) {  // 2-byte sequence
-            extra_bytes = 1;
-        } else if ((bytes[i] & 0xF0) == 0xE0) {  // 3-byte sequence
-            extra_bytes = 2;
-        } else if ((bytes[i] & 0xF8) == 0xF0) {  // 4-byte sequence
-            extra_bytes = 3;
-        } else {
-            return false;  // Invalid first byte
-        }
-        
-        // Check if we have enough bytes left
-        if (i + extra_bytes >= len) {
-            return false;
-        }
-        
-        // Validate continuation bytes
-        for (int j = 1; j <= extra_bytes; j++) {
-            if ((bytes[i + j] & 0xC0) != 0x80) {
-                return false;
-            }
-        }
-        
-        i += extra_bytes;  // Skip the extra bytes
+bool is_valid_utf8(const std::string &str) {
+  const unsigned char *bytes =
+      reinterpret_cast<const unsigned char *>(str.c_str());
+  size_t len = str.length();
+
+  for (size_t i = 0; i < len; i++) {
+    if (bytes[i] <= 0x7F) { // Single byte character
+      continue;
     }
-    
-    return true;
+
+    // Get number of bytes in this character
+    int extra_bytes;
+    if ((bytes[i] & 0xE0) == 0xC0) { // 2-byte sequence
+      extra_bytes = 1;
+    } else if ((bytes[i] & 0xF0) == 0xE0) { // 3-byte sequence
+      extra_bytes = 2;
+    } else if ((bytes[i] & 0xF8) == 0xF0) { // 4-byte sequence
+      extra_bytes = 3;
+    } else {
+      return false; // Invalid first byte
+    }
+
+    // Check if we have enough bytes left
+    if (i + extra_bytes >= len) {
+      return false;
+    }
+
+    // Validate continuation bytes
+    for (int j = 1; j <= extra_bytes; j++) {
+      if ((bytes[i + j] & 0xC0) != 0x80) {
+        return false;
+      }
+    }
+
+    i += extra_bytes; // Skip the extra bytes
+  }
+
+  return true;
 }
 
 // Helper function to sanitize UTF-8
-std::string sanitize_utf8(const std::string& input) {
-    std::string result;
-    result.reserve(input.length());  // Pre-allocate for efficiency
-    
-    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(input.c_str());
-    size_t len = input.length();
-    
-    for (size_t i = 0; i < len; ) {
-        if (bytes[i] <= 0x7F) {  // ASCII character
-            result.push_back(bytes[i]);
-            i++;
-            continue;
-        }
-        
-        // Try to read a complete UTF-8 sequence
-        int sequence_length = 0;
-        if ((bytes[i] & 0xE0) == 0xC0) sequence_length = 2;
-        else if ((bytes[i] & 0xF0) == 0xE0) sequence_length = 3;
-        else if ((bytes[i] & 0xF8) == 0xF0) sequence_length = 4;
-        
-        bool valid_sequence = true;
-        if (sequence_length > 0 && i + sequence_length <= len) {
-            // Verify continuation bytes
-            for (int j = 1; j < sequence_length; j++) {
-                if ((bytes[i + j] & 0xC0) != 0x80) {
-                    valid_sequence = false;
-                    break;
-                }
-            }
-            
-            if (valid_sequence) {
-                // Copy the entire valid sequence
-                result.append(reinterpret_cast<const char*>(bytes + i), sequence_length);
-                i += sequence_length;
-                continue;
-            }
-        }
-        
-        // If we get here, we encountered an invalid sequence
-        // Replace with Unicode replacement character (�) encoded in UTF-8
-        result.append("\xEF\xBF\xBD");
-        i++;
+std::string sanitize_utf8(const std::string &input) {
+  std::string result;
+  result.reserve(input.length()); // Pre-allocate for efficiency
+
+  const unsigned char *bytes =
+      reinterpret_cast<const unsigned char *>(input.c_str());
+  size_t len = input.length();
+
+  for (size_t i = 0; i < len;) {
+    if (bytes[i] <= 0x7F) { // ASCII character
+      result.push_back(bytes[i]);
+      i++;
+      continue;
     }
-    
-    return result;
+
+    // Try to read a complete UTF-8 sequence
+    int sequence_length = 0;
+    if ((bytes[i] & 0xE0) == 0xC0)
+      sequence_length = 2;
+    else if ((bytes[i] & 0xF0) == 0xE0)
+      sequence_length = 3;
+    else if ((bytes[i] & 0xF8) == 0xF0)
+      sequence_length = 4;
+
+    bool valid_sequence = true;
+    if (sequence_length > 0 && i + sequence_length <= len) {
+      // Verify continuation bytes
+      for (int j = 1; j < sequence_length; j++) {
+        if ((bytes[i + j] & 0xC0) != 0x80) {
+          valid_sequence = false;
+          break;
+        }
+      }
+
+      if (valid_sequence) {
+        // Copy the entire valid sequence
+        result.append(reinterpret_cast<const char *>(bytes + i),
+                      sequence_length);
+        i += sequence_length;
+        continue;
+      }
+    }
+
+    // If we get here, we encountered an invalid sequence
+    // Replace with Unicode replacement character (�) encoded in UTF-8
+    result.append("\xEF\xBF\xBD");
+    i++;
+  }
+
+  return result;
 }
 
 static json to_json_oaicompat_chat(
-  const std::string& content,
-  const std::string& oaicompat_model,
-  const std::string& oaicompat_cmpl_id,
-  const std::string& build_info,
-  stop_type stop,
-  common_chat_format oaicompat_chat_format,
-  // bool verbose,
-  // const std::vector<completion_token_output>& probs_output,
-  // bool post_sampling_probs,
-  int n_decoded,
-  int n_prompt_tokens
-  // const result_timings* timings
+    const std::string &content, const std::string &oaicompat_model,
+    const std::string &oaicompat_cmpl_id, const std::string &build_info,
+    stop_type stop, common_chat_format oaicompat_chat_format,
+    // bool verbose,
+    // const std::vector<completion_token_output>& probs_output,
+    // bool post_sampling_probs,
+    int n_decoded, int n_prompt_tokens
+    // const result_timings* timings
 ) {
-  // Issues with invalid UTF-8 were virtually always reproducible on iOS Simulator with
-  // DeepSeek R1 Qwen 1.5B Distill.
-  std::string sanitized_content;
+  // Issues with invalid UTF-8 were virtually always reproducible on iOS
+  // Simulator with DeepSeek R1 Qwen 1.5B Distill.
   try {
-      sanitized_content = sanitize_utf8(content);
-  } catch (const std::exception& e) {
-      throw std::runtime_error("Failed to sanitize content: " + std::string(e.what()));
+    auto is_valid = is_valid_utf8(content);
+    // If sanitization changed the content, it means we had invalid UTF-8
+    if (!is_valid) {
+      return NULL;
+    }
+  } catch (const std::exception &e) {
+    throw std::runtime_error("Failed to sanitize content: " +
+                             std::string(e.what()));
   }
 
   std::string finish_reason = "length";
   common_chat_msg msg;
-  if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS || stop == STOP_TYPE_NONE) {
-      try {
-          msg = common_chat_parse(sanitized_content, oaicompat_chat_format);
-          finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
-      } catch (const std::exception & e) {
-          msg.content = sanitized_content;
-      }
+  if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS ||
+      stop == STOP_TYPE_NONE) {
+    try {
+      msg = common_chat_parse(content, oaicompat_chat_format);
+      finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
+    } catch (const std::exception &e) {
+      return NULL;
+    }
   } else {
-      msg.content = sanitized_content;
+    return NULL;
   }
 
   // Also validate any tool call content
   if (!msg.tool_calls.empty()) {
-      for (auto& tc : msg.tool_calls) {
-          tc.name = sanitize_utf8(tc.name);
-          tc.arguments = sanitize_utf8(tc.arguments);
-          tc.id = sanitize_utf8(tc.id);
-      }
+    for (auto &tc : msg.tool_calls) {
+      tc.name = sanitize_utf8(tc.name);
+      tc.arguments = sanitize_utf8(tc.arguments);
+      tc.id = sanitize_utf8(tc.id);
+    }
   }
 
-  json message {
+  json message{
       {"role", "assistant"},
   };
   if (!msg.reasoning_content.empty()) {
-      message["reasoning_content"] = msg.reasoning_content;
+    message["reasoning_content"] = msg.reasoning_content;
   }
   if (msg.content.empty() && !msg.tool_calls.empty()) {
-      message["content"] = json();
+    message["content"] = json();
   } else {
-      message["content"] = msg.content;
+    message["content"] = msg.content;
   }
   if (!msg.tool_calls.empty()) {
-      auto tool_calls = json::array();
-      for (const auto & tc : msg.tool_calls) {
-          tool_calls.push_back({
-              {"type", "function"},
-              {"function", {
-                  {"name", tc.name},
-                  {"arguments", tc.arguments},
-              }},
-              {"id", tc.id},
-          });
-      }
-      message["tool_calls"] = tool_calls;
+    auto tool_calls = json::array();
+    for (const auto &tc : msg.tool_calls) {
+      tool_calls.push_back({
+          {"type", "function"},
+          {"function",
+           {
+               {"name", tc.name},
+               {"arguments", tc.arguments},
+           }},
+          {"id", tc.id},
+      });
+    }
+    message["tool_calls"] = tool_calls;
   }
 
-  json choice {
+  json choice{
       {"finish_reason", finish_reason},
       {"index", 0},
       {"message", message},
@@ -327,26 +340,26 @@ static json to_json_oaicompat_chat(
 
   // if (!probs_output.empty()) {
   //     choice["logprobs"] = json{
-  //         {"content", completion_token_output::probs_vector_to_json(probs_output, post_sampling_probs)},
+  //         {"content",
+  //         completion_token_output::probs_vector_to_json(probs_output,
+  //         post_sampling_probs)},
   //     };
   // }
 
   std::time_t t = std::time(0);
 
-  json res = json {
-      {"choices",            json::array({choice})},
-      {"created",           t},
-      {"model",             oaicompat_model},
-      {"system_fingerprint", build_info},
-      {"object",            "chat.completion"},
-      {"__llamacpp_detected_chat_format", common_chat_format_name(oaicompat_chat_format) },
-      {"usage", json {
-          {"completion_tokens", n_decoded},
-          {"prompt_tokens",    n_prompt_tokens},
-          {"total_tokens",     n_decoded + n_prompt_tokens}
-      }},
-      {"id", oaicompat_cmpl_id}
-  };
+  json res =
+      json{{"choices", json::array({choice})},
+           {"created", t},
+           {"model", oaicompat_model},
+           {"system_fingerprint", build_info},
+           {"object", "chat.completion"},
+           {"__llamacpp_detected_chat_format",
+            common_chat_format_name(oaicompat_chat_format)},
+           {"usage", json{{"completion_tokens", n_decoded},
+                          {"prompt_tokens", n_prompt_tokens},
+                          {"total_tokens", n_decoded + n_prompt_tokens}}},
+           {"id", oaicompat_cmpl_id}};
 
   // extra fields for debugging purposes
   // if (verbose) {
@@ -374,82 +387,97 @@ fllama_inference_cancel(int request_id) {
 }
 
 static bool add_tokens_to_context(struct llama_context *ctx_llama,
-                                  const std::vector<llama_token>& tokens, int n_batch,
-                                  int *n_past, fllama_log_callback logger) {
-    log_message("[DEBUG] add_tokens_to_context start", logger);
-    const int N = (int)tokens.size();
-    log_message("[DEBUG] token count: " + std::to_string(N), logger);
-    if (N == 0) return true;
-
-    // Keep tokens data alive until we're done with the batch
-    std::vector<llama_token> tokens_data = tokens;
-    log_message("[DEBUG] about to call llama_batch_get_one", logger);
-    llama_batch batch = llama_batch_get_one(tokens_data.data(), tokens_data.size());
-    log_message("[DEBUG] got batch with " + std::to_string(batch.n_tokens) + " tokens", logger);
-    
-    // Check context space
-    int n_ctx = llama_n_ctx(ctx_llama);
-    int n_ctx_used = llama_get_kv_cache_used_cells(ctx_llama);
-    log_message("[DEBUG] ctx space: used=" + std::to_string(n_ctx_used) + ", total=" + std::to_string(n_ctx), logger);
-    
-    if (n_ctx_used + batch.n_tokens > n_ctx) {
-        log_message("context size exceeded", logger);
-        return false;
-    }
-    
-    log_message("[DEBUG] about to decode batch", logger);
-    if (llama_decode(ctx_llama, batch)) {
-        log_message("failed to decode", logger);
-        return false;
-    }
-    log_message("[DEBUG] decode successful", logger);
-    
-    // Update past token count
-    *n_past = llama_get_kv_cache_used_cells(ctx_llama);
-    log_message("[DEBUG] updated n_past to " + std::to_string(*n_past), logger);
+                                  const std::vector<llama_token> &tokens,
+                                  int n_batch, int *n_past,
+                                  fllama_log_callback logger) {
+  log_message("[DEBUG] add_tokens_to_context start", logger);
+  const int N = (int)tokens.size();
+  log_message("[DEBUG] token count: " + std::to_string(N), logger);
+  if (N == 0)
     return true;
+
+  // Keep tokens data alive until we're done with the batch
+  std::vector<llama_token> tokens_data = tokens;
+  log_message("[DEBUG] about to call llama_batch_get_one", logger);
+  llama_batch batch =
+      llama_batch_get_one(tokens_data.data(), tokens_data.size());
+  log_message("[DEBUG] got batch with " + std::to_string(batch.n_tokens) +
+                  " tokens",
+              logger);
+
+  // Check context space
+  int n_ctx = llama_n_ctx(ctx_llama);
+  int n_ctx_used = llama_get_kv_cache_used_cells(ctx_llama);
+  log_message("[DEBUG] ctx space: used=" + std::to_string(n_ctx_used) +
+                  ", total=" + std::to_string(n_ctx),
+              logger);
+
+  if (n_ctx_used + batch.n_tokens > n_ctx) {
+    log_message("context size exceeded", logger);
+    return false;
+  }
+
+  log_message("[DEBUG] about to decode batch", logger);
+  if (llama_decode(ctx_llama, batch)) {
+    log_message("failed to decode", logger);
+    return false;
+  }
+  log_message("[DEBUG] decode successful", logger);
+
+  // Update past token count
+  *n_past = llama_get_kv_cache_used_cells(ctx_llama);
+  log_message("[DEBUG] updated n_past to " + std::to_string(*n_past), logger);
+  return true;
 }
 
 static bool add_token_to_context(struct llama_context *ctx_llama,
-                                 llama_token id, int *n_past, fllama_log_callback logger) {
-    log_message("[DEBUG] adding token " + std::to_string(id) + " to context", logger);
-    log_message("[DEBUG] add_token_to_context start, token id: " + std::to_string(id), logger);
-    
-    // Check context space first
-    int n_ctx = llama_n_ctx(ctx_llama);
-    int n_ctx_used = llama_get_kv_cache_used_cells(ctx_llama);
-    log_message("[DEBUG] ctx space: used=" + std::to_string(n_ctx_used) + ", total=" + std::to_string(n_ctx), logger);
-    
-    if (n_ctx_used + 1 > n_ctx) {
-        log_message("context size exceeded", logger);
-        return false;
-    }
+                                 llama_token id, int *n_past,
+                                 fllama_log_callback logger) {
+  log_message("[DEBUG] adding token " + std::to_string(id) + " to context",
+              logger);
+  log_message("[DEBUG] add_token_to_context start, token id: " +
+                  std::to_string(id),
+              logger);
 
-    // Create batch with a single token, following simple-chat.cpp
-    llama_batch batch = llama_batch_get_one(&id, 1);
-    log_message("[DEBUG] created batch with token " + std::to_string(id), logger);
+  // Check context space first
+  int n_ctx = llama_n_ctx(ctx_llama);
+  int n_ctx_used = llama_get_kv_cache_used_cells(ctx_llama);
+  log_message("[DEBUG] ctx space: used=" + std::to_string(n_ctx_used) +
+                  ", total=" + std::to_string(n_ctx),
+              logger);
 
-    // No need to manually manage logits - llama_batch_get_one handles this
-    
-    log_message("[DEBUG] about to decode", logger);
-    if (llama_decode(ctx_llama, batch)) {
-        log_message("failed to decode", logger);
-        
-        return false;
-    }
-    log_message("[DEBUG] decode successful", logger);
+  if (n_ctx_used + 1 > n_ctx) {
+    log_message("context size exceeded", logger);
+    return false;
+  }
 
-    llama_batch_free(batch);
-    *n_past = llama_get_kv_cache_used_cells(ctx_llama);
-    log_message("[DEBUG] add_token_to_context complete, n_past: " + std::to_string(*n_past), logger);
-    return true;
+  // Create batch with a single token, following simple-chat.cpp
+  llama_batch batch = llama_batch_get_one(&id, 1);
+  log_message("[DEBUG] created batch with token " + std::to_string(id), logger);
+
+  // No need to manually manage logits - llama_batch_get_one handles this
+
+  log_message("[DEBUG] about to decode", logger);
+  if (llama_decode(ctx_llama, batch)) {
+    log_message("failed to decode", logger);
+
+    return false;
+  }
+  log_message("[DEBUG] decode successful", logger);
+
+  llama_batch_free(batch);
+  *n_past = llama_get_kv_cache_used_cells(ctx_llama);
+  log_message("[DEBUG] add_token_to_context complete, n_past: " +
+                  std::to_string(*n_past),
+              logger);
+  return true;
 }
 
 static bool add_string_to_context(struct llama_context *ctx_llama,
                                   const char *str, int n_batch, int *n_past,
                                   bool add_bos, fllama_log_callback logger) {
   std::string str2 = str;
-  const llama_vocab * vocab = llama_model_get_vocab(llama_get_model(ctx_llama));
+  const llama_vocab *vocab = llama_model_get_vocab(llama_get_model(ctx_llama));
   const int n_prompt_tokens = -llama_tokenize(
       vocab, str2.c_str(), str2.length(), NULL, 0, add_bos, true);
   std::vector<llama_token> embd_inp(n_prompt_tokens);
@@ -465,8 +493,6 @@ static void log_callback_wrapper(enum ggml_log_level level, const char *text,
                                  void *user_data) {
   std::cout << "[llama] " << text;
 }
-
-
 
 EMSCRIPTEN_KEEPALIVE void
 fllama_inference_sync(fllama_inference_request request,
@@ -484,16 +510,18 @@ fllama_inference_sync(fllama_inference_request request,
     ctx_params.n_ctx = requested_context_size;
     std::cout << "[fllama] Context size: " << ctx_params.n_ctx << std::endl;
     // >=32 needed for BLAS.
-    // # Why is n_batch = context size? 
-    // Post-Jan 2025 update, the llama.cpp inference imitates simple-chat.cpp, which
-    // adds the entire prompt in one call. There isn't a downside to this, in early 2024,
-    // there used to be an issue with memory headroom and context size on extremely constrained
-    // devices, but that's no longer the case.
+    // # Why is n_batch = context size?
+    // Post-Jan 2025 update, the llama.cpp inference imitates simple-chat.cpp,
+    // which adds the entire prompt in one call. There isn't a downside to this,
+    // in early 2024, there used to be an issue with memory headroom and context
+    // size on extremely constrained devices, but that's no longer the case.
     //
-    // Now, if we try using a batch size < input token count, there will be an assertion failure. 
-    // In general, it seems batch_size = context_size is the best way because that guarantees as
-    // the batch updates after each inference run, there won't be any issues. (the idea there might
-    // be an issue assumes batch = input + all tokens generated thus far, which may not be the case)
+    // Now, if we try using a batch size < input token count, there will be an
+    // assertion failure. In general, it seems batch_size = context_size is the
+    // best way because that guarantees as the batch updates after each
+    // inference run, there won't be any issues. (the idea there might be an
+    // issue assumes batch = input + all tokens generated thus far, which may
+    // not be the case)
     uint32_t n_batch = requested_context_size;
     ctx_params.n_batch = requested_context_size;
     std::cout << "[fllama] Batch size: " << ctx_params.n_batch << std::endl;
@@ -569,15 +597,15 @@ fllama_inference_sync(fllama_inference_request request,
     bool should_load_clip = false;
     if (prompt_contains_img) {
       log_message("Prompt contains images, will process them later.",
-                 request.dart_logger);
+                  request.dart_logger);
       std::string mmproj =
           request.model_mmproj_path == NULL ? "" : request.model_mmproj_path;
       if (mmproj.empty()) {
         log_message(
-              "Warning: prompt contains images, but inference request doesn't "
-              "specify model_mmproj_path. Multimodal model requires a .mmproj "
-              "file.",
-              request.dart_logger);
+            "Warning: prompt contains images, but inference request doesn't "
+            "specify model_mmproj_path. Multimodal model requires a .mmproj "
+            "file.",
+            request.dart_logger);
       } else {
         should_load_clip = true;
       }
@@ -607,7 +635,8 @@ fllama_inference_sync(fllama_inference_request request,
       if (model != NULL) {
         llama_model_free(model);
       }
-      callback(/* response */ "Error: Unable to load model.", /* json */ "", /* done */ true);
+      callback(/* response */ "Error: Unable to load model.", /* json */ "",
+               /* done */ true);
       log_message("Error: Unable to load model.", request.dart_logger);
       cleanup();
       return;
@@ -616,73 +645,92 @@ fllama_inference_sync(fllama_inference_request request,
     log_message("Initialized model.", request.dart_logger);
     std::string final_request_input = request.input;
 
-     nlohmann::ordered_json  body = NULL;
+    nlohmann::ordered_json body = NULL;
 
     auto chat_templates = common_chat_templates_init(model, "");
     auto openai_json_string = request.openai_request_json_string;
     auto common_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
     if (openai_json_string != NULL) {
-        log_message("Processing OpenAI chat format", request.dart_logger);
-        try {
-             body = json::parse(openai_json_string);
-            
-            // Try to use model's built-in template, fallback to chatml
-            try {
-                common_chat_format_example(chat_templates.get(), true);
-            } catch (const std::exception & e) {
-                log_message("Model's chat template not supported, falling back to chatml", request.dart_logger);
-                chat_templates = common_chat_templates_init(model, "chatml");
-            }
-            
-            // Format messages using chat template
-            if (body.contains("messages") && body["messages"].is_array()) {
-                common_chat_templates_inputs tmpl_inputs;
-                tmpl_inputs.use_jinja = true;
-                tmpl_inputs.add_generation_prompt = true;
-                tmpl_inputs.messages = common_chat_msgs_parse_oaicompat<json>(body["messages"]);
-                
-                // Handle tools if present
-                if (body.contains("tools")) {
-                  
-                  log_message("DEBUG Tools JSON: " + body["tools"].dump(), request.dart_logger);
-                  auto tools = json_value(body, "tools", json());
-                  log_message("DEBUG Tools after json_value: " + tools.dump(), request.dart_logger);
-                  
-                  // Check the actual type
-                  log_message("DEBUG Tools type: " + std::string(tools.type_name()), request.dart_logger);
-                  
+      log_message("Processing OpenAI chat format", request.dart_logger);
+      try {
+        body = json::parse(openai_json_string);
 
-                    tmpl_inputs.tools = common_chat_tools_parse_oaicompat(tools);
-                    tmpl_inputs.tool_choice = body.contains("tool_choice") 
-                        ? common_chat_tool_choice_parse_oaicompat(body["tool_choice"].template get<std::string>())
-                        : COMMON_CHAT_TOOL_CHOICE_AUTO;
-                }
-                
-                auto result = common_chat_templates_apply(chat_templates.get(), tmpl_inputs);
-                final_request_input = result.prompt;
-                common_chat_format = result.format;
-                log_message("Using formatted chat input with template", request.dart_logger);
-                log_message("Template format: " + std::to_string(result.format), request.dart_logger);
-                log_message("Formatted input: " + final_request_input, request.dart_logger);
-            } else {
-                std::string keys;
-                for (auto it = body.begin(); it != body.end(); ++it) {
-                    keys += it.key() + ", ";
-                }
-                if (!keys.empty()) {
-                    keys.pop_back(); // Remove last comma
-                    keys.pop_back(); // Remove last space
-                }
-                log_message("No messages found in OpenAI chat format. JSON Keys ONLY, NO VALUES: " + keys, request.dart_logger);
-            }
-        } catch (const std::exception& e) {
-            log_message("Error processing OpenAI chat format: " + std::string(e.what()), request.dart_logger);
-            log_message("Falling back to raw input", request.dart_logger);
-            log_message("One More Time Error processing OpenAI chat format: " + std::string(e.what()), request.dart_logger);
-            log_message("Fr Exception");
+        // Try to use model's built-in template, fallback to chatml
+        try {
+          common_chat_format_example(chat_templates.get(), true);
+        } catch (const std::exception &e) {
+          log_message(
+              "Model's chat template not supported, falling back to chatml",
+              request.dart_logger);
+          chat_templates = common_chat_templates_init(model, "chatml");
         }
+
+        // Format messages using chat template
+        if (body.contains("messages") && body["messages"].is_array()) {
+          common_chat_templates_inputs tmpl_inputs;
+          tmpl_inputs.use_jinja = true;
+          tmpl_inputs.add_generation_prompt = true;
+          tmpl_inputs.messages =
+              common_chat_msgs_parse_oaicompat<json>(body["messages"]);
+
+          // Handle tools if present
+          if (body.contains("tools")) {
+
+            log_message("DEBUG Tools JSON: " + body["tools"].dump(),
+                        request.dart_logger);
+            auto tools = json_value(body, "tools", json());
+            log_message("DEBUG Tools after json_value: " + tools.dump(),
+                        request.dart_logger);
+
+            // Check the actual type
+            log_message("DEBUG Tools type: " + std::string(tools.type_name()),
+                        request.dart_logger);
+
+            tmpl_inputs.tools = common_chat_tools_parse_oaicompat(tools);
+            tmpl_inputs.tool_choice =
+                body.contains("tool_choice")
+                    ? common_chat_tool_choice_parse_oaicompat(
+                          body["tool_choice"].template get<std::string>())
+                    : COMMON_CHAT_TOOL_CHOICE_AUTO;
+          }
+
+          auto result =
+              common_chat_templates_apply(chat_templates.get(), tmpl_inputs);
+          final_request_input = result.prompt;
+          common_chat_format = result.format;
+          log_message("Using formatted chat input with template",
+                      request.dart_logger);
+          log_message("Template format: " + std::to_string(result.format),
+                      request.dart_logger);
+          log_message("Formatted input: " + final_request_input,
+                      request.dart_logger);
+        } else {
+          std::string keys;
+          for (auto it = body.begin(); it != body.end(); ++it) {
+            keys += it.key() + ", ";
+          }
+          if (!keys.empty()) {
+            keys.pop_back(); // Remove last comma
+            keys.pop_back(); // Remove last space
+          }
+          log_message("No messages found in OpenAI chat format. JSON Keys "
+                      "ONLY, NO VALUES: " +
+                          keys,
+                      request.dart_logger);
+        }
+      } catch (const std::exception &e) {
+        log_message("Error processing OpenAI chat format: " +
+                        std::string(e.what()),
+                    request.dart_logger);
+        log_message("Falling back to raw input", request.dart_logger);
+        log_message("One More Time Error processing OpenAI chat format: " +
+                        std::string(e.what()),
+                    request.dart_logger);
+        log_message("Fr Exception");
+      }
     } else {
-        log_message("No OpenAI chat format provided, using raw input", request.dart_logger);
+      log_message("No OpenAI chat format provided, using raw input",
+                  request.dart_logger);
     }
 
     // TODO: CLIP support
@@ -719,12 +767,12 @@ fllama_inference_sync(fllama_inference_request request,
     int64_t model_load_end = ggml_time_ms();
     int64_t model_load_duration_ms = model_load_end - start;
     log_message("Model loaded @ " + std::to_string(model_load_duration_ms) +
-                   " ms.",
-               request.dart_logger);
+                    " ms.",
+                request.dart_logger);
 
     // Tokenize the prompt
     const int n_ctx = llama_n_ctx(ctx);
-    const llama_vocab * vocab = llama_model_get_vocab(model);
+    const llama_vocab *vocab = llama_model_get_vocab(model);
 
     const int n_prompt_tokens =
         -llama_tokenize(vocab, final_request_input.c_str(),
@@ -739,12 +787,12 @@ fllama_inference_sync(fllama_inference_request request,
       return;
     }
     log_message("Input token count: " + std::to_string(tokens_list.size()),
-               request.dart_logger);
+                request.dart_logger);
     log_message("Output token count: " + std::to_string(request.max_tokens),
-               request.dart_logger);
+                request.dart_logger);
     const int n_max_tokens = request.max_tokens;
     log_message("Number of threads: " + std::to_string(ctx_params.n_threads),
-               request.dart_logger);
+                request.dart_logger);
 
     // 2. Load the prompt into the context.
     int n_past = 0;
@@ -760,8 +808,8 @@ fllama_inference_sync(fllama_inference_request request,
           idx_embedding++;
         }
         log_message("Adding image #" + std::to_string(idx_embedding + 1) +
-                       " to context.",
-                   request.dart_logger);
+                        " to context.",
+                    request.dart_logger);
         auto success =
             add_image_embed_to_context(ctx, embedding, n_batch, &n_past);
         if (!success) {
@@ -772,29 +820,31 @@ fllama_inference_sync(fllama_inference_request request,
         }
         llava_image_embed_free(embedding);
         log_message("Added image #" + std::to_string(idx_embedding + 1) +
-                       " to context.",
-                   request.dart_logger);
+                        " to context.",
+                    request.dart_logger);
       }
     }
 
     log_message("Adding input to context...length: " +
-                   std::to_string(final_request_input.length()),
-               request.dart_logger);
+                    std::to_string(final_request_input.length()),
+                request.dart_logger);
     log_message("Context size: " + std::to_string(n_ctx), request.dart_logger);
     log_message("Input tokens: " + std::to_string(tokens_list.size()),
-               request.dart_logger);
-    add_tokens_to_context(ctx, tokens_list, n_batch, &n_past, request.dart_logger);
+                request.dart_logger);
+    add_tokens_to_context(ctx, tokens_list, n_batch, &n_past,
+                          request.dart_logger);
     log_message("Added input to context.", request.dart_logger);
     // Split the input into lines for more reliable logging
-    // log_message("[IMPORTANT] =================== FINAL INPUT START ===================", request.dart_logger);
-    // std::istringstream stream(final_request_input);
-    // std::string line;
-    // int line_number = 1;
-    // while (std::getline(stream, line)) {
-    //     std::string numbered_line = "[INPUT LINE " + std::to_string(line_number++) + "] " + line;
+    // log_message("[IMPORTANT] =================== FINAL INPUT START
+    // ===================", request.dart_logger); std::istringstream
+    // stream(final_request_input); std::string line; int line_number = 1; while
+    // (std::getline(stream, line)) {
+    //     std::string numbered_line = "[INPUT LINE " +
+    //     std::to_string(line_number++) + "] " + line;
     //     log_message(numbered_line.c_str(), request.dart_logger);
     // }
-    // log_message("[IMPORTANT] =================== FINAL INPUT END ======================", request.dart_logger);
+    // log_message("[IMPORTANT] =================== FINAL INPUT END
+    // ======================", request.dart_logger);
     const char *eos_token_chars =
         request.eos_token != NULL ? request.eos_token
                                   : fllama_get_eos_token(request.model_path);
@@ -802,8 +852,8 @@ fllama_inference_sync(fllama_inference_request request,
     free((void *)eos_token_chars);
     const int64_t context_setup_complete = ggml_time_ms();
     log_message("Context setup complete & input added to context. Took " +
-                   std::to_string(context_setup_complete - start) + " ms.",
-               request.dart_logger);
+                    std::to_string(context_setup_complete - start) + " ms.",
+                request.dart_logger);
 
     // 3. Generate tokens.
     // Check for cancellation before starting the generation loop
@@ -811,33 +861,13 @@ fllama_inference_sync(fllama_inference_request request,
 
     if (global_inference_queue.is_cancelled(request_id)) {
       log_message("Cancelled before starting generation loop. ID:" +
-                     std::to_string(request_id),
-                 request.dart_logger);
+                      std::to_string(request_id),
+                  request.dart_logger);
       callback("", "", true);
       cleanup();
       return;
     }
 
-    // Issue empty callback with done = false. This is to provide a signal
-    // that inference is about to start, with the intention of giving clients 
-    // a way to detect if the previous inference crashed. 
-    // 
-    // That has to be done here, instead of client-side, because the client
-    // cannot differentiate between a request being queued and immediately executed.
-    // 
-    // With this, it can flip a "isRunning" flag to true, persist it, and then
-    // if it later tries running inference when the flag is true, it can assume
-    // the previous inference crashed.
-    //
-    // The root cause here is model files come in a variety of shapes and sizes,
-    // For example, there were q4_0_0 models in H2 2024 that had significantly faster
-    // inference on ARM. However, running those same models on macOS ARM would crash
-    // due to an assertion failure deep in ggml.cpp. 
-    // - try / catch in C++ still led to the assertion
-    // - signal handlers are fraught and did not work anyway
-    // - being in a separate executable/process is not an option on at least iOS.
-    callback("", "", false);
-    
     const auto estimated_total_size = n_max_tokens * 10;
     std::string result;
     result.reserve(estimated_total_size);
@@ -845,7 +875,10 @@ fllama_inference_sync(fllama_inference_request request,
         estimated_total_size); // Allocate once with estimated size
 
     int n_gen = 0;
-    std::string buffer; // Buffer to accumulate potential EOS token sequences
+    std::string buffer;   // Buffer to accumulate potential EOS token sequences
+    json last_valid_json; // Track last valid JSON response
+    std::string last_valid_json_string;
+    bool has_valid_json = false;
 
     const auto model_eos_token = llama_token_eos(vocab);
     const int64_t start_t = ggml_time_ms();
@@ -858,17 +891,17 @@ fllama_inference_sync(fllama_inference_request request,
     };
     /**
      * Token Generation Loop
-     * 
+     *
      * Each iteration follows this sequence:
      * 1. Decode current batch (updates KV cache/model state)
      * 2. Sample next token (using updated state)
      * 3. Convert token to text & add to output
      * 4. Create new batch with sampled token (for next iteration)
-     * 
+     *
      * Batches represent "what needs to be processed to update the state
      * before we can sample the next token". The model's state is maintained
      * in its KV cache, which gets updated when we decode each batch.
-     * 
+     *
      * Example flow:
      * Initial state -> [decode nothing] -> sample "The" ->
      * [decode "The"] -> sample "cat" ->
@@ -877,59 +910,78 @@ fllama_inference_sync(fllama_inference_request request,
     log_message("[DEBUG] starting token generation loop", request.dart_logger);
     llama_token new_token_id = llama_sampler_sample(smpl, ctx, -1);
     llama_batch batch = llama_batch_get_one(&new_token_id, 1);
-    
+
     while (true) {
-        // Check context space
-        int n_ctx = llama_n_ctx(ctx);
-        int n_ctx_used = llama_get_kv_cache_used_cells(ctx);
-        if (n_ctx_used + batch.n_tokens > n_ctx) {
-            log_message("[DEBUG] context size exceeded", request.dart_logger);
-            break;
+      // Check context space
+      int n_ctx = llama_n_ctx(ctx);
+      int n_ctx_used = llama_get_kv_cache_used_cells(ctx);
+      if (n_ctx_used + batch.n_tokens > n_ctx) {
+        log_message("[DEBUG] context size exceeded", request.dart_logger);
+        break;
+      }
+
+      // Convert current token to text and output it
+      char token_text[256];
+      int token_len = llama_token_to_piece(vocab, new_token_id, token_text,
+                                           sizeof(token_text), 0, true);
+      if (token_len < 0) {
+        log_message("[DEBUG] failed to convert token to text",
+                    request.dart_logger);
+        break;
+      }
+
+      // Add to result and send partial update
+      std::string piece(token_text, token_len);
+      result += piece;
+      n_gen++;
+      if (callback != NULL) {
+        std::strcpy(c_result, result.c_str());
+        auto completion_response = to_json_oaicompat_chat(
+            result, request.model_path,
+            "cmpl-" + std::to_string(request.request_id), "", STOP_TYPE_NONE,
+            common_chat_format, n_gen, n_prompt_tokens);
+
+        // Only update last_valid_json and call callback if we got a valid
+        // response (i.e. if the response isn't just echoing back
+        // last_valid_json)
+        if (completion_response != NULL &&
+            (!has_valid_json || completion_response != last_valid_json)) {
+          std::string json_str = completion_response.dump();
+          if (is_valid_utf8(json_str)) {
+            last_valid_json = completion_response;
+            last_valid_json_string = json_str;
+            has_valid_json = true;
+            callback(c_result, last_valid_json_string.c_str(), false);
+          }
         }
-    
-        // Convert current token to text and output it
-        char token_text[256];
-        int token_len = llama_token_to_piece(vocab, new_token_id, token_text, sizeof(token_text), 0, true);
-        if (token_len < 0) {
-            log_message("[DEBUG] failed to convert token to text", request.dart_logger);
-            break;
-        }
-        
-        // Add to result and send partial update
-        std::string piece(token_text, token_len);
-        result += piece;
-        n_gen++;
-        if (callback != NULL) {
-            std::strcpy(c_result, result.c_str());
-            const json completion_response = to_json_oaicompat_chat(
-                result, request.model_path, "cmpl-" + std::to_string(request.request_id), "", STOP_TYPE_NONE, common_chat_format, n_gen, n_prompt_tokens);
-            callback(c_result, completion_response.dump().c_str(), false);
-        }
-    
-        // Process current batch
-        if (llama_decode(ctx, batch)) {
-            log_message("[DEBUG] decode failed", request.dart_logger);
-            break;
-        }
-        // Sample next token
-        new_token_id = llama_sampler_sample(smpl, ctx, -1);
-    
-        // Check for end conditions
-        if (llama_token_is_eog(vocab, new_token_id)) {
-            log_message("[DEBUG] end of generation detected", request.dart_logger);
-            break;
-        }
-        if (n_gen >= n_max_tokens) {
-            log_message("[DEBUG] reached max tokens: " + std::to_string(n_max_tokens), request.dart_logger);
-            break;
-        }
-        if (global_inference_queue.is_cancelled(request_id)) {
-            log_message("[DEBUG] generation cancelled", request.dart_logger);
-            break;
-        }
-    
-        // Create new batch for next iteration
-        batch = llama_batch_get_one(&new_token_id, 1);
+      }
+
+      // Process current batch
+      if (llama_decode(ctx, batch)) {
+        log_message("[DEBUG] decode failed", request.dart_logger);
+        break;
+      }
+      // Sample next token
+      new_token_id = llama_sampler_sample(smpl, ctx, -1);
+
+      // Check for end conditions
+      if (llama_token_is_eog(vocab, new_token_id)) {
+        log_message("[DEBUG] end of generation detected", request.dart_logger);
+        break;
+      }
+      if (n_gen >= n_max_tokens) {
+        log_message("[DEBUG] reached max tokens: " +
+                        std::to_string(n_max_tokens),
+                    request.dart_logger);
+        break;
+      }
+      if (global_inference_queue.is_cancelled(request_id)) {
+        log_message("[DEBUG] generation cancelled", request.dart_logger);
+        break;
+      }
+
+      // Create new batch for next iteration
+      batch = llama_batch_get_one(&new_token_id, 1);
       // auto add_to_context_end = std::chrono::high_resolution_clock::now();
       // std::chrono::duration<double, std::milli> add_to_context_duration =
       //     add_to_context_end - add_to_context_start;
@@ -987,15 +1039,42 @@ fllama_inference_sync(fllama_inference_request request,
     std::strcpy(c_result, result.c_str());
     if (callback != NULL) {
       log_message("[DEBUG] Invoking final callback", request.dart_logger);
-      
+
       // Parse the result using common_chat_parse to extract tool calls
-      json completion_response = to_json_oaicompat_chat(
-          c_result, request.model_path, "cmpl-" + std::to_string(request.request_id), "" /* build info */, STOP_TYPE_LIMIT, common_chat_format, n_gen, n_prompt_tokens);
-      callback(/* response */ c_result, /* json */ completion_response.dump().c_str(), /* done */ true);
+      json completion_response;
+      auto json_string = completion_response.dump().c_str();
+
+      if (!has_valid_json) {
+        // If we never got valid JSON, return empty content
+        completion_response = to_json_oaicompat_chat(
+            "", request.model_path,
+            "cmpl-" + std::to_string(request.request_id), "" /* build info */,
+            STOP_TYPE_LIMIT, common_chat_format, n_gen, n_prompt_tokens);
+        json_string = completion_response.dump().c_str();
+        auto is_valid_string = is_valid_utf8(json_string);
+        if (is_valid_string) {
+          // Never had valid JSON, was able to produce valid JSON for an empty
+          // message.
+          callback(c_result, "final case a", true);
+        } else {
+          // Never had valid JSON, could not produce valid JSON for an empty
+          // message.
+
+          callback(c_result, "final case b", true);
+        }
+      } else {
+        if (is_valid_utf8(last_valid_json_string)) {
+          callback(c_result, last_valid_json_string.c_str(), true);
+        } else {
+          callback(c_result,
+                   "{\"error\": \"Invalid UTF-8 in final JSON response\"}",
+                   true);
+        }
+      }
       log_message("[DEBUG] Final callback invoked", request.dart_logger);
     } else {
       log_message("WARNING: callback is NULL. Output: " + result,
-                 request.dart_logger);
+                  request.dart_logger);
     }
 
     log_message("About to write speed of generation", request.dart_logger);
@@ -1004,8 +1083,9 @@ fllama_inference_sync(fllama_inference_request request,
 
     const auto speed_string =
         "Generated " + std::to_string(n_gen) + " tokens in " +
-        std::to_string((t_now - start_t) / 1000.0) + " s, speed: " +
-        std::to_string(n_gen / ((t_now - start_t) / 1000.0)) + " t/s.";
+        std::to_string((t_now - start_t) / 1000.0) +
+        " s, speed: " + std::to_string(n_gen / ((t_now - start_t) / 1000.0)) +
+        " t/s.";
 
     log_message(speed_string, request.dart_logger);
 
@@ -1019,13 +1099,13 @@ fllama_inference_sync(fllama_inference_request request,
   } catch (const std::exception &e) {
     std::string error_msg = "Unhandled error: " + std::string(e.what());
     if (callback != NULL) {
-      callback(error_msg.c_str(), "", true);
+      callback(error_msg.c_str(), error_msg.c_str(), true);
     }
     std::cerr << error_msg << std::endl;
   } catch (...) {
     std::string error_msg = "Unknown unhandled error occurred";
     if (callback != NULL) {
-      callback(error_msg.c_str(), "", true);
+      callback(error_msg.c_str(), error_msg.c_str(), true);
     }
     std::cerr << error_msg << std::endl;
   }
