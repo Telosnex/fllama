@@ -4722,7 +4722,12 @@ inline void from_json(const BasicJsonType& j, typename BasicJsonType::string_t& 
 {
     if (JSON_HEDLEY_UNLIKELY(!j.is_string()))
     {
-        JSON_THROW(type_error::create(302, concat("type must be string, but is ", j.type_name()), &j));
+        std::string debug_info = concat(
+            "type must be string, but is ", j.type_name(),
+            "\nValue: ", j.dump(),
+            "\nPath: ", j.template get_ptr<const typename BasicJsonType::string_t*>() ? "valid" : "null"
+        );
+        JSON_THROW(type_error::create(302, debug_info, &j));
     }
     s = *j.template get_ptr<const typename BasicJsonType::string_t*>();
 }
