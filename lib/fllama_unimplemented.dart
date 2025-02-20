@@ -5,7 +5,7 @@ import 'package:fllama/fllama.dart';
 import 'package:fllama/fllama_io.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
 
-typedef FllamaInferenceCallback = void Function(String response, bool done);
+typedef FllamaInferenceCallback = void Function(String response, String openaiResponseJsonString, bool done);
 typedef FllamaMlcLoadCallback = void Function(
     double downloadProgress, double loadProgress);
     

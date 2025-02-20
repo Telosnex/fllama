@@ -10,7 +10,7 @@ import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
 
 typedef NativeInferenceCallback = Void Function(
-    Pointer<Char> response, Uint8 done);
+    Pointer<Char> response, Pointer<Char> openaiResponseJsonString, Uint8 done);
 typedef NativeFllamaInferenceCallback
     = Pointer<NativeFunction<NativeInferenceCallback>>;
 typedef FllamaLogCallbackNative = Void Function(Pointer<Char>);
@@ -55,9 +55,15 @@ class _IsolateInferenceCancel {
 class _IsolateInferenceResponse {
   final int id;
   final String response;
+  final String openaiResponseJsonString;
   final bool done;
 
-  const _IsolateInferenceResponse(this.id, this.response, this.done);
+  const _IsolateInferenceResponse({
+    required this.id,
+    required this.response,
+    required this.openaiResponseJsonString,
+    required this.done,
+  });
 }
 
 /// Counter to identify [_IsolateInferenceRequest]s and [_IsolateInferenceResponse]s.
@@ -103,6 +109,13 @@ Pointer<fllama_inference_request> _toNative(
     Pointer<Utf8> eosTokenCstr = dart.eosToken!.toNativeUtf8();
     request.eos_token = eosTokenCstr.cast<Char>();
   }
+  if (dart.openAiRequestJsonString != null &&
+      dart.openAiRequestJsonString?.isNotEmpty == true) {
+    Pointer<Utf8> openAiRequestJsonStringCstr =
+        dart.openAiRequestJsonString!.toNativeUtf8();
+    request.openai_request_json_string =
+        openAiRequestJsonStringCstr.cast<Char>();
+  }
   if (dart.logger != null) {
     void onResponse(Pointer<Char> responsePointer) {
       if (dart.logger != null) {
@@ -137,7 +150,7 @@ Future<SendPort> _helperIsolateSendPort = () async {
       if (data is _IsolateInferenceResponse) {
         final callback = _isolateInferenceCallbacks[data.id];
         if (callback != null) {
-          callback(data.response, data.done);
+          callback(data.response, data.openaiResponseJsonString, data.done);
         }
         if (data.done) {
           _isolateInferenceCallbacks.remove(data.id);
@@ -158,14 +171,14 @@ Future<SendPort> _helperIsolateSendPort = () async {
 }();
 
 /// Cancels the inference with the given [requestId].
-/// 
+///
 /// It is recommended you do _not_ update your state based on this.
 /// Use the callbacks, like you would generally.
-/// 
+///
 /// This is supported via:
 /// - Inferences that have not yet started will call their callback with `done`
 /// set to `true` and an empty string.
-/// - Inferences that have started will call their callback with `done` set to 
+/// - Inferences that have started will call their callback with `done` set to
 /// `true` and the final output of the inference.
 void fllamaCancelInference(int requestId) async {
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
@@ -191,35 +204,72 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
       final nativeRequestPointer = _toNative(data.request, data.id);
       final nativeRequest = nativeRequestPointer.ref;
       late final NativeCallable<NativeInferenceCallback> callback;
-      void onResponse(Pointer<Char> responsePointer, int done) {
+      void onResponse(Pointer<Char> responsePointer,
+          Pointer<Char> openaiReponseJsonStringPointer, int done) {
         // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
         // order to allow only valid UTF-8.
-        final codeUnits = responsePointer.cast<Uint8>();
-        var length = 0;
-        while (codeUnits[length] != 0) {
-          length++;
-        }
-
         var decodedString = '';
-        while (length > 0) {
-          try {
-            decodedString = utf8.decode(codeUnits.asTypedList(length),
-                allowMalformed: false);
-            // if the decode succeeds, exit the loop
-            break;
-          } catch (e) {
-            // If an exception is caught, try with one less byte
-            length--;
+
+        {
+          final codeUnits = responsePointer.cast<Uint8>();
+
+          var length = 0;
+          while (codeUnits[length] != 0) {
+            length++;
+          }
+
+          while (length > 0) {
+            try {
+              decodedString = utf8.decode(codeUnits.asTypedList(length),
+                  allowMalformed: false);
+              // if the decode succeeds, exit the loop
+              break;
+            } catch (e) {
+              // If an exception is caught, try with one less byte
+              length--;
+            }
+          }
+
+          // If length becomes zero, it means decoding failed at every attempt - use an empty string
+          if (length == 0) {
+            decodedString = '';
           }
         }
 
-        // If length becomes zero, it means decoding failed at every attempt - use an empty string
-        if (length == 0) {
-          decodedString = '';
+        var decodedOpenaiResponseJsonString = '';
+
+        {
+          final codeUnits = openaiReponseJsonStringPointer.cast<Uint8>();
+
+          var length = 0;
+          while (codeUnits[length] != 0) {
+            length++;
+          }
+
+          while (length > 0) {
+            try {
+              decodedOpenaiResponseJsonString = utf8
+                  .decode(codeUnits.asTypedList(length), allowMalformed: false);
+              // if the decode succeeds, exit the loop
+              break;
+            } catch (e) {
+              // If an exception is caught, try with one less byte
+              length--;
+            }
+          }
+
+          // If length becomes zero, it means decoding failed at every attempt - use an empty string
+          if (length == 0) {
+            decodedOpenaiResponseJsonString = '';
+          }
         }
 
-        final _IsolateInferenceResponse response =
-            _IsolateInferenceResponse(data.id, decodedString, done == 1);
+        final _IsolateInferenceResponse response = _IsolateInferenceResponse(
+          id: data.id,
+          response: decodedString,
+          openaiResponseJsonString: decodedOpenaiResponseJsonString,
+          done: done == 1,
+        );
         sendPort.send(response);
         if (done == 1) {
           calloc.free(nativeRequest.input);

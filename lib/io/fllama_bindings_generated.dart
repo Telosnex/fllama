@@ -75,7 +75,6 @@ class FllamaBindings {
   late final _fllama_inference_cancel =
       _fllama_inference_cancelPtr.asFunction<void Function(int)>();
 
-  /// Chat template functions
   ffi.Pointer<ffi.Char> fllama_get_chat_template(
     ffi.Pointer<ffi.Char> fname,
   ) {
@@ -199,13 +198,19 @@ final class fllama_inference_request extends ffi.Struct {
 
   /// Optional: Dart caller logger. Defaults to NULL.
   external fllama_log_callback dart_logger;
+
+  /// Optional: OpenAI JSON string. Defaults to NULL.
+  external ffi.Pointer<ffi.Char> openai_request_json_string;
 }
 
 typedef fllama_log_callback
     = ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>;
 typedef fllama_inference_callback = ffi.Pointer<
     ffi.NativeFunction<
-        ffi.Void Function(ffi.Pointer<ffi.Char> response, ffi.Uint8 done)>>;
+        ffi.Void Function(
+            ffi.Pointer<ffi.Char> response,
+            ffi.Pointer<ffi.Char> openai_response_json_string,
+            ffi.Uint8 done)>>;
 
 final class fllama_tokenize_request extends ffi.Struct {
   /// Required: input text

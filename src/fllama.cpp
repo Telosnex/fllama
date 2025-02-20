@@ -14,6 +14,9 @@
 #if TARGET_OS_IOS
 // iOS-specific includes
 #include "../ios/llama.cpp/common/base64.hpp"
+#include "../ios/llama.cpp/common/chat.h"
+#include "../ios/llama.cpp/common/json.hpp"
+#include "../ios/llama.cpp/common/minja/minja.hpp"
 #include "../ios/llama.cpp/common/common.h"
 #include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml/include/ggml.h"
@@ -22,6 +25,9 @@
 #elif TARGET_OS_OSX
 // macOS-specific includes
 #include "../macos/llama.cpp/common/base64.hpp"
+#include "../macos/llama.cpp/common/chat.h"
+#include "../macos/llama.cpp/common/json.hpp"
+#include "../macos/llama.cpp/common/minja/minja.hpp"
 #include "../macos/llama.cpp/common/common.h"
 #include "../macos/llama.cpp/common/sampling.h"
 #include "../macos/llama.cpp/ggml/include/ggml.h"
@@ -29,6 +35,9 @@
 #else
 // Other platforms
 #include "llama.cpp/common/base64.hpp"
+#include "llama.cpp/common/chat.h"
+#include "llama.cpp/common/json.hpp"
+#include "llama.cpp/common/minja/minja.hpp"
 #include "llama.cpp/common/common.h"
 #include "llama.cpp/common/sampling.h"
 #include "llama.cpp/ggml/include/ggml.h"
@@ -69,16 +78,180 @@ static void log_message(const std::string &message, fllama_log_callback dart_log
 static void log_message(const char *message, fllama_log_callback dart_logger) {
     if (dart_logger == nullptr) {
         fprintf(stderr, "%s\n", message);
+        fflush(stderr);  // Ensure output is written immediately
     } else {
-        dart_logger(message);
+        // Create a copy of the message to ensure it stays alive
+        std::string msg_copy(message);
+        dart_logger(msg_copy.c_str());
     }
 }
 
 static void log_message(const std::string &message, fllama_log_callback dart_logger) {
-    log_message(message.c_str(), dart_logger);
+    // Create a stable string that won't be destroyed
+    std::string msg_copy = message;
+    log_message(msg_copy.c_str(), dart_logger);
 }
 
 static InferenceQueue global_inference_queue;
+
+
+enum stop_type {
+    STOP_TYPE_NONE,
+    STOP_TYPE_EOS,
+    STOP_TYPE_WORD,
+    STOP_TYPE_LIMIT,
+};
+
+template <typename T>
+static T json_value(const json & body, const std::string & key, const T & default_value) {
+    // Fallback null to default value
+    if (body.contains(key) && !body.at(key).is_null()) {
+        try {
+            return body.at(key);
+        } catch (NLOHMANN_JSON_NAMESPACE::detail::type_error const &) {
+            //  LOG_WRN("Wrong type supplied for parameter '%s'. Expected '%s', using default value\n", key.c_str(), json(default_value).type_name());
+            return default_value;
+        }
+    } else {
+        return default_value;
+    }
+}
+
+
+static json oaicompat_completion_params_parse(const json & body) {
+  json llama_params;
+
+  if (!body.contains("prompt")) {
+      throw std::runtime_error("\"prompt\" is required");
+  }
+
+  // Handle "stop" field
+  if (body.contains("stop") && body.at("stop").is_string()) {
+      llama_params["stop"] = json::array({body.at("stop").get<std::string>()});
+  } else {
+      llama_params["stop"] = json_value(body, "stop", json::array());
+  }
+
+  // Handle "n" field
+  int n_choices = json_value(body, "n", 1);
+  if (n_choices != 1) {
+      throw std::runtime_error("Only one completion choice is allowed");
+  }
+
+  // Params supported by OAI but unsupported by llama.cpp
+  static const std::vector<std::string> unsupported_params { "best_of", "echo", "suffix" };
+  for (const auto & param : unsupported_params) {
+      if (body.contains(param)) {
+          throw std::runtime_error("Unsupported param: " + param);
+      }
+  }
+
+  // Copy remaining properties to llama_params
+  for (const auto & item : body.items()) {
+      // Exception: if "n_predict" is present, we overwrite the value specified earlier by "max_tokens"
+      if (!llama_params.contains(item.key()) || item.key() == "n_predict") {
+          llama_params[item.key()] = item.value();
+      }
+  }
+
+  return llama_params;
+}
+
+
+static json to_json_oaicompat_chat(
+  const std::string& content,
+  const std::string& oaicompat_model,
+  const std::string& oaicompat_cmpl_id,
+  const std::string& build_info,
+  stop_type stop,
+  common_chat_format oaicompat_chat_format,
+  // bool verbose,
+  // const std::vector<completion_token_output>& probs_output,
+  // bool post_sampling_probs,
+  int n_decoded,
+  int n_prompt_tokens
+  // const result_timings* timings
+) {
+  std::string finish_reason = "length";
+  common_chat_msg msg;
+  if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS || stop == STOP_TYPE_NONE) {
+    try {
+      msg = common_chat_parse(content, oaicompat_chat_format);
+      finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
+    } catch (const std::exception & e) {
+      // LOG_ERR("Failed to parse chat message: %s\n", e.what());
+      // LOG_ERR("Falling back to raw content\n");
+      msg.content = content;
+    }
+  } else {
+      msg.content = content;
+  }
+
+  json message {
+      {"role", "assistant"},
+  };
+  if (!msg.reasoning_content.empty()) {
+      message["reasoning_content"] = msg.reasoning_content;
+  }
+  if (msg.content.empty() && !msg.tool_calls.empty()) {
+      message["content"] = json();
+  } else {
+      message["content"] = msg.content;
+  }
+  if (!msg.tool_calls.empty()) {
+      auto tool_calls = json::array();
+      for (const auto & tc : msg.tool_calls) {
+          tool_calls.push_back({
+              {"type", "function"},
+              {"function", {
+                  {"name", tc.name},
+                  {"arguments", tc.arguments},
+              }},
+              {"id", tc.id},
+          });
+      }
+      message["tool_calls"] = tool_calls;
+  }
+
+  json choice {
+      {"finish_reason", finish_reason},
+      {"index", 0},
+      {"message", message},
+  };
+
+  // if (!probs_output.empty()) {
+  //     choice["logprobs"] = json{
+  //         {"content", completion_token_output::probs_vector_to_json(probs_output, post_sampling_probs)},
+  //     };
+  // }
+
+  std::time_t t = std::time(0);
+
+  json res = json {
+      {"choices",            json::array({choice})},
+      {"created",           t},
+      {"model",             oaicompat_model},
+      {"system_fingerprint", build_info},
+      {"object",            "chat.completion"},
+      {"__llamacpp_detected_chat_format", common_chat_format_name(oaicompat_chat_format) },
+      {"usage", json {
+          {"completion_tokens", n_decoded},
+          {"prompt_tokens",    n_prompt_tokens},
+          {"total_tokens",     n_decoded + n_prompt_tokens}
+      }},
+      {"id", oaicompat_cmpl_id}
+  };
+
+  // extra fields for debugging purposes
+  // if (verbose) {
+  //     res["__verbose"] = json{{"verbose", true}};
+  // }
+  // if (timings && timings->prompt_n >= 0) {
+  //     res.push_back({"timings", timings->to_json()});
+  // }
+
+  return res;
+}
 
 extern "C" {
 
@@ -319,7 +492,7 @@ fllama_inference_sync(fllama_inference_request request,
       llama_backend_free();
       free(c_result);
     };
-
+    // Process OpenAI chat messages if provided
     log_message("Initializing llama model...", request.dart_logger);
     model = llama_model_load_from_file(request.model_path, model_params);
     ctx = llama_new_context_with_model(model, ctx_params);
@@ -328,15 +501,84 @@ fllama_inference_sync(fllama_inference_request request,
       if (model != NULL) {
         llama_model_free(model);
       }
-      callback(/* response */ "Error: Unable to load model.", /* done */ true);
+      callback(/* response */ "Error: Unable to load model.", /* json */ "", /* done */ true);
       log_message("Error: Unable to load model.", request.dart_logger);
       cleanup();
       return;
     }
 
     log_message("Initialized model.", request.dart_logger);
-
     std::string final_request_input = request.input;
+
+     nlohmann::ordered_json  body = NULL;
+
+    auto chat_templates = common_chat_templates_init(model, "");
+    auto openai_json_string = request.openai_request_json_string;
+    auto common_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
+    if (openai_json_string != NULL) {
+        log_message("Processing OpenAI chat format", request.dart_logger);
+        try {
+             body = json::parse(openai_json_string);
+            
+            // Try to use model's built-in template, fallback to chatml
+            try {
+                common_chat_format_example(chat_templates.get(), true);
+            } catch (const std::exception & e) {
+                log_message("Model's chat template not supported, falling back to chatml", request.dart_logger);
+                chat_templates = common_chat_templates_init(model, "chatml");
+            }
+            
+            // Format messages using chat template
+            if (body.contains("messages") && body["messages"].is_array()) {
+                common_chat_templates_inputs tmpl_inputs;
+                tmpl_inputs.use_jinja = true;
+                tmpl_inputs.add_generation_prompt = true;
+                tmpl_inputs.messages = common_chat_msgs_parse_oaicompat<json>(body["messages"]);
+                
+                // Handle tools if present
+                if (body.contains("tools")) {
+                  
+                  log_message("DEBUG Tools JSON: " + body["tools"].dump(), request.dart_logger);
+                  auto tools = json_value(body, "tools", json());
+                  log_message("DEBUG Tools after json_value: " + tools.dump(), request.dart_logger);
+                  
+                  // Check the actual type
+                  log_message("DEBUG Tools type: " + std::string(tools.type_name()), request.dart_logger);
+                  
+
+                    tmpl_inputs.tools = common_chat_tools_parse_oaicompat(tools);
+                    tmpl_inputs.tool_choice = body.contains("tool_choice") 
+                        ? common_chat_tool_choice_parse_oaicompat(body["tool_choice"].template get<std::string>())
+                        : COMMON_CHAT_TOOL_CHOICE_AUTO;
+                }
+                
+                auto result = common_chat_templates_apply(chat_templates.get(), tmpl_inputs);
+                final_request_input = result.prompt;
+                common_chat_format = result.format;
+                log_message("Using formatted chat input with template", request.dart_logger);
+                log_message("Template format: " + std::to_string(result.format), request.dart_logger);
+                log_message("Formatted input: " + final_request_input, request.dart_logger);
+            } else {
+                std::string keys;
+                for (auto it = body.begin(); it != body.end(); ++it) {
+                    keys += it.key() + ", ";
+                }
+                if (!keys.empty()) {
+                    keys.pop_back(); // Remove last comma
+                    keys.pop_back(); // Remove last space
+                }
+                log_message("No messages found in OpenAI chat format. JSON Keys ONLY, NO VALUES: " + keys, request.dart_logger);
+            }
+        } catch (const std::exception& e) {
+            log_message("Error processing OpenAI chat format: " + std::string(e.what()), request.dart_logger);
+            log_message("Falling back to raw input", request.dart_logger);
+            log_message("One More Time Error processing OpenAI chat format: " + std::string(e.what()), request.dart_logger);
+            log_message("Fr Exception");
+        }
+    } else {
+        log_message("No OpenAI chat format provided, using raw input", request.dart_logger);
+    }
+
     // TODO: CLIP support
     if (should_load_clip) {
       std::string mmproj_path_std_str =
@@ -386,7 +628,7 @@ fllama_inference_sync(fllama_inference_request request,
                        final_request_input.length(), tokens_list.data(),
                        tokens_list.size(), true, true) < 0) {
       fprintf(stderr, "%s: tokenization failed\n", __func__);
-      callback("Error: Unable to tokenize input", true);
+      callback("Error: Unable to tokenize input", "", true);
       cleanup();
       return;
     }
@@ -429,17 +671,6 @@ fllama_inference_sync(fllama_inference_request request,
       }
     }
 
-    // // DEBUG: Print the input line by line, numbered:
-    // std::istringstream iss(final_request_input);
-    // std::string line;
-    // int line_number = 1;
-
-    // while (std::getline(iss, line)) {
-    //   fllama_log("Line " + std::to_string(line_number) + ": " + line,
-    //              request.dart_logger);
-    //   line_number++;
-    // }
-
     log_message("Adding input to context...length: " +
                    std::to_string(final_request_input.length()),
                request.dart_logger);
@@ -448,7 +679,18 @@ fllama_inference_sync(fllama_inference_request request,
                request.dart_logger);
     add_tokens_to_context(ctx, tokens_list, n_batch, &n_past, request.dart_logger);
     log_message("Added input to context.", request.dart_logger);
-    
+    log_message("New log message sigil: [DEBUG]", request.dart_logger);
+    // Split the input into lines for more reliable logging
+    log_message("[IMPORTANT] =================== FINAL INPUT START ===================", request.dart_logger);
+    std::istringstream stream(final_request_input);
+    std::string line;
+    int line_number = 1;
+    log_message("FLUSH BABES", request.dart_logger);
+    while (std::getline(stream, line)) {
+        std::string numbered_line = "[INPUT LINE " + std::to_string(line_number++) + "] " + line;
+        log_message(numbered_line.c_str(), request.dart_logger);
+    }
+    log_message("[IMPORTANT] =================== FINAL INPUT END ======================", request.dart_logger);
     log_message("Initializing sampling context...", request.dart_logger);
     // Using smpl instead of ctx_sampling
     log_message("Sampling context initialized.", request.dart_logger);
@@ -470,7 +712,7 @@ fllama_inference_sync(fllama_inference_request request,
       log_message("Cancelled before starting generation loop. ID:" +
                      std::to_string(request_id),
                  request.dart_logger);
-      callback("", true);
+      callback("", "", true);
       cleanup();
       return;
     }
@@ -493,7 +735,7 @@ fllama_inference_sync(fllama_inference_request request,
     // - try / catch in C++ still led to the assertion
     // - signal handlers are fraught and did not work anyway
     // - being in a separate executable/process is not an option on at least iOS.
-    callback("", false);
+    callback("", "", false);
     
     const auto estimated_total_size = n_max_tokens * 10;
     std::string result;
@@ -561,7 +803,9 @@ fllama_inference_sync(fllama_inference_request request,
         n_gen++;
         if (callback != NULL) {
             std::strcpy(c_result, result.c_str());
-            callback(c_result, false);
+            const json completion_response = to_json_oaicompat_chat(
+                result, request.model_path, "cmpl-" + std::to_string(request.request_id), "", STOP_TYPE_NONE, common_chat_format, n_gen, n_prompt_tokens);
+            callback(c_result, completion_response.dump().c_str(), false);
         }
     
         // Process current batch
@@ -645,7 +889,11 @@ fllama_inference_sync(fllama_inference_request request,
     std::strcpy(c_result, result.c_str());
     if (callback != NULL) {
       log_message("[DEBUG] Invoking final callback", request.dart_logger);
-      callback(/* response */ c_result, /* done */ true);
+      
+      // Parse the result using common_chat_parse to extract tool calls
+      json completion_response = to_json_oaicompat_chat(
+          c_result, request.model_path, "cmpl-" + std::to_string(request.request_id), "" /* build info */, STOP_TYPE_LIMIT, common_chat_format, n_gen, n_prompt_tokens);
+      callback(/* response */ c_result, /* json */ completion_response.dump().c_str(), /* done */ true);
       log_message("[DEBUG] Final callback invoked", request.dart_logger);
     } else {
       log_message("WARNING: callback is NULL. Output: " + result,
@@ -673,13 +921,13 @@ fllama_inference_sync(fllama_inference_request request,
   } catch (const std::exception &e) {
     std::string error_msg = "Unhandled error: " + std::string(e.what());
     if (callback != NULL) {
-      callback(error_msg.c_str(), true);
+      callback(error_msg.c_str(), "", true);
     }
     std::cerr << error_msg << std::endl;
   } catch (...) {
     std::string error_msg = "Unknown unhandled error occurred";
     if (callback != NULL) {
-      callback(error_msg.c_str(), true);
+      callback(error_msg.c_str(), "", true);
     }
     std::cerr << error_msg << std::endl;
   }

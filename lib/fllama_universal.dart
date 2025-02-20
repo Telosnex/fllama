@@ -41,6 +41,7 @@ class FllamaInferenceRequest {
   int maxTokens;
   String modelPath;
   String? modelMmprojPath;
+  String? openAiRequestJsonString;
   int numGpuLayers;
 
   /// Number of threads to use for inference.
@@ -84,6 +85,7 @@ class FllamaInferenceRequest {
     this.modelMmprojPath,
     this.numThreads = 2,
     this.logger,
+    this.openAiRequestJsonString,
   });
 }
 
@@ -129,23 +131,6 @@ Future<int> fllamaChat(
     request: request,
   );
 
-  final String grammar;
-  if (request.tools.isNotEmpty) {
-    if (request.tools.length > 1) {
-      // ignore: avoid_print
-      print(
-          '[fllama] WARNING: More than one tool was specified. No grammar will be enforced. (via fllamaChat)');
-      grammar = '';
-    } else {
-      grammar = request.tools.first.grammar;
-      // ignore: avoid_print
-      print('[fllama] Grammar to be enforced: $grammar');
-    }
-  } else {
-    // ignore: avoid_print
-    print('[fllama] No tools were specified. No grammar will be enforced.');
-    grammar = '';
-  }
   final inferenceRequest = FllamaInferenceRequest(
     contextSize: request.contextSize,
     input: text,
@@ -157,10 +142,12 @@ Future<int> fllamaChat(
     penaltyRepeat: request.presencePenalty,
     temperature: request.temperature,
     topP: request.topP,
-    grammar: grammar,
+    grammar: '', // deprecated, llama.cpp handles tools internally now
     logger: request.logger,
     eosToken: eosToken,
+    openAiRequestJsonString: request.toJsonString(),
   );
+
   return fllamaInference(inferenceRequest, callback);
 }
 
@@ -185,20 +172,20 @@ String fllamaApplyChatTemplate({
   }
 
   if (request.tools.isNotEmpty) {
-    final tools = request.tools.map((tool) {
-      return tool.typescriptDefinition;
-    }).join('\n\n');
-    jsonMessages.insert(0, {
-      'role': 'system',
-      'content': '''
-You have access to the following functions:
-$tools
+//     final tools = request.tools.map((tool) {
+//       return tool.typescriptDefinition;
+//     }).join('\n\n');
+//     jsonMessages.insert(0, {
+//       'role': 'system',
+//       'content': '''
+// You have access to the following functions:
+// $tools
 
-You are a helpful assistant with tool calling capabilities.
-When you receive a tool call response, use the output to format an answer to the orginal use question.
-If you are using tools, respond in the format {"name": function name, "parameters": dictionary of function arguments}. If multiple tools are used, use array format.
-''',
-    });
+// You are a helpful assistant with tool calling capabilities.
+// When you receive a tool call response, use the output to format an answer to the orginal use question.
+// If you are using tools, respond in the format {"name": function name, "parameters": dictionary of function arguments}. If multiple tools are used, use array format.
+// ''',
+//     });
   }
 
   if (jsonMessages.isEmpty) {
@@ -261,13 +248,11 @@ If you are using tools, respond in the format {"name": function name, "parameter
     if (chatTemplate != chatMlTemplate) {
       final llamaChatTemplate = Llama3ChatTemplate();
       // ignore: avoid_print
-
       if (llamaChatTemplate.matches(chatTemplate)) {
         // ex. bartowski's llama 3.2 8B cannot be parsed, but it is
         // desirable to use. ChatML as a fallback breaks it. First response
         // generally works, then it fails.
-        print(
-            '[fllama] Using Llama 3 chat template as a fallback because the chat template could not be applied. Exception: $e. Chat template: $chatTemplate. Messages: $jsonMessages.');
+
         return fllamaApplyChatTemplate(
           chatTemplate: llamaChatTemplate.template,
           request: request,
@@ -275,8 +260,6 @@ If you are using tools, respond in the format {"name": function name, "parameter
           eosToken: llamaChatTemplate.eosToken,
         );
       }
-      print(
-          '[fllama] Using ChatML because the chat template could not be applied. Exception: $e. Chat template: $chatTemplate. Messages: $jsonMessages.');
       return fllamaApplyChatTemplate(
         chatTemplate: chatMlTemplate,
         request: request,

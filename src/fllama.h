@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-typedef void (*fllama_inference_callback)(const char *response, uint8_t done);
+typedef void (*fllama_inference_callback)(const char *response, const char * openai_response_json_string, uint8_t done);
 typedef void (*fllama_log_callback)(const char *);
 
 struct fllama_inference_request {
@@ -50,6 +50,7 @@ struct fllama_inference_request {
                    // Using fllamaChat from Dart handles this automatically.
   fllama_log_callback
       dart_logger; // Optional: Dart caller logger. Defaults to NULL.
+  char * openai_request_json_string; // Optional: OpenAI JSON string. Defaults to NULL.
 };
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,

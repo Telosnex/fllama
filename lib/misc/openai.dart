@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fllama/misc/openai_tool.dart';
 
 enum Role {
@@ -39,6 +41,33 @@ class OpenAiRequest {
   final int contextSize;
   final Function(String)? logger;
 
+  String toJsonString() {
+    final Map<String, dynamic> json = {
+      'messages': messages
+          .map((m) => {
+                'role': m.role.openAiName,
+                'content': m.text,
+              })
+          .toList(),
+      'tools': tools.map((t) {
+        return {
+          'type': 'function',
+          'function': {
+            'name': t.name,
+            'description': t.description,
+            'parameters': jsonDecode(t.jsonSchema),
+          },
+        };
+      }).toList(),
+      'temperature': temperature,
+      'max_tokens': maxTokens,
+      'top_p': topP,
+      'frequency_penalty': frequencyPenalty,
+      'presence_penalty': presencePenalty,
+    };
+    return jsonEncode(json);
+  }
+
   OpenAiRequest({
     this.messages = const [],
     this.tools = const [],
@@ -66,9 +95,9 @@ class OpenAiRequest {
     // layers on GPU.
     this.numGpuLayers = 0,
     // ultra-safe for mobile inference, but rather small: ChatGPT launched with
-    // 4096, today it has 16384. 1000 tokens ~= 3 pages ~= 750 words ~= 3 
+    // 4096, today it has 16384. 1000 tokens ~= 3 pages ~= 750 words ~= 3
     // minutes reading time.
-    this.contextSize = 2048, 
+    this.contextSize = 2048,
     // Optional logger.
     this.logger,
   });

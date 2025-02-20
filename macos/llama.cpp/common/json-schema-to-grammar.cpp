@@ -376,6 +376,15 @@ private:
         return string_join(rules, " | ");
     }
 
+    static std::vector<std::string> get_primitive_keys(const std::unordered_map<std::string, BuiltinRule>& rules) {
+        std::vector<std::string> keys;
+        for (const auto& pair : rules) {
+            keys.push_back(pair.first);
+        }
+        std::sort(keys.begin(), keys.end());
+        return keys;
+    }
+
     std::string _visit_pattern(const std::string & pattern, const std::string & name) {
         if (!(pattern.front() == '^' && pattern.back() == '$')) {
             _errors.push_back("Pattern must start with '^' and end with '$'");
@@ -965,7 +974,31 @@ public:
             return _add_rule(rule_name, _add_primitive("object", PRIMITIVE_RULES.at("object")));
         } else {
             if (!schema_type.is_string() || PRIMITIVE_RULES.find(schema_type.get<std::string>()) == PRIMITIVE_RULES.end()) {
-                _errors.push_back("Unrecognized schema: " + schema.dump());
+                // Build a hierarchical path for better error context
+                std::stringstream path_info;
+                path_info << "Path: " << (name.empty() ? "root" : name);
+                
+                // Add validation details
+                _errors.push_back(path_info.str());
+                _errors.push_back("Type validation failed:");
+                if (!schema_type.is_string()) {
+                    std::stringstream err;
+                    err << "- Expected 'type' to be a string, but got: " << schema_type.type_name();
+                    _errors.push_back(err.str());
+                } else {
+                    std::string type_str = schema_type.get<std::string>();
+                    std::stringstream err;
+                    err << "- Type '" << type_str << "' is not a known primitive";
+                    _errors.push_back(err.str());
+                    err.str("");
+                    err << "- Known primitives: " << string_join(get_primitive_keys(PRIMITIVE_RULES), ", ");
+                    _errors.push_back(err.str());
+                }
+                
+                // Add schema context
+                _errors.push_back("Full schema at this path:");
+                _errors.push_back(schema.dump(2));  // Pretty print with 2-space indent
+                
                 return "";
             }
             // TODO: support minimum, maximum, exclusiveMinimum, exclusiveMaximum at least for zero

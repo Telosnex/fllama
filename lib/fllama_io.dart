@@ -10,7 +10,7 @@ import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
 import 'package:fllama/misc/openai.dart';
 
-typedef FllamaInferenceCallback = void Function(String response, bool done);
+typedef FllamaInferenceCallback = void Function(String response, String openaiResponseJsonString, bool done);
 typedef FllamaMlcLoadCallback = void Function(
     double downloadProgress, double loadProgress);
 

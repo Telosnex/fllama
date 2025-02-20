@@ -480,7 +480,7 @@ class _MyAppState extends State<MyApp> {
         if (_tool != null)
           Tool(
             name: _tool!.name,
-            jsonSchema: jsonEncode(_tool!.parametersAsString),
+            jsonSchema: _tool!.parametersAsString,
           ),
       ],
       maxTokens: _maxTokens.round(),
@@ -516,11 +516,11 @@ class _MyAppState extends State<MyApp> {
           print(
               'Download progress: $downloadProgress, Load progress: $loadProgress');
         });
-      }, (response, done) {
+      }, (response, responseJson, done) {
         setState(() {
           _mlcDownloadProgress = null;
           _mlcLoadProgress = null;
-          latestResult = response;
+          latestResult = responseJson;
           if (done) {
             _runningRequestId = null;
           }
@@ -549,7 +549,7 @@ class _MyAppState extends State<MyApp> {
 
     _inferenceStartTime = DateTime.now();
 
-    int requestId = await fllamaChat(request, (response, done) {
+    int requestId = await fllamaChat(request, (response, responseJson, done) {
       setState(() {
         latestResult = response;
         fllamaTokenize(FllamaTokenizeRequest(
