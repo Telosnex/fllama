@@ -785,21 +785,16 @@ fllama_inference_sync(fllama_inference_request request,
                request.dart_logger);
     add_tokens_to_context(ctx, tokens_list, n_batch, &n_past, request.dart_logger);
     log_message("Added input to context.", request.dart_logger);
-    log_message("New log message sigil: [DEBUG]", request.dart_logger);
     // Split the input into lines for more reliable logging
-    log_message("[IMPORTANT] =================== FINAL INPUT START ===================", request.dart_logger);
-    std::istringstream stream(final_request_input);
-    std::string line;
-    int line_number = 1;
-    log_message("FLUSH BABES", request.dart_logger);
-    while (std::getline(stream, line)) {
-        std::string numbered_line = "[INPUT LINE " + std::to_string(line_number++) + "] " + line;
-        log_message(numbered_line.c_str(), request.dart_logger);
-    }
-    log_message("[IMPORTANT] =================== FINAL INPUT END ======================", request.dart_logger);
-    log_message("Initializing sampling context...", request.dart_logger);
-    // Using smpl instead of ctx_sampling
-    log_message("Sampling context initialized.", request.dart_logger);
+    // log_message("[IMPORTANT] =================== FINAL INPUT START ===================", request.dart_logger);
+    // std::istringstream stream(final_request_input);
+    // std::string line;
+    // int line_number = 1;
+    // while (std::getline(stream, line)) {
+    //     std::string numbered_line = "[INPUT LINE " + std::to_string(line_number++) + "] " + line;
+    //     log_message(numbered_line.c_str(), request.dart_logger);
+    // }
+    // log_message("[IMPORTANT] =================== FINAL INPUT END ======================", request.dart_logger);
     const char *eos_token_chars =
         request.eos_token != NULL ? request.eos_token
                                   : fllama_get_eos_token(request.model_path);
@@ -848,9 +843,6 @@ fllama_inference_sync(fllama_inference_request request,
     result.reserve(estimated_total_size);
     c_result = (char *)malloc(
         estimated_total_size); // Allocate once with estimated size
-
-    // TODO: re-implement sampling print
-    // TODO: re-implement sampling order print
 
     int n_gen = 0;
     std::string buffer; // Buffer to accumulate potential EOS token sequences
