@@ -157,6 +157,96 @@ static json oaicompat_completion_params_parse(const json & body) {
   return llama_params;
 }
 
+#include <string>
+#include <vector>
+
+// Helper function to validate UTF-8
+bool is_valid_utf8(const std::string& str) {
+    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(str.c_str());
+    size_t len = str.length();
+    
+    for (size_t i = 0; i < len; i++) {
+        if (bytes[i] <= 0x7F) {  // Single byte character
+            continue;
+        }
+        
+        // Get number of bytes in this character
+        int extra_bytes;
+        if ((bytes[i] & 0xE0) == 0xC0) {  // 2-byte sequence
+            extra_bytes = 1;
+        } else if ((bytes[i] & 0xF0) == 0xE0) {  // 3-byte sequence
+            extra_bytes = 2;
+        } else if ((bytes[i] & 0xF8) == 0xF0) {  // 4-byte sequence
+            extra_bytes = 3;
+        } else {
+            return false;  // Invalid first byte
+        }
+        
+        // Check if we have enough bytes left
+        if (i + extra_bytes >= len) {
+            return false;
+        }
+        
+        // Validate continuation bytes
+        for (int j = 1; j <= extra_bytes; j++) {
+            if ((bytes[i + j] & 0xC0) != 0x80) {
+                return false;
+            }
+        }
+        
+        i += extra_bytes;  // Skip the extra bytes
+    }
+    
+    return true;
+}
+
+// Helper function to sanitize UTF-8
+std::string sanitize_utf8(const std::string& input) {
+    std::string result;
+    result.reserve(input.length());  // Pre-allocate for efficiency
+    
+    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(input.c_str());
+    size_t len = input.length();
+    
+    for (size_t i = 0; i < len; ) {
+        if (bytes[i] <= 0x7F) {  // ASCII character
+            result.push_back(bytes[i]);
+            i++;
+            continue;
+        }
+        
+        // Try to read a complete UTF-8 sequence
+        int sequence_length = 0;
+        if ((bytes[i] & 0xE0) == 0xC0) sequence_length = 2;
+        else if ((bytes[i] & 0xF0) == 0xE0) sequence_length = 3;
+        else if ((bytes[i] & 0xF8) == 0xF0) sequence_length = 4;
+        
+        bool valid_sequence = true;
+        if (sequence_length > 0 && i + sequence_length <= len) {
+            // Verify continuation bytes
+            for (int j = 1; j < sequence_length; j++) {
+                if ((bytes[i + j] & 0xC0) != 0x80) {
+                    valid_sequence = false;
+                    break;
+                }
+            }
+            
+            if (valid_sequence) {
+                // Copy the entire valid sequence
+                result.append(reinterpret_cast<const char*>(bytes + i), sequence_length);
+                i += sequence_length;
+                continue;
+            }
+        }
+        
+        // If we get here, we encountered an invalid sequence
+        // Replace with Unicode replacement character (�) encoded in UTF-8
+        result.append("\xEF\xBF\xBD");
+        i++;
+    }
+    
+    return result;
+}
 
 static json to_json_oaicompat_chat(
   const std::string& content,
@@ -172,19 +262,35 @@ static json to_json_oaicompat_chat(
   int n_prompt_tokens
   // const result_timings* timings
 ) {
+  // Issues with invalid UTF-8 were virtually always reproducible on iOS Simulator with
+  // DeepSeek R1 Qwen 1.5B Distill.
+  std::string sanitized_content;
+  try {
+      sanitized_content = sanitize_utf8(content);
+  } catch (const std::exception& e) {
+      throw std::runtime_error("Failed to sanitize content: " + std::string(e.what()));
+  }
+
   std::string finish_reason = "length";
   common_chat_msg msg;
   if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS || stop == STOP_TYPE_NONE) {
-    try {
-      msg = common_chat_parse(content, oaicompat_chat_format);
-      finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
-    } catch (const std::exception & e) {
-      // LOG_ERR("Failed to parse chat message: %s\n", e.what());
-      // LOG_ERR("Falling back to raw content\n");
-      msg.content = content;
-    }
+      try {
+          msg = common_chat_parse(sanitized_content, oaicompat_chat_format);
+          finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
+      } catch (const std::exception & e) {
+          msg.content = sanitized_content;
+      }
   } else {
-      msg.content = content;
+      msg.content = sanitized_content;
+  }
+
+  // Also validate any tool call content
+  if (!msg.tool_calls.empty()) {
+      for (auto& tc : msg.tool_calls) {
+          tc.name = sanitize_utf8(tc.name);
+          tc.arguments = sanitize_utf8(tc.arguments);
+          tc.id = sanitize_utf8(tc.id);
+      }
   }
 
   json message {
