@@ -134,6 +134,7 @@ class _MyAppState extends State<MyApp> {
                           MlcModelId.llama321bInstruct,
                           MlcModelId.llama323bInstruct,
                           MlcModelId.llama318bInstruct,
+                          MlcModelId.deepSeekR1Llama38b,
                           MlcModelId.openHermesLlama38b,
                           MlcModelId.openHermesMistral,
                           MlcModelId.phi35mini,
@@ -520,7 +521,7 @@ class _MyAppState extends State<MyApp> {
         setState(() {
           _mlcDownloadProgress = null;
           _mlcLoadProgress = null;
-          latestResult = responseJson;
+          latestResult = response;
           if (done) {
             _runningRequestId = null;
           }

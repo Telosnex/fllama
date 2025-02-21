@@ -163,7 +163,7 @@ async function mlcInferenceWithWorker(worker, request, loadCallback, inferenceCa
                     break;
                 case 'inferenceProgress':
                     lastInferenceText = data.text;
-                    inferenceCallback(lastInferenceText, data.done);
+                    inferenceCallback(lastInferenceText, '' /* OpenAI compatible JSON, not supported on web yet */, data.done);
                     if (data.done) {
                         cleanup();
                     }

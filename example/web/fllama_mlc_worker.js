@@ -12,6 +12,7 @@ let qwen05b = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
 let tinyLlama = "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC";
 let phi3mini = "Phi-3-mini-4k-instruct-q4f16_1-MLC";
 let openHermesMistral = "OpenHermes-2.5-Mistral-7B-q4f16_1-MLC";
+let deepSeekR1Llama38B = 'DeepSeek-R1-Distill-Llama-8B-q4f16_1-MLC';
 let selectedModel = phi3mini;
 
 // Map to keep track of active requests

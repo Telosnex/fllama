@@ -8,10 +8,11 @@ import 'package:fllama/fllama.dart';
 external JSPromise<JSNumber> fllamaInferenceJs(
     JSAny request, JSFunction callback);
 
-typedef FllamaInferenceCallback = void Function(String response, bool done);
+typedef FllamaInferenceCallback = void Function(
+    String response, String openaiResponseJsonString, bool done);
 
 // Keep in sync with fllama_inference_request.dart to pass correctly from Dart to JS
-extension type _JSFllamaInferenceRequest._(JSObject _)  implements JSObject {
+extension type _JSFllamaInferenceRequest._(JSObject _) implements JSObject {
   external factory _JSFllamaInferenceRequest({
     required int contextSize,
     required String input,
@@ -29,7 +30,6 @@ extension type _JSFllamaInferenceRequest._(JSObject _)  implements JSObject {
     // INTENTIONALLY MISSING: logger
   });
 }
-
 
 /// Runs standard LLM inference. The future returns immediately after being
 /// called. [callback] is called on each new output token with the response and
@@ -57,9 +57,10 @@ Future<int> fllamaInference(FllamaInferenceRequest dartRequest,
   );
 
   final completer = Completer<int>();
-  callbackFn(String response, bool done) {
-    callback(response, done);
+  callbackFn(String response, String responseJson, bool done) {
+    callback(response, responseJson, done);
   }
+
   fllamaInferenceJs(jsRequest, callbackFn.toJS).toDart.then((value) {
     completer.complete(value.toDartInt);
   });
@@ -76,10 +77,12 @@ external JSPromise<JSBoolean> fllamaMlcIsWebModelDownloadedJs(String modelId);
 @JS('fllamaChatMlcWebJs')
 external JSPromise<JSNumber> fllamaChatMlcWebJs(
     // ignore: library_private_types_in_public_api
-    _JSFllamaMlcInferenceRequest request, JSFunction loadCallback, JSFunction callback);
+    _JSFllamaMlcInferenceRequest request,
+    JSFunction loadCallback,
+    JSFunction callback);
 
-extension type _JSFllamaMlcInferenceRequest._(JSObject _)  implements JSObject {
-   external _JSFllamaMlcInferenceRequest({
+extension type _JSFllamaMlcInferenceRequest._(JSObject _) implements JSObject {
+  external _JSFllamaMlcInferenceRequest({
     required String messagesAsJsonString,
     required String toolsAsJsonString,
     required int maxTokens,
@@ -141,11 +144,15 @@ Future<int> fllamaChatMlcWeb(
   final completer = Completer<int>();
   firstCallback(double downloadProgress, double loadProgress) {
     loadCallback(downloadProgress, loadProgress);
-  } 
-  secondCallback(String response, bool done) {
-    callback(response, done);
   }
-  fllamaChatMlcWebJs(jsRequest, firstCallback.toJS, secondCallback.toJS).toDart.then((value) {
+
+  secondCallback(String response, String responseJson, bool done) {
+    callback(response, responseJson, done);
+  }
+
+  fllamaChatMlcWebJs(jsRequest, firstCallback.toJS, secondCallback.toJS)
+      .toDart
+      .then((value) {
     completer.complete(value.toDartInt);
   });
   return completer.future;

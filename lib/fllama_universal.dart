@@ -27,6 +27,8 @@ class MlcModelId {
       "OpenHermes-2.5-Mistral-7B-q4f16_1-MLC";
   static const String openHermesLlama38b =
       "Hermes-2-Pro-Llama-3-8B-q4f16_1-MLC";
+  static const String deepSeekR1Llama38b =
+      "DeepSeek-R1-Distill-Llama-8B-q4f16_1-MLC";
 }
 
 /// Parameters needed to run standard LLM inference. Use with [fllamaInference].
