@@ -38,7 +38,7 @@ void fllama_inference_export(
     char *model_path, char *model_mmproj_path, int num_gpu_layers,
     int num_threads, float temperature, float top_p, float penalty_freq,
     float penalty_repeat, char *grammar, char *eos_token,
-    void (*inference_callback_js)(const char *, uint8_t),
+    void (*inference_callback_js)(const char *, const char *, uint8_t),
     void (*log_callback_js)(const char *)) {
   struct fllama_inference_request request;
   request.request_id = request_id;
