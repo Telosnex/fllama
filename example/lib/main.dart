@@ -134,6 +134,7 @@ class _MyAppState extends State<MyApp> {
                           MlcModelId.llama321bInstruct,
                           MlcModelId.llama323bInstruct,
                           MlcModelId.llama318bInstruct,
+                          MlcModelId.deepSeekR1Qwen15B,
                           MlcModelId.deepSeekR1Llama38b,
                           MlcModelId.openHermesLlama38b,
                           MlcModelId.openHermesMistral,

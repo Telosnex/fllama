@@ -1,7 +1,7 @@
 import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 import { action } from "./fllama_wasm_actions.js";
 
-const availableModels = webllm.prebuiltAppConfig.model_list.map(
+const mlcPrebuiltAppConfigModels = webllm.prebuiltAppConfig.model_list.map(
     (m) => m.model_id,
 );
 
@@ -13,7 +13,34 @@ let tinyLlama = "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC";
 let phi3mini = "Phi-3-mini-4k-instruct-q4f16_1-MLC";
 let openHermesMistral = "OpenHermes-2.5-Mistral-7B-q4f16_1-MLC";
 let deepSeekR1Llama38B = 'DeepSeek-R1-Distill-Llama-8B-q4f16_1-MLC';
+let deepSeekR1Qwen15B = 'DeepSeek-R1-Distill-Qwen-1.5B-q4f16_1-MLC';
 let selectedModel = phi3mini;
+
+/**
+ * Returns a customized version of the prebuilt app config with DeepSeek model added
+ * @returns {AppConfig} The modified configuration object
+ */
+export function getFllamaMLCAppConfig() {
+    // Create a deep copy of the prebuilt config to avoid modifying the original
+    const customConfig = {
+        ...webllm.prebuiltAppConfig,
+        model_list: [...webllm.prebuiltAppConfig.model_list]
+    };
+
+    // Add the DeepSeek model to the beginning of the model list
+    customConfig.model_list.unshift({
+        model: "https://huggingface.co/mlc-ai/DeepSeek-R1-Distill-Qwen-1.5B-q4f16_1-MLC",
+        model_id: "DeepSeek-R1-Distill-Qwen-1.5B-q4f16_1-MLC",
+        model_lib: webllm.modelLibURLPrefix + webllm.modelVersion + "/Qwen2-1.5B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
+        low_resource_required: true,
+        vram_required_MB: 1629.75,
+        overrides: {
+            context_window_size: 4096,
+        },
+    });
+
+    return customConfig;
+}
 
 // Map to keep track of active requests
 let activeRequests = new Map();
@@ -67,7 +94,7 @@ async function processNextRequest() {
 
     // Store the request in our active requests map
     activeRequests.set(requestId, request);
-    if (!request.modelId || !availableModels.includes(request.modelId)) {
+    if (!request.modelId || (!mlcPrebuiltAppConfigModels.includes(request.modelId) && (request.modelId != deepSeekR1Qwen15B) )) {
         console.error(`[fllama_mlc_worker] Invalid model: ${request.modelId}`);
         self.postMessage({
             type: 'error',
@@ -88,7 +115,6 @@ async function processNextRequest() {
             console.log("Creating new engine");
             engine = await initializeEngine();
         }
-
 
         let curMessage = "";
 
@@ -208,7 +234,33 @@ async function processNextRequest() {
 
     async function initializeEngine() {
         console.log("Initializing engine");
-        const engine = new webllm.MLCEngine();
+
+        // 2025-02-21: Manually adding DeepSeek 1.5B; MLC doesn't support it yet, it is
+        // commented out a month ago, when lading, in their prebuiltAppConfig.model_list 
+        // with: "Qwen2-1.5B is experiencing correctness issue, hence commented for now."
+        
+        // Create a deep copy of the prebuilt config to avoid modifying the original
+        const customConfig = {
+            ...webllm.prebuiltAppConfig,
+            model_list: [...webllm.prebuiltAppConfig.model_list]
+        };
+
+        // Add the DeepSeek model to the beginning of the model list
+        customConfig.model_list.unshift({
+            model: "https://huggingface.co/mlc-ai/DeepSeek-R1-Distill-Qwen-1.5B-q4f16_1-MLC",
+            model_id: "DeepSeek-R1-Distill-Qwen-1.5B-q4f16_1-MLC",
+            model_lib: webllm.modelLibURLPrefix + webllm.modelVersion + "/Qwen2-1.5B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
+            low_resource_required: true,
+            vram_required_MB: 1629.75,
+            overrides: {
+                context_window_size: 4096,
+            },
+        });
+
+        // Initialize the engine with the custom config
+        const engine = new webllm.MLCEngine({
+            appConfig: customConfig,
+        });
 
         engine.setInitProgressCallback((report) => {
             let downloadProgress = 0;
