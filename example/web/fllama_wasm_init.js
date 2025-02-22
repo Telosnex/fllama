@@ -1,7 +1,7 @@
 import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 import { action } from "./fllama_wasm_actions.js";
 import './fllama_wasm_main_worker.js';
-import { getFllamaMLCAppConfig } from './fllama_mlc_worker.js';
+import './fllama_mlc_worker.js';
 
 let nextRequestId = 0;
 let inferenceWorker = null;
@@ -102,9 +102,9 @@ function fllamaChatMlcWebJs(request, loadCallback, inferenceCallback) {
 window.fllamaChatMlcWebJs = fllamaChatMlcWebJs;
 
 async function fllamaMlcWebModelDeleteJs(modelId) {
-    // console.log('[fllama_wasm_init.js.fllamaMlcWebModelDeleteJs] called with model id', modelId);
+    console.log('[fllama_wasm_init.js.fllamaMlcWebModelDeleteJs] called with model id', modelId);
     try {
-        const appConfig = getFllamaMLCAppConfig();
+        const appConfig = webllm.prebuiltAppConfig;
         await webllm.deleteModelAllInfoInCache(modelId, appConfig);
     } catch (error) {
         console.error('[fllama_wasm_init.js.fllamaMlcWebModelDeleteJs] Error deleting model:', error);
@@ -115,8 +115,8 @@ window.fllamaMlcWebModelDeleteJs = fllamaMlcWebModelDeleteJs;
 
 async function fllamaMlcIsWebModelDownloadedJs(modelId) {
     try {
-        // console.log('[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] called with model id', modelId);
-        const appConfig = getFllamaMLCAppConfig();
+        console.log('[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] called with model id', modelId);
+        const appConfig = webllm.prebuiltAppConfig;
         // 2. Check whether model weights are cached
         let modelCached = await webllm.hasModelInCache(modelId, appConfig);
         console.log("[fllama_wasm_init.js.fllamaMlcIsWebModelDownloadedJs] model id", modelId, "is cached:", modelCached);
