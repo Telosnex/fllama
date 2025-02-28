@@ -113,6 +113,7 @@ class Opt {
     llama_context_params ctx_params;
     llama_model_params   model_params;
     std::string model_;
+    std::string chat_template_file;
     std::string          user;
     bool                 use_jinja   = false;
     int                  context_size = -1, ngl = -1;
@@ -148,6 +149,16 @@ class Opt {
         return 0;
     }
 
+    int handle_option_with_value(int argc, const char ** argv, int & i, std::string & option_value) {
+        if (i + 1 >= argc) {
+            return 1;
+        }
+
+        option_value = argv[++i];
+
+        return 0;
+    }
+
     int parse(int argc, const char ** argv) {
         bool options_parsing   = true;
         for (int i = 1, positional_args_i = 0; i < argc; ++i) {
@@ -168,6 +179,11 @@ class Opt {
                        (parse_flag(argv, i, "-v", "--verbose") || parse_flag(argv, i, "-v", "--log-verbose"))) {
                 verbose = true;
             } else if (options_parsing && strcmp(argv[i], "--jinja") == 0) {
+                use_jinja = true;
+            } else if (options_parsing && strcmp(argv[i], "--chat-template-file") == 0){
+                if (handle_option_with_value(argc, argv, i, chat_template_file) == 1) {
+                    return 1;
+                }
                 use_jinja = true;
             } else if (options_parsing && parse_flag(argv, i, "-h", "--help")) {
                 help = true;
@@ -207,6 +223,11 @@ class Opt {
             "Options:\n"
             "  -c, --context-size <value>\n"
             "      Context size (default: %d)\n"
+            "  --chat-template-file <path>\n"
+            "      Path to the file containing the chat template to use with the model.\n"
+            "      Only supports jinja templates and implicitly sets the --jinja flag.\n"
+            "  --jinja\n"
+            "      Use jinja templating for the chat template of the model\n"
             "  -n, -ngl, --ngl <value>\n"
             "      Number of GPU layers (default: %d)\n"
             "  --temp <value>\n"
@@ -261,13 +282,12 @@ static int get_terminal_width() {
 #endif
 }
 
-#ifdef LLAMA_USE_CURL
 class File {
   public:
     FILE * file = nullptr;
 
     FILE * open(const std::string & filename, const char * mode) {
-        file = fopen(filename.c_str(), mode);
+        file = ggml_fopen(filename.c_str(), mode);
 
         return file;
     }
@@ -303,6 +323,20 @@ class File {
         return 0;
     }
 
+    std::string to_string() {
+        fseek(file, 0, SEEK_END);
+        const size_t size = ftell(file);
+        fseek(file, 0, SEEK_SET);
+        std::string out;
+        out.resize(size);
+        const size_t read_size = fread(&out[0], 1, size, file);
+        if (read_size != size) {
+            printe("Error reading file: %s", strerror(errno));
+        }
+
+        return out;
+    }
+
     ~File() {
         if (fd >= 0) {
 #    ifdef _WIN32
@@ -327,6 +361,7 @@ class File {
 #    endif
 };
 
+#ifdef LLAMA_USE_CURL
 class HttpClient {
   public:
     int init(const std::string & url, const std::vector<std::string> & headers, const std::string & output_file,
@@ -942,7 +977,8 @@ static int generate(LlamaData & llama_data, const std::string & prompt, std::str
 }
 
 static int read_user_input(std::string & user_input) {
-    static const char * prompt_prefix = "> ";
+    static const char * prompt_prefix_env = std::getenv("LLAMA_PROMPT_PREFIX");
+    static const char * prompt_prefix     = prompt_prefix_env ? prompt_prefix_env : "> ";
 #ifdef WIN32
     printf("\r" LOG_CLR_TO_EOL LOG_COL_DEFAULT "%s", prompt_prefix);
 
@@ -1053,38 +1089,67 @@ static int get_user_input(std::string & user_input, const std::string & user) {
     return 0;
 }
 
+// Reads a chat template file to be used
+static std::string read_chat_template_file(const std::string & chat_template_file) {
+    File file;
+    if (!file.open(chat_template_file, "r")) {
+        printe("Error opening chat template file '%s': %s", chat_template_file.c_str(), strerror(errno));
+        return "";
+    }
+
+    return file.to_string();
+}
+
+static int process_user_message(const Opt & opt, const std::string & user_input, LlamaData & llama_data,
+                                const common_chat_templates_ptr & chat_templates, int & prev_len,
+                                const bool stdout_a_terminal) {
+    add_message("user", opt.user.empty() ? user_input : opt.user, llama_data);
+    int new_len;
+    if (apply_chat_template_with_error_handling(chat_templates.get(), llama_data, true, new_len, opt.use_jinja) < 0) {
+        return 1;
+    }
+
+    std::string prompt(llama_data.fmtted.begin() + prev_len, llama_data.fmtted.begin() + new_len);
+    std::string response;
+    if (generate_response(llama_data, prompt, response, stdout_a_terminal)) {
+        return 1;
+    }
+
+    if (!opt.user.empty()) {
+        return 2;
+    }
+
+    add_message("assistant", response, llama_data);
+    if (apply_chat_template_with_error_handling(chat_templates.get(), llama_data, false, prev_len, opt.use_jinja) < 0) {
+        return 1;
+    }
+
+    return 0;
+}
+
 // Main chat loop function
-static int chat_loop(LlamaData & llama_data, const std::string & user, bool use_jinja) {
+static int chat_loop(LlamaData & llama_data, const Opt & opt) {
     int prev_len = 0;
     llama_data.fmtted.resize(llama_n_ctx(llama_data.context.get()));
-    auto chat_templates = common_chat_templates_init(llama_data.model.get(), "");
+    std::string chat_template;
+    if (!opt.chat_template_file.empty()) {
+        chat_template = read_chat_template_file(opt.chat_template_file);
+    }
+
+    common_chat_templates_ptr chat_templates    = common_chat_templates_init(llama_data.model.get(), chat_template);
     static const bool stdout_a_terminal = is_stdout_a_terminal();
     while (true) {
         // Get user input
         std::string user_input;
-        if (get_user_input(user_input, user) == 1) {
+        if (get_user_input(user_input, opt.user) == 1) {
             return 0;
         }
 
-        add_message("user", user.empty() ? user_input : user, llama_data);
-        int new_len;
-        if (apply_chat_template_with_error_handling(chat_templates.get(), llama_data, true, new_len, use_jinja) < 0) {
+        const int ret = process_user_message(opt, user_input, llama_data, chat_templates, prev_len, stdout_a_terminal);
+        if (ret == 1) {
             return 1;
-        }
-
-        std::string prompt(llama_data.fmtted.begin() + prev_len, llama_data.fmtted.begin() + new_len);
-        std::string response;
-        if (generate_response(llama_data, prompt, response, stdout_a_terminal)) {
-            return 1;
-        }
-
-        if (!user.empty()) {
+        } else if (ret == 2) {
             break;
-        }
-
-        add_message("assistant", response, llama_data);
-        if (apply_chat_template_with_error_handling(chat_templates.get(), llama_data, false, prev_len, use_jinja) < 0) {
-            return 1;
         }
     }
 
@@ -1143,7 +1208,7 @@ int main(int argc, const char ** argv) {
         return 1;
     }
 
-    if (chat_loop(llama_data, opt.user, opt.use_jinja)) {
+    if (chat_loop(llama_data, opt)) {
         return 1;
     }
 

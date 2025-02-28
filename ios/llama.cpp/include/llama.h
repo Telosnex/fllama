@@ -105,6 +105,7 @@ extern "C" {
         LLAMA_VOCAB_PRE_TYPE_CHAMELEON      = 26,
         LLAMA_VOCAB_PRE_TYPE_MINERVA        = 27,
         LLAMA_VOCAB_PRE_TYPE_DEEPSEEK3_LLM  = 28,
+        LLAMA_VOCAB_PRE_TYPE_GPT4O          = 29,
     };
 
     enum llama_rope_type {
@@ -477,6 +478,7 @@ extern "C" {
     LLAMA_API int32_t llama_model_n_embd     (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_layer    (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_head     (const struct llama_model * model);
+    LLAMA_API int32_t llama_model_n_head_kv  (const struct llama_model * model);
 
     // Get the model's RoPE frequency scaling factor
     LLAMA_API float llama_model_rope_freq_scale_train(const struct llama_model * model);

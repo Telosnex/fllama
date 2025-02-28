@@ -173,7 +173,15 @@ jobs:
           name: llama-bin-macos-x64.zip
 
   ubuntu-cpu-cmake:
-    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - build: 'x64'
+            os: ubuntu-22.04
+          - build: 'arm64'
+            os: ubuntu-22.04-arm
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Clone
@@ -239,14 +247,14 @@ jobs:
         run: |
           cp LICENSE ./build/bin/
           cp examples/run/linenoise.cpp/LICENSE ./build/bin/LICENSE.linenoise.cpp
-          zip -r llama-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.zip ./build/bin/*
+          zip -r llama-${{ steps.tag.outputs.name }}-bin-ubuntu-${{ matrix.build }}.zip ./build/bin/*
 
       - name: Upload artifacts
         if: ${{ ( github.event_name == 'push' && github.ref == 'refs/heads/master' ) || github.event.inputs.create_release == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          path: llama-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.zip
-          name: llama-bin-ubuntu-x64.zip
+          path: llama-${{ steps.tag.outputs.name }}-bin-ubuntu-${{ matrix.build }}.zip
+          name: llama-bin-ubuntu-${{ matrix.build }}.zip
 
   ubuntu-latest-cmake-sanitizer:
     runs-on: ubuntu-latest

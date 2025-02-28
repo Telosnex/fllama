@@ -699,6 +699,9 @@ class Model:
         if chkhsh == "b3f499bb4255f8ca19fccd664443283318f2fd2414d5e0b040fbdd0cc195d6c5":
             # ref: https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
             res = "deepseek-r1-qwen"
+        if chkhsh == "ccc2ef013c104be7bae2965776d611e1d7a8a2a9c547dd93a682c9a9fc80352e":
+            # ref: https://huggingface.co/Xenova/gpt-4o
+            res = "gpt-4o"
 
         if res is None:
             logger.warning("\n")
@@ -2512,7 +2515,8 @@ class Phi3MiniModel(Model):
         rms_eps = self.find_hparam(["rms_norm_eps"])
         max_pos_embds = self.find_hparam(["n_positions", "max_position_embeddings"])
         orig_max_pos_embds = self.find_hparam(["original_max_position_embeddings"])
-        rope_dims = n_embd // n_head
+        rot_pct = self.hparams.get("partial_rotary_factor", 1.0)
+        rope_dims = int(rot_pct * n_embd) // n_head
 
         self.gguf_writer.add_context_length(max_pos_embds)
         self.gguf_writer.add_rope_scaling_orig_ctx_len(orig_max_pos_embds)
@@ -2536,7 +2540,8 @@ class Phi3MiniModel(Model):
         n_head = self.find_hparam(["num_attention_heads", "n_head"])
         max_pos_embds = self.find_hparam(["n_positions", "max_position_embeddings"])
         orig_max_pos_embds = self.find_hparam(["original_max_position_embeddings"])
-        rope_dims = n_embd // n_head
+        rot_pct = self.hparams.get("partial_rotary_factor", 1.0)
+        rope_dims = int(rot_pct * n_embd) // n_head
 
         # write rope scaling for long context (128k) model
         rope_scaling = self.find_hparam(['rope_scaling'], True)
@@ -2565,7 +2570,7 @@ class Phi3MiniModel(Model):
             raise KeyError('Missing the required key rope_scaling.long_factor or rope_scaling_short_factor')
 
         if len(long_factors) != len(short_factors) or len(long_factors) != rope_dims / 2:
-            raise ValueError(f'The length of rope long and short factors must be {rope_dims / 2}')
+            raise ValueError(f'The length of rope long and short factors must be {rope_dims / 2}. long_factors = {len(long_factors)}, short_factors = {len(short_factors)}.')
 
         yield (self.format_tensor_name(gguf.MODEL_TENSOR.ROPE_FACTORS_LONG), torch.tensor(long_factors, dtype=torch.float32))
         yield (self.format_tensor_name(gguf.MODEL_TENSOR.ROPE_FACTORS_SHORT), torch.tensor(short_factors, dtype=torch.float32))
