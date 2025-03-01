@@ -260,13 +260,17 @@ std::string sanitize_utf8(const std::string &input) {
 }
 
 static json to_json_oaicompat_chat(
-    const std::string &content, const std::string &oaicompat_model,
-    const std::string &oaicompat_cmpl_id, const std::string &build_info,
-    stop_type stop, common_chat_format oaicompat_chat_format,
+    const std::string &content, 
+    const std::string &oaicompat_model,
+    const std::string &oaicompat_cmpl_id, 
+    const std::string &build_info,
+    stop_type stop, 
+    common_chat_format oaicompat_chat_format,
     // bool verbose,
     // const std::vector<completion_token_output>& probs_output,
     // bool post_sampling_probs,
-    int n_decoded, int n_prompt_tokens
+    int n_decoded, 
+    int n_prompt_tokens
     // const result_timings* timings
 ) {
   // Issues with invalid UTF-8 were virtually always reproducible on iOS
@@ -290,10 +294,18 @@ static json to_json_oaicompat_chat(
       msg = common_chat_parse(content, oaicompat_chat_format);
       finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
     } catch (const std::exception &e) {
-      return NULL;
+      // IMPORTANT NOTE OBSERVED W/PHI-4 MINI:
+      // Phi-4 mini fallback had some issues when integrated.
+      //
+      // Sometimes it would fail to parse a text response, and no response would
+      // be returned.
+      //
+      // Removing `return NULL` here, and in the else branch of the stop words,
+      // fixed this.
+      msg.content = content;
     }
   } else {
-    return NULL;
+    msg.content = content;
   }
 
   // Also validate any tool call content
@@ -952,7 +964,17 @@ fllama_inference_sync(fllama_inference_request request,
             last_valid_json_string = json_str;
             has_valid_json = true;
             callback(c_result, last_valid_json_string.c_str(), false);
+          } else {
+            log_message("[DEBUG] invalid UTF-8 in JSON response",
+                        request.dart_logger);
           }
+        } else {
+          log_message("[DEBUG] skipping callback. completion_response null? " +
+                          std::to_string(completion_response == NULL) +
+                          ", has_valid_json? " + std::to_string(has_valid_json) +
+                          ", response == last_valid_json? " +
+                          std::to_string(completion_response == last_valid_json),
+                      request.dart_logger);
         }
       }
 
@@ -1044,6 +1066,7 @@ fllama_inference_sync(fllama_inference_request request,
       auto json_string = "";
 
       if (!has_valid_json) {
+        log_message("[DEBUG] Never had valid JSON", request.dart_logger);
         // If we never got valid JSON, return empty content
         auto completion_response = to_json_oaicompat_chat(
             "", request.model_path,
@@ -1052,6 +1075,7 @@ fllama_inference_sync(fllama_inference_request request,
         json_string = completion_response == NULL ? NULL : completion_response.dump().c_str();
         auto is_valid_string = json_string == NULL ? false : is_valid_utf8(json_string);
         if (is_valid_string) {
+          log_message("[DEBUG] Never had valid JSON, was able to produce valid JSON for an empty message", request.dart_logger);
           // Never had valid JSON, was able to produce valid JSON for an empty
           // message.
           callback(c_result, json_string, true);
@@ -1062,8 +1086,10 @@ fllama_inference_sync(fllama_inference_request request,
         }
       } else {
         if (is_valid_utf8(last_valid_json_string)) {
+          log_message("[DEBUG] Final JSON  is valid UTF-8. Response length: " + std::to_string(last_valid_json_string.length()), request.dart_logger);
           callback(c_result, last_valid_json_string.c_str(), true);
         } else {
+          log_message("[DEBUG] Final JSON response is invalid UTF-8", request.dart_logger);
           callback(c_result,
                    "{\"error\": \"Invalid UTF-8 in final JSON response\"}",
                    true);

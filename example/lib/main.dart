@@ -40,7 +40,8 @@ class _MyAppState extends State<MyApp> {
   var _topP = 1.0;
   int _maxTokens = 100;
 
-  String latestResult = '';
+  String latestResultString = '';
+  String latestResultJson = '';
   int latestOutputTokenCount = 0;
   String latestChatTemplate = '';
   String latestEosToken = '';
@@ -380,7 +381,7 @@ class _MyAppState extends State<MyApp> {
                     ),
                     const SizedBox(height: 8),
                   ],
-                  if (!kIsWeb && latestResult.isNotEmpty) ...[
+                  if (!kIsWeb && latestResultString.isNotEmpty) ...[
                     if (_tokensPerSecond > 0)
                       Text(
                         'Speed: ${_tokensPerSecond.toStringAsFixed(1)} tokens/s',
@@ -390,7 +391,7 @@ class _MyAppState extends State<MyApp> {
                         style: textStyle),
                   ],
                   SelectableText(
-                    latestResult,
+                    'String: $latestResultString\nJSON: $latestResultJson\n',
                     style: textStyle,
                   ),
                   if (latestChatTemplate.isNotEmpty) ...[
@@ -521,7 +522,7 @@ class _MyAppState extends State<MyApp> {
         setState(() {
           _mlcDownloadProgress = null;
           _mlcLoadProgress = null;
-          latestResult = response;
+          latestResultString = response;
           if (done) {
             _runningRequestId = null;
           }
@@ -553,9 +554,10 @@ class _MyAppState extends State<MyApp> {
     int requestId = await fllamaChat(request, (response, responseJson, done) {
       setState(() {
         allResponses.add(responseJson);
-        latestResult = response;
+        latestResultString = response;
+        latestResultJson = responseJson;
         fllamaTokenize(FllamaTokenizeRequest(
-                input: latestResult, modelPath: _modelPath!))
+                input: latestResultString, modelPath: _modelPath!))
             .then((value) {
           final now = DateTime.now();
           final elapsedSeconds = _inferenceStartTime != null
