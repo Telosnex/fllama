@@ -444,6 +444,7 @@ std::string common_chat_format_name(common_chat_format format) {
         case COMMON_CHAT_FORMAT_HERMES_2_PRO: return "Hermes 2 Pro";
         case COMMON_CHAT_FORMAT_COMMAND_R7B: return "Command R7B";
         case COMMON_CHAT_FORMAT_COMMAND_R7B_EXTRACT_REASONING: return "Command R7B (extract reasoning)";
+        case COMMON_CHAT_FORMAT_PHI_4: return "Phi-4";
         default:
             throw std::runtime_error("Unknown chat format");
     }
@@ -1300,6 +1301,117 @@ static common_chat_msg common_chat_parse_functionary_v3_1_llama_3_1(const std::s
     return parse_json_tool_calls(input, std::nullopt, function_regex, close_regex);
 }
 
+static common_chat_params common_chat_params_init_phi_4(const common_chat_template & tmpl, const struct templates_params & inputs) {
+// Phi-4 has a unique format that expects tools in the system message with <|tool|> tags
+// and returns function calls as a JSON array
+common_chat_params data;
+
+// Only set up grammar if tools are provided
+if (!inputs.tools.empty()) {
+    data.grammar_lazy = inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_REQUIRED;
+    data.grammar = build_grammar([&](const common_grammar_builder & builder) {
+        auto schemas = json::array();
+        foreach_function(inputs.tools, [&](const json & tool) {
+            const auto & function = tool.at("function");
+            schemas.push_back({
+                {"type", "object"},
+                {"properties", {
+                    {"name", {
+                        {"type", "string"},
+                        {"const", function.at("name")},
+                    }},
+                    {"arguments", function.at("parameters")},
+                }},
+                {"required", json::array({"name", "arguments"})},
+            });
+        });
+        // Phi-4 returns a JSON array of tool calls
+        auto schema = json {
+            {"type", "array"},
+            {"items", schemas.size() == 1 ? schemas[0] : json {{"anyOf", schemas}}},
+            {"minItems", 1},
+        };
+        // Limit to single tool call if not using parallel calls
+        if (!inputs.parallel_tool_calls) {
+            schema["maxItems"] = 1;
+        }
+        // Direct JSON array is the root response
+        builder.add_rule("root", builder.add_schema("tool_calls", schema));
+    }, grammar_options);
+}
+
+// For Phi-4, we need to inject tools into the system message
+// because the template expects tools in the system message with <|tool|> tags
+if (!inputs.tools.empty()) {
+    // Make a copy of messages that we can modify
+    json messages_copy = inputs.messages;
+    
+    // Extract just the function parts of the tools (Phi-4 format)
+    json phi4_tools = json::array();
+    for (const auto & tool : inputs.tools) {
+        // Phi-4 expects just the function part, not the outer wrapper
+        if (tool.contains("function")) {
+            phi4_tools.push_back(tool.at("function"));
+        }
+    }
+    
+    LOG_INF("PHI-4 DEBUG: Processing %d tools for Phi-4 format", phi4_tools.size());
+    
+    // Find the system message, or add one if it doesn't exist
+    bool found_system_msg = false;
+    for (auto & message : messages_copy) {
+        if (message.contains("role") && message["role"] == "system") {
+            // Add tools to the existing system message and update content to mention tools
+            message["tools"] = phi4_tools.dump();
+            
+            // If the system message doesn't mention tools, append that information
+            std::string content = message["content"];
+            if (content.find("tool") == std::string::npos && 
+                content.find("function") == std::string::npos) {
+                message["content"] = content + " You have access to some tools.";
+            }
+            
+            found_system_msg = true;
+            LOG_INF("PHI-4 DEBUG: Added tools to existing system message");
+            break;
+        }
+    }
+    
+    // If no system message, add one with tools
+    if (!found_system_msg && messages_copy.size() > 0) {
+        json system_msg = {
+            {"role", "system"},
+            {"content", "You are a helpful assistant with access to tools.\nTo use a tool, respond in this format: <|tool_call|>{\"name\": \"foo\", \"arguments\": {\"a\": 1}}<|/tool_call|>"},
+            {"tools", phi4_tools.dump()}
+        };
+        // Insert system message at the beginning
+        messages_copy.insert(messages_copy.begin(), system_msg);
+        LOG_INF("PHI-4 DEBUG: Created new system message with tools");
+    }
+    
+    LOG_INF("PHI-4 DEBUG: Applying template with tools in system message");
+    // Apply template with tools embedded in system message, passing empty tools separately
+    data.prompt = apply(tmpl, messages_copy, json::array(), inputs.add_generation_prompt);
+    
+    // Check if the template application worked properly
+    if (data.prompt.find("<|tool|") != std::string::npos) {
+        LOG_INF("PHI-4 DEBUG: Template applied correctly! Found <|tool|> tags in generated prompt");
+    } else {
+        LOG_WRN("PHI-4 DEBUG: Template failed to include <|tool|> tags in the prompt!");
+    }
+    
+    // Log the first 100 characters of the prompt to verify format
+    std::string prompt_preview = data.prompt.substr(0, std::min((size_t)200, data.prompt.size()));
+    LOG_INF("PHI-4 DEBUG: Prompt preview: %s...", prompt_preview.c_str());
+} else {
+    // No tools, use normal approach
+    LOG_INF("PHI-4 DEBUG: No tools found, using standard approach");
+    data.prompt = apply(tmpl, inputs.messages, json::array(), inputs.add_generation_prompt);
+}
+data.format = COMMON_CHAT_FORMAT_PHI_4;
+return data;
+}
+
 static common_chat_params common_chat_params_init_hermes_2_pro(const common_chat_template & tmpl, const struct templates_params & inputs) {
     common_chat_params data;
     // (content)?(<tool_call>{"name": "foo", "arguments": {"a": 1}}</tool_call>)*
@@ -1437,54 +1549,70 @@ static common_chat_params common_chat_templates_apply_jinja(
 
     // DeepSeek R1: use handler in all cases except json schema (thinking / tools).
     if (src.find("<｜tool▁calls▁begin｜>") != std::string::npos && params.json_schema.is_null()) {
+        LOG_INF("Recognized template as DeepSeek R1\n");
         return common_chat_params_init_deepseek_r1(tmpl, params);
     }
 
     // Command R7B: : use handler in all cases except json schema (thinking / tools).
     if (src.find("<|END_THINKING|><|START_ACTION|>") != std::string::npos && params.json_schema.is_null()) {
+        LOG_INF("Recognized template as Command R7B\n");
         return common_chat_params_init_command_r7b(tmpl, params);
     }
 
     // Use generic handler when mixing tools + JSON schema.
     // TODO: support that mix in handlers below.
     if ((params.tools.is_array() && params.json_schema.is_object())) {
+        LOG_INF("Using generic handler for mixed tools + JSON schema\n");
         return common_chat_params_init_generic(tmpl, params);
     }
 
     // Functionary prepends "all\n" to plain content outputs, so we use its handler in all cases.
     if (src.find(">>>all") != std::string::npos) {
+        LOG_INF("Recognized template as Functionary v3.2\n");
         return common_chat_params_init_functionary_v3_2(tmpl, params);
     }
 
     // Firefunction v2 requires datetime and functions in the context even w/o tools, so we also use its handler in all cases.
     if (src.find(" functools[") != std::string::npos) {
+        LOG_INF("Recognized template as Firefunction v2\n");
         return common_chat_params_init_firefunction_v2(tmpl, params);
+    }
+
+    // Phi-4 mini.
+    if (src.find("<|tool|>") != std::string::npos) {
+        LOG_INF("Recognized template as Phi-4\n");
+        return common_chat_params_init_phi_4(tmpl, params);
     }
 
     // Plain handler (no tools)
     if (params.tools.is_null() || inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_NONE) {
+        LOG_INF("Using generic handler for plain content\n");
         return common_chat_params_init_without_tools(tmpl, params);
     }
 
     // Hermes 2/3 Pro, Qwen 2.5 Instruct (w/ tools)
     if (src.find("<tool_call>") != std::string::npos) {
+        LOG_INF("Recognized template as Hermes 2 Pro\n");
         return common_chat_params_init_hermes_2_pro(tmpl, params);
     }
 
     // Functionary v3.1 (w/ tools)
     if (src.find("<|start_header_id|>") != std::string::npos
         && src.find("<function=") != std::string::npos) {
+        LOG_INF("Recognized template as Functionary v3.1\n");
         return common_chat_params_init_functionary_v3_1_llama_3_1(tmpl, params);
     }
 
     // Llama 3.1, 3.2, 3.3 (w/ tools)
     if (src.find("<|start_header_id|>ipython<|end_header_id|>") != std::string::npos) {
+        LOG_INF("Recognized template as Llama 3.1+\n");
         auto allow_python_tag_builtin_tools = src.find("<|python_tag|>") != std::string::npos;
         return common_chat_params_init_llama_3_1_tool_calls(tmpl, params, allow_python_tag_builtin_tools);
     }
 
     // Mistral Nemo (w/ tools)
     if (src.find("[TOOL_CALLS]") != std::string::npos) {
+        LOG_INF("Recognized template as Mistral Nemo\n");
         return common_chat_params_init_mistral_nemo(tmpl, params);
     }
 
@@ -1567,6 +1695,61 @@ static common_chat_msg common_chat_parse_content_only(const std::string & input)
     return msg;
 }
 
+static common_chat_msg common_chat_parse_phi_4(const std::string & input) {
+    common_chat_msg result;
+    result.role = "assistant";
+    
+    // Check for <|tool_call|> tag format
+    const std::string tool_call_tag = "<|tool_call|>";
+    size_t tool_call_pos = input.find(tool_call_tag);
+    
+    if (tool_call_pos != std::string::npos) {
+        // Found <|tool_call|> tag
+        LOG_INF("PHI-4 DEBUG: Found <|tool_call|> tag in response");
+        try {
+            // Extract JSON after the tag
+            std::string json_str = input.substr(tool_call_pos + tool_call_tag.length());
+            auto tool_call = json::parse(json_str);
+            
+            // Add as a tool call
+            result.tool_calls.push_back({
+                tool_call.at("name"),
+                tool_call.at("arguments").dump(),
+                /* id= */ "",
+            });
+            LOG_INF("PHI-4 DEBUG: Successfully parsed tool call with name: %s", 
+                    tool_call.at("name").get<std::string>().c_str());
+            
+        } catch (const std::exception & e) {
+            LOG_ERR("Failed to parse phi-4 tool call with <|tool_call|> tag: %s\n", e.what());
+            result.content = input;
+        }
+    }
+    // Check if the response is a tool call (JSON array format)
+    else if (input.find('[') == 0) {
+        try {
+            auto data = json::parse(input);
+            if (data.is_array() && !data.empty()) {
+                for (const auto & tool_call : data) {
+                    result.tool_calls.push_back({
+                        tool_call.at("name"),
+                        tool_call.at("arguments").dump(),
+                        /* id= */ "",
+                    });
+                }
+                LOG_INF("PHI-4 DEBUG: Successfully parsed JSON array tool calls");
+            }
+        } catch (const std::exception & e) {
+            LOG_ERR("Failed to parse phi-4 tool call JSON array: %s\n", e.what());
+            result.content = input;
+        }
+    } else {
+        result.content = input;
+    }
+    
+    return result;
+}
+
 common_chat_msg common_chat_parse(const std::string & input, common_chat_format format) {
     switch (format) {
         case COMMON_CHAT_FORMAT_CONTENT_ONLY:
@@ -1595,6 +1778,8 @@ common_chat_msg common_chat_parse(const std::string & input, common_chat_format 
             return common_chat_parse_command_r7b(input, /* extract_reasoning= */ false);
         case COMMON_CHAT_FORMAT_COMMAND_R7B_EXTRACT_REASONING:
             return common_chat_parse_command_r7b(input, /* extract_reasoning= */ true);
+        case COMMON_CHAT_FORMAT_PHI_4:
+            return common_chat_parse_phi_4(input);
         default:
             throw std::runtime_error("Unsupported format: " + common_chat_format_name(format));
     }
