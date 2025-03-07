@@ -402,43 +402,43 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
                                   const std::vector<llama_token> &tokens,
                                   int n_batch, int *n_past,
                                   fllama_log_callback logger) {
-  log_message("[DEBUG] add_tokens_to_context start", logger);
+  log_message("[DEBUG] add_tokens_to_context: start", logger);
   const int N = (int)tokens.size();
-  log_message("[DEBUG] token count: " + std::to_string(N), logger);
+  log_message("[DEBUG] add_tokens_to_context: token count: " + std::to_string(N), logger);
   if (N == 0)
     return true;
 
   // Keep tokens data alive until we're done with the batch
   std::vector<llama_token> tokens_data = tokens;
-  log_message("[DEBUG] about to call llama_batch_get_one", logger);
+  log_message("[DEBUG] add_tokens_to_context: about to call llama_batch_get_one", logger);
   llama_batch batch =
       llama_batch_get_one(tokens_data.data(), tokens_data.size());
-  log_message("[DEBUG] got batch with " + std::to_string(batch.n_tokens) +
+  log_message("[DEBUG] add_tokens_to_context: got batch with " + std::to_string(batch.n_tokens) +
                   " tokens",
               logger);
 
   // Check context space
   int n_ctx = llama_n_ctx(ctx_llama);
   int n_ctx_used = llama_get_kv_cache_used_cells(ctx_llama);
-  log_message("[DEBUG] ctx space: used=" + std::to_string(n_ctx_used) +
+  log_message("[DEBUG] add_tokens_to_context: ctx space: used=" + std::to_string(n_ctx_used) +
                   ", total=" + std::to_string(n_ctx),
               logger);
 
   if (n_ctx_used + batch.n_tokens > n_ctx) {
-    log_message("context size exceeded", logger);
+    log_message("[DEBUG] add_tokens_to_context: context size exceeded", logger);
     return false;
   }
 
-  log_message("[DEBUG] about to decode batch", logger);
+  log_message("[DEBUG] add_tokens_to_context: about to decode batch", logger);
   if (llama_decode(ctx_llama, batch)) {
-    log_message("failed to decode", logger);
+    log_message("[DEBUG] add_tokens_to_context: failed to decode", logger);
     return false;
   }
-  log_message("[DEBUG] decode successful", logger);
+  log_message("[DEBUG] add_tokens_to_context: decode successful", logger);
 
   // Update past token count
   *n_past = llama_get_kv_cache_used_cells(ctx_llama);
-  log_message("[DEBUG] updated n_past to " + std::to_string(*n_past), logger);
+  log_message("[DEBUG] add_tokens_to_context: updated n_past to " + std::to_string(*n_past), logger);
   return true;
 }
 
@@ -843,8 +843,16 @@ fllama_inference_sync(fllama_inference_request request,
     log_message("Context size: " + std::to_string(n_ctx), request.dart_logger);
     log_message("Input tokens: " + std::to_string(tokens_list.size()),
                 request.dart_logger);
-    add_tokens_to_context(ctx, tokens_list, n_batch, &n_past,
-                          request.dart_logger);
+    if (tokens_list.size() > n_ctx) {
+      log_message("Input tokens exceed context size.", request.dart_logger);
+      auto error_message = "Error: Input exceeds context size. Input tokens: " +
+                           std::to_string(tokens_list.size()) +
+                           ", context size: " + std::to_string(n_ctx);
+      callback(error_message.c_str(), "", true);
+      cleanup();
+      return;
+    }
+
     log_message("Added input to context.", request.dart_logger);
     // Split the input into lines for more reliable logging
     // log_message("[IMPORTANT] =================== FINAL INPUT START
