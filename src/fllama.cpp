@@ -843,6 +843,8 @@ fllama_inference_sync(fllama_inference_request request,
     log_message("Context size: " + std::to_string(n_ctx), request.dart_logger);
     log_message("Input tokens: " + std::to_string(tokens_list.size()),
                 request.dart_logger);
+    add_tokens_to_context(ctx, tokens_list, n_batch, &n_past,
+      request.dart_logger);
     if (tokens_list.size() > n_ctx) {
       log_message("Input tokens exceed context size.", request.dart_logger);
       auto error_message = "Error: Input exceeds context size. Input tokens: " +
