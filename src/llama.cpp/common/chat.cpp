@@ -1438,6 +1438,87 @@ static common_chat_params common_chat_params_init_phi_4(const common_chat_templa
     return data;
 }
 
+static common_chat_msg common_chat_parse_phi_4(const std::string & input) {
+    // Regex for when both opening and closing tags are present
+    static std::regex function_regex_with_closing("<\|tool_call\|>([\s\S\n\r]*?)</\|tool_call\|>");
+    
+    std::smatch match;
+    common_chat_msg result;
+    result.role = "assistant";
+    
+    // Content before any tool calls
+    auto content_end = input.find("<|tool_call|>");
+    if (content_end != std::string::npos) {
+        result.content = input.substr(0, content_end);
+    } else {
+        result.content = input;
+        return result;
+    }
+    
+    bool found_valid_tool_call = false;
+    
+    // First try to find complete tags with closing tag
+    auto current_pos = content_end;
+    while (std::regex_search(input.begin() + current_pos, input.end(), match, function_regex_with_closing)) {
+        try {
+            // Parse the JSON inside the tool call tags
+            auto json_content = match[1].str();
+            auto tool_call = json::parse(json_content);
+            
+            // Add as a tool call
+            result.tool_calls.push_back({
+                tool_call.at("name"),
+                tool_call.at("arguments").dump(),
+                /* id= */ "",
+            });
+            
+            // Move past this match
+            current_pos += match.position() + match.length();
+            found_valid_tool_call = true;
+            
+            LOG_INF("PHI-4: Successfully parsed tool call with name: %s (with closing tag)", 
+                    tool_call.at("name").get<std::string>().c_str());
+        } catch (const std::exception & e) {
+            LOG_ERR("Failed to parse phi-4 tool call with closing tag: %s\n", e.what());
+            // Just continue to next match if this one fails
+            current_pos += match.position() + match.length();
+        }
+    }
+    
+    // If no valid tool calls were found with closing tags, try parsing without the closing tag
+    if (!found_valid_tool_call) {
+        try {
+            // Extract everything after the opening tag
+            std::string json_content = input.substr(content_end + strlen("<|tool_call|>"));
+            json_content = string_strip(json_content);
+            
+            // Try to parse it as JSON
+            auto tool_call = json::parse(json_content);
+            
+            // Add as a tool call
+            result.tool_calls.push_back({
+                tool_call.at("name"),
+                tool_call.at("arguments").dump(),
+                /* id= */ "",
+            });
+            
+            LOG_INF("PHI-4: Successfully parsed tool call with name: %s (without closing tag)", 
+                    tool_call.at("name").get<std::string>().c_str());
+            found_valid_tool_call = true;
+        } catch (const std::exception & e) {
+            LOG_ERR("Failed to parse phi-4 tool call without closing tag: %s\n", e.what());
+        }
+    }
+    
+    // If we didn't find any valid tool calls but had the opening tag, fallback to content
+    if (!found_valid_tool_call) {
+        result.content = input;
+    }
+    
+    return result;
+}
+
+
 static common_chat_params common_chat_params_init_hermes_2_pro(const common_chat_template & tmpl, const struct templates_params & inputs) {
     common_chat_params data;
     // (content)?(<tool_call>{"name": "foo", "arguments": {"a": 1}}</tool_call>)*
@@ -1826,86 +1907,6 @@ static common_chat_msg common_chat_parse_content_only(const std::string & input)
     msg.role = "assistant";
     msg.content = input;
     return msg;
-}
-
-static common_chat_msg common_chat_parse_phi_4(const std::string & input) {
-    // Regex for when both opening and closing tags are present
-    static std::regex function_regex_with_closing("<\|tool_call\|>([\s\S\n\r]*?)</\|tool_call\|>");
-    
-    std::smatch match;
-    common_chat_msg result;
-    result.role = "assistant";
-    
-    // Content before any tool calls
-    auto content_end = input.find("<|tool_call|>");
-    if (content_end != std::string::npos) {
-        result.content = input.substr(0, content_end);
-    } else {
-        result.content = input;
-        return result;
-    }
-    
-    bool found_valid_tool_call = false;
-    
-    // First try to find complete tags with closing tag
-    auto current_pos = content_end;
-    while (std::regex_search(input.begin() + current_pos, input.end(), match, function_regex_with_closing)) {
-        try {
-            // Parse the JSON inside the tool call tags
-            auto json_content = match[1].str();
-            auto tool_call = json::parse(json_content);
-            
-            // Add as a tool call
-            result.tool_calls.push_back({
-                tool_call.at("name"),
-                tool_call.at("arguments").dump(),
-                /* id= */ "",
-            });
-            
-            // Move past this match
-            current_pos += match.position() + match.length();
-            found_valid_tool_call = true;
-            
-            LOG_INF("PHI-4: Successfully parsed tool call with name: %s (with closing tag)", 
-                    tool_call.at("name").get<std::string>().c_str());
-        } catch (const std::exception & e) {
-            LOG_ERR("Failed to parse phi-4 tool call with closing tag: %s\n", e.what());
-            // Just continue to next match if this one fails
-            current_pos += match.position() + match.length();
-        }
-    }
-    
-    // If no valid tool calls were found with closing tags, try parsing without the closing tag
-    if (!found_valid_tool_call) {
-        try {
-            // Extract everything after the opening tag
-            std::string json_content = input.substr(content_end + strlen("<|tool_call|>"));
-            json_content = string_strip(json_content);
-            
-            // Try to parse it as JSON
-            auto tool_call = json::parse(json_content);
-            
-            // Add as a tool call
-            result.tool_calls.push_back({
-                tool_call.at("name"),
-                tool_call.at("arguments").dump(),
-                /* id= */ "",
-            });
-            
-            LOG_INF("PHI-4: Successfully parsed tool call with name: %s (without closing tag)", 
-                    tool_call.at("name").get<std::string>().c_str());
-            found_valid_tool_call = true;
-        } catch (const std::exception & e) {
-            LOG_ERR("Failed to parse phi-4 tool call without closing tag: %s\n", e.what());
-        }
-    }
-    
-    // If we didn't find any valid tool calls but had the opening tag, fallback to content
-    if (!found_valid_tool_call) {
-        result.content = input;
-    }
-    
-    return result;
 }
 
 common_chat_msg common_chat_parse(const std::string & input, common_chat_format format) {
