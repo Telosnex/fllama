@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 struct ngram_data {
     bool active = false;

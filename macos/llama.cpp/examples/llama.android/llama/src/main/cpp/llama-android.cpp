@@ -361,7 +361,7 @@ Java_android_llama_cpp_LLamaAndroid_completion_1init(
     const auto tokens_list = common_tokenize(context, text, true, parse_special);
 
     auto n_ctx = llama_n_ctx(context);
-    auto n_kv_req = tokens_list.size() + (n_len - tokens_list.size());
+    auto n_kv_req = tokens_list.size() + n_len;
 
     LOGi("n_len = %d, n_ctx = %d, n_kv_req = %d", n_len, n_ctx, n_kv_req);
 

@@ -89,6 +89,7 @@ def bytes_to_unicode():
 ap = argparse.ArgumentParser()
 ap.add_argument("-m", "--model-dir", help="Path to model directory cloned from HF Hub", required=True)
 ap.add_argument("--use-f32", action="store_true", default=False, help="Use f32 instead of f16")
+ap.add_argument('--bigendian', action="store_true", default=False, help="Model is executed on big-endian machine")
 ap.add_argument("--text-only", action="store_true", required=False,
                 help="Save a text-only model. It can't be used to encode images")
 ap.add_argument("--vision-only", action="store_true", required=False,
@@ -191,7 +192,7 @@ output_dir = args.output_dir if args.output_dir is not None else dir_model
 os.makedirs(output_dir, exist_ok=True)
 output_prefix = os.path.basename(output_dir).replace("ggml_", "")
 fname_out = os.path.join(output_dir, f"{fname_middle}model-{ftype_str[ftype]}.gguf")
-fout = GGUFWriter(path=fname_out, arch="clip")
+fout = GGUFWriter(path=fname_out, arch="clip", endianess=GGUFEndian.LITTLE if not args.bigendian else GGUFEndian.BIG)
 
 fout.add_bool("clip.has_text_encoder", has_text_encoder)
 fout.add_bool("clip.has_vision_encoder", has_vision_encoder)

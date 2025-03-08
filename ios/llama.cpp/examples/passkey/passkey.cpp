@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 static void print_usage(int, char ** argv) {
     LOG("\nexample usage:\n");

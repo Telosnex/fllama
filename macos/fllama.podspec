@@ -92,7 +92,14 @@ set -e
 set -u
 set -o pipefail
 cd "${PODS_TARGET_SRCROOT}/llama.cpp"
-xcrun metal -target "air64-${LLVM_TARGET_TRIPLE_VENDOR}-${LLVM_TARGET_TRIPLE_OS_VERSION}${LLVM_TARGET_TRIPLE_SUFFIX:-\"\"}" -ffast-math -std=ios-metal2.3 -o "${METAL_LIBRARY_OUTPUT_DIR}/default.metallib" ggml/src/ggml-metal/*.metal
+xcrun metal -target "air64-${LLVM_TARGET_TRIPLE_VENDOR}-${LLVM_TARGET_TRIPLE_OS_VERSION}${LLVM_TARGET_TRIPLE_SUFFIX:-\"\"}" -ffast-math -std=ios-metal2.3 \
+  -I"${PODS_TARGET_SRCROOT}/llama.cpp/ggml/include" \
+  -I"${PODS_TARGET_SRCROOT}/llama.cpp/ggml/src" \
+  -I"${PODS_TARGET_SRCROOT}/../llama.cpp/ggml/include" \
+  -I"${PODS_TARGET_SRCROOT}/../llama.cpp/ggml/src" \
+  -I"${PODS_TARGET_SRCROOT}/llama.cpp/ggml/src/ggml-metal" \
+  -I"${PODS_TARGET_SRCROOT}/../llama.cpp/ggml/src/ggml-metal" \
+  -o "${METAL_LIBRARY_OUTPUT_DIR}/default.metallib" ggml/src/ggml-metal/*.metal
 SCRIPT
     }
   ]
