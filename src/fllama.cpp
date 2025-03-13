@@ -76,6 +76,20 @@ static void log_message(const char *message,
 static void log_message(const std::string &message,
                         fllama_log_callback dart_logger = nullptr);
 
+// Function to detect if a model is a Gemma 3 model
+static bool is_gemma3_model(const char *model_path) {
+  if (model_path == nullptr) {
+    return false;
+  }
+  
+  std::string path = std::string(model_path);
+  std::transform(path.begin(), path.end(), path.begin(), 
+                [](unsigned char c) { return std::tolower(c); });
+  
+  return (path.find("gemma-3") != std::string::npos || 
+          path.find("gemma3") != std::string::npos);
+}
+
 // Implement logging functions
 static void log_message(const char *message, fllama_log_callback dart_logger) {
   if (dart_logger == nullptr) {
@@ -536,6 +550,10 @@ fllama_inference_sync(fllama_inference_request request,
     // not be the case)
     uint32_t n_batch = requested_context_size;
     ctx_params.n_batch = requested_context_size;
+    // Why is n_ubatch set?
+    // For Gemma 3, as of 2025-03-12, n_ubatch has to be >= n_tokens 
+    // Error: /Users/jamesoleary/dev/fllama/macos/llama.cpp/src/llama-context.cpp:1196: GGML_ASSERT((cparams.causal_attn || cparams.n_ubatch >= n_tokens_all) && "non-causal attention requires n_ubatch >= n_tokens") failed
+    ctx_params.n_ubatch = requested_context_size;
     std::cout << "[fllama] Batch size: " << ctx_params.n_batch << std::endl;
     ctx_params.flash_attn = false;
     std::cout << "[fllama] flash_attn: " << ctx_params.flash_attn << std::endl;
@@ -663,7 +681,7 @@ fllama_inference_sync(fllama_inference_request request,
     auto openai_json_string = request.openai_request_json_string;
     auto common_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
     if (openai_json_string != NULL) {
-      log_message("Processing OpenAI chat format", request.dart_logger);
+      log_message("Processing OpenAI-style API request via JSON", request.dart_logger);
       try {
         body = json::parse(openai_json_string);
 
@@ -810,9 +828,16 @@ fllama_inference_sync(fllama_inference_request request,
     int n_past = 0;
     bool add_bos = llama_add_bos_token(vocab);
     int idx_embedding = 0;
+    // Check if this is a Gemma 3 model
+    bool is_gemma3 = is_gemma3_model(request.model_path);
+    if (is_gemma3) {
+      log_message("Detected Gemma 3 model, using Gemma-specific image handling", request.dart_logger);
+    }
+    
     for (auto *embedding : image_embeddings) {
       if (embedding != NULL) {
-        if (image_embeddings.size() > 1) {
+        // For Gemma 3, we don't need the "Attached Image" text as it uses <start_of_image> and <end_of_image> tokens
+        if (image_embeddings.size() > 1 && !is_gemma3) {
           const std::string image_prompt =
               "Attached Image #" + std::to_string(idx_embedding + 1) + ":\n";
           add_string_to_context(ctx, image_prompt.c_str(), n_batch, &n_past,
@@ -823,7 +848,7 @@ fllama_inference_sync(fllama_inference_request request,
                         " to context.",
                     request.dart_logger);
         auto success =
-            add_image_embed_to_context(ctx, embedding, n_batch, &n_past);
+            add_image_embed_to_context(ctx, embedding, n_batch, &n_past, is_gemma3);
         if (!success) {
           log_message(
               "Unable to add image to context. Continuing to run inference "

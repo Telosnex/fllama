@@ -15,7 +15,7 @@
 EMSCRIPTEN_KEEPALIVE bool
 add_image_embed_to_context(struct llama_context *ctx_llama,
                            llava_image_embed *image_embed, int n_batch,
-                           int *n_past);
+                           int *n_past, bool is_gemma3 = false);
 
 EMSCRIPTEN_KEEPALIVE std::vector<std::pair<size_t, size_t>>
 find_all_image_tags_in_prompt(const std::string &prompt);

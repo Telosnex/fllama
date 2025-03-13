@@ -17,6 +17,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 // Initial inspiration via:
 // https://github.com/ggerganov/llama.cpp/blob/master/examples/llava/llava-cli.cpp
@@ -30,30 +31,118 @@ static const char *IMG_BASE64_TAG_END = "\">";
 
 bool add_image_embed_to_context(struct llama_context *ctx_llama,
                                 llava_image_embed *image_embed, int n_batch,
-                                int *n_past) {
+                                int *n_past, bool is_gemma3) {
   int n_embd = llama_n_embd(llama_get_model(ctx_llama));
-
-  for (int i = 0; i < image_embed->n_image_pos; i += n_batch) {
-    int n_eval = image_embed->n_image_pos - i;
-    if (n_eval > n_batch) {
-      n_eval = n_batch;
+  
+  if (is_gemma3) {
+    fprintf(stderr, "Using Gemma 3 image embedding format\n");
+    
+    // 1. Add <start_of_image> token
+    const char* start_token = "<start_of_image>";
+    const llama_vocab *vocab = llama_model_get_vocab(llama_get_model(ctx_llama));
+    
+    // Simplified token handling - create a single-token batch for the start token
+    std::vector<llama_token> tokens(1);
+    int n_tokens = llama_tokenize(vocab, start_token, strlen(start_token), tokens.data(), tokens.size(), true, true);
+    
+    // Process the token
+    if (n_tokens <= 0) {
+      // Fallback to BOS if token not found
+      tokens[0] = llama_token_bos(llama_model_get_vocab(llama_get_model(ctx_llama)));
+      fprintf(stderr, "<start_of_image> token not found, using BOS instead\n");
     }
-    llama_batch batch = {
-        int32_t(n_eval),
-        nullptr,
-        (image_embed->embed + i * n_embd),
-        nullptr,
-        nullptr,
-        nullptr,
-        nullptr,
-    };
-    if (llama_decode(ctx_llama, batch)) {
-      fprintf(stderr, "%s : failed to eval\n", __func__);
+    
+    llama_batch batch_start = { 1, tokens.data(), nullptr, nullptr, nullptr, nullptr, nullptr };
+    if (llama_decode(ctx_llama, batch_start)) {
+      fprintf(stderr, "%s : failed to eval start token\n", __func__);
       return false;
     }
-    *n_past += n_eval;
-    fprintf(stderr, "%s: n_past: %d\n", __func__, *n_past);
+    (*n_past)++;
+    
+    // 2. Disable causal attention for image embeddings
+    llama_set_causal_attn(ctx_llama, false);
+    
+    // 3. Process all image embeddings in a single batch (like in gemma3-cli.cpp)
+    // Prepare positions for all embedding tokens
+    std::vector<llama_pos> positions(image_embed->n_image_pos);
+    std::vector<int32_t> n_seq_id(image_embed->n_image_pos, 1);
+    std::vector<llama_seq_id> seq_id_0(1, 0);
+    std::vector<llama_seq_id*> seq_ids(image_embed->n_image_pos + 1, nullptr);
+    std::vector<int8_t> logits(image_embed->n_image_pos, 0);
+    
+    // Set up sequence IDs and positions
+    for (int i = 0; i < image_embed->n_image_pos; i++) {
+      positions[i] = *n_past + i;
+      seq_ids[i] = seq_id_0.data();
+    }
+    seq_ids[image_embed->n_image_pos] = nullptr;
+    
+    // Create the batch for all image embeddings at once
+    llama_batch batch_img = {
+        int32_t(image_embed->n_image_pos),
+        nullptr,
+        image_embed->embed,
+        positions.data(),
+        n_seq_id.data(),
+        seq_ids.data(),
+        logits.data(),
+    };
+    
+    // Process the entire image in one go
+    fprintf(stderr, "Processing all %d image embeddings in a single batch\n", image_embed->n_image_pos);
+    if (llama_decode(ctx_llama, batch_img)) {
+      fprintf(stderr, "%s : failed to process image embeddings\n", __func__);
+      llama_set_causal_attn(ctx_llama, true); // Restore causal attention in case of failure
+      return false;
+    }
+    *n_past += image_embed->n_image_pos;
+    fprintf(stderr, "All image embeddings processed, n_past: %d\n", *n_past);
+    
+    // 4. Re-enable causal attention
+    llama_set_causal_attn(ctx_llama, true);
+    
+    // 5. Add <end_of_image> token
+    const char* end_token = "<end_of_image>";
+    tokens.resize(1);
+    n_tokens = llama_tokenize(vocab, end_token, strlen(end_token), tokens.data(), tokens.size(), true, true);
+    
+    if (n_tokens <= 0) {
+      // Fallback to EOS if token not found
+      tokens[0] = llama_token_eos(llama_model_get_vocab(llama_get_model(ctx_llama)));
+      fprintf(stderr, "<end_of_image> token not found, using EOS instead\n");
+    }
+    
+    llama_batch batch_end = { 1, tokens.data(), nullptr, nullptr, nullptr, nullptr, nullptr };
+    if (llama_decode(ctx_llama, batch_end)) {
+      fprintf(stderr, "%s : failed to eval end token\n", __func__);
+      return false;
+    }
+    (*n_past)++;
+  } else {
+    // Original LLaVA implementation for non-Gemma models
+    for (int i = 0; i < image_embed->n_image_pos; i += n_batch) {
+      int n_eval = image_embed->n_image_pos - i;
+      if (n_eval > n_batch) {
+        n_eval = n_batch;
+      }
+      llama_batch batch = {
+          int32_t(n_eval),
+          nullptr,
+          (image_embed->embed + i * n_embd),
+          nullptr,
+          nullptr,
+          nullptr,
+          nullptr,
+      };
+      if (llama_decode(ctx_llama, batch)) {
+        fprintf(stderr, "%s : failed to eval\n", __func__);
+        return false;
+      }
+      *n_past += n_eval;
+      fprintf(stderr, "%s: n_past: %d\n", __func__, *n_past);
+    }
   }
+  
   fprintf(stderr, "finished adding %d image embeddings to context\n",
           image_embed->n_image_pos);
   fprintf(stderr, "finished state n_past: %d\n", *n_past);
