@@ -16,7 +16,7 @@ Open `llama.swiftui.xcodeproj` project in Xcode and you should be able to build 
 a simulator or a real device.
 
 To use the framework with a different project, the XCFramework can be added to the project by
-adding `build-ios/llama.xcframework` by dragging and dropping it into the project navigator, or
+adding `build-apple/llama.xcframework` by dragging and dropping it into the project navigator, or
 by manually selecting the framework in the "Frameworks, Libraries, and Embedded Content" section
 of the project settings.
 

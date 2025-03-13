@@ -480,6 +480,21 @@ static void test_msgs_oaicompat_json_conversion() {
             "]"
         ),
         common_chat_msgs_to_json_oaicompat<json>({message_assist_call_python}).dump(2));
+
+    auto res = common_chat_msgs_parse_oaicompat(json::parse("[{\"role\": \"assistant\", \"tool_calls\": []}]"));
+    assert_equals<size_t>(1, res.size());
+    assert_equals<std::string>(res[0].role, "assistant");
+    assert_equals(true, res[0].content.empty());
+    assert_equals(true, res[0].tool_calls.empty());
+
+    try {
+        common_chat_msgs_parse_oaicompat(json::parse("[{\"role\": \"assistant\"}]"));
+        throw std::runtime_error("Expected exception");
+    } catch (const std::exception & e) {
+        if (std::string(e.what()).find("'content'") == std::string::npos) {
+            throw std::runtime_error("Expected exception about missing 'content'");
+        }
+    }
 }
 
 static void test_tools_oaicompat_json_conversion() {
@@ -751,6 +766,19 @@ static void test_template_output_parsers() {
             "{\n  \"name\": \"special_function\", \"arguments\": {\"arg1\": 1}}",
             COMMON_CHAT_FORMAT_HERMES_2_PRO));
 
+        assert_msg_equals(message_assist_thoughts_unparsed_think,
+            common_chat_parse("<think>I'm thinking</think>Hello, world!\nWhat's up?",
+            COMMON_CHAT_FORMAT_HERMES_2_PRO));
+        assert_msg_equals(message_assist_thoughts_unparsed_think,
+            common_chat_parse("I'm thinking</think>Hello, world!\nWhat's up?",
+            COMMON_CHAT_FORMAT_HERMES_2_PRO));
+        assert_msg_equals(message_assist_thoughts,
+            common_chat_parse("<think>I'm thinking</think>Hello, world!\nWhat's up?",
+            COMMON_CHAT_FORMAT_HERMES_2_PRO_EXTRACT_REASONING));
+        assert_msg_equals(message_assist_thoughts,
+            common_chat_parse("I'm thinking</think>Hello, world!\nWhat's up?",
+            COMMON_CHAT_FORMAT_HERMES_2_PRO_EXTRACT_REASONING));
+
         test_templates(tmpls.get(), end_tokens, message_assist, tools, "Hello, world!\nWhat's up?", /* expect_grammar_triggered= */ false);
         test_templates(tmpls.get(), end_tokens, message_assist_call, tools,
                       "<tool_call>\n"
@@ -791,36 +819,6 @@ static void test_template_output_parsers() {
         test_templates(tmpls.get(), end_tokens, message_assist, tools, "Hello, world!\nWhat's up?", /* expect_grammar_triggered= */ false);
         test_templates(tmpls.get(), end_tokens, message_assist_call, tools,
                       "{\"name\": \"special_function\", \"parameters\": {\"arg1\": 1}}");
-    }
-    {
-        auto tmpls = read_templates("models/templates/microsoft-Phi-4-mini-instruct.jinja");
-        std::vector<std::string>   end_tokens{ "<|end|>" };
-    
-        assert_equals(COMMON_CHAT_FORMAT_PHI_4, common_chat_templates_apply(tmpls.get(), inputs_tools).format);
-    
-        // Test normal message without tools
-        test_templates(tmpls.get(), end_tokens, message_assist, tools, "Hello, world!\nWhat's up?", /* expect_grammar_triggered= */ false);
-                
-        // Test with content before tool call
-        assert_msg_equals(
-            common_chat_msg{"assistant", "I'll help with that.", {}, tool_calls, "", "", ""},
-            common_chat_parse(
-                "I'll help with that.<|tool_call|>{\"name\":\"special_function\",\"arguments\":{\"arg1\":1}}</|tool_call|>",
-                COMMON_CHAT_FORMAT_PHI_4));
-
-        // Test with content after tool call
-        assert_msg_equals(
-            common_chat_msg{"assistant", "I'll help with that.", {}, tool_calls, "", "", ""},
-            common_chat_parse(
-                "<|tool_call|>{\"name\":\"special_function\",\"arguments\":{\"arg1\":1}}</|tool_call|>I'll help with that.",
-                COMMON_CHAT_FORMAT_PHI_4));
-
-        // Test with newlines.
-        assert_msg_equals(message_assist_call, common_chat_parse(
-            "<|tool_call|>\n"
-            "{\"name\": \"special_function\", \"arguments\": {\"arg1\": 1}}\n"
-            "</|tool_call|>",
-            COMMON_CHAT_FORMAT_PHI_4));
     }
     {
         auto tmpls = read_templates("models/templates/meetkai-functionary-medium-v3.1.jinja");

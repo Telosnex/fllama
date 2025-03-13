@@ -861,6 +861,9 @@ class Model:
                 for token_id, token_data in added_tokens_decoder.items():
                     token_id = int(token_id)
                     token: str = token_data["content"]
+                    if token_id >= vocab_size:
+                        logger.warning(f'ignore token {token_id}: id is out of range, max={vocab_size - 1}')
+                        continue
                     if toktypes[token_id] != SentencePieceTokenTypes.UNUSED:
                         if tokens[token_id] != token.encode("utf-8"):
                             logger.warning(f'replacing token {token_id}: {tokens[token_id].decode("utf-8")!r} -> {token!r}')
@@ -3316,6 +3319,83 @@ class Gemma2Model(Model):
             return []
 
         # ref: https://github.com/huggingface/transformers/blob/fc37f38915372c15992b540dfcbbe00a916d4fc6/src/transformers/models/gemma/modeling_gemma.py#L89
+        if name.endswith("norm.weight"):
+            data_torch = data_torch + 1
+
+        return [(self.map_tensor_name(name), data_torch)]
+
+
+@Model.register("Gemma3ForCausalLM", "Gemma3ForConditionalGeneration")
+class Gemma3Model(Model):
+    model_arch = gguf.MODEL_ARCH.GEMMA3
+    has_vision: bool = False
+
+    # we need to merge the text_config into the root level of hparams
+    def __init__(self, *args, **kwargs):
+        hparams = Model.load_hparams(kwargs["dir_model"])
+        if "text_config" in hparams:
+            hparams = {**hparams, **hparams["text_config"]}
+            kwargs["hparams"] = hparams
+        super().__init__(*args, **kwargs)
+        if "vision_config" in hparams:
+            logger.info("Has vision encoder, but it will be ignored")
+            self.has_vision = True
+
+    def write(self):
+        super().write()
+        if self.has_vision:
+            logger.info("NOTE: this script only convert the language model to GGUF")
+            logger.info("      for the vision model, please use gemma3_convert_encoder_to_gguf.py")
+
+    def set_vocab(self):
+        self._set_vocab_sentencepiece()
+
+        self.gguf_writer.add_add_space_prefix(False)
+
+    def set_gguf_parameters(self):
+        hparams = self.hparams
+        block_count = hparams["num_hidden_layers"]
+
+        # some default values are not specified in the hparams
+        self.gguf_writer.add_context_length(hparams.get("max_position_embeddings", 131072))
+        self.gguf_writer.add_embedding_length(hparams["hidden_size"])
+        self.gguf_writer.add_block_count(block_count)
+        self.gguf_writer.add_feed_forward_length(hparams["intermediate_size"])
+        self.gguf_writer.add_head_count(hparams.get("num_attention_heads", 8))
+        self.gguf_writer.add_layer_norm_rms_eps(self.hparams.get("rms_norm_eps", 1e-6))
+        self.gguf_writer.add_key_length(hparams.get("head_dim", 256))
+        self.gguf_writer.add_value_length(hparams.get("head_dim", 256))
+        self.gguf_writer.add_file_type(self.ftype)
+        self.gguf_writer.add_rope_freq_base(hparams.get("rope_theta", 1_000_000.0)) # for global layers
+        # both attn_logit_softcapping and final_logit_softcapping are removed in Gemma3
+        assert hparams.get("attn_logit_softcapping") is None
+        assert hparams.get("final_logit_softcapping") is None
+        self.gguf_writer.add_sliding_window(hparams["sliding_window"])
+        self.gguf_writer.add_head_count_kv(hparams.get("num_key_value_heads", 4))
+        if hparams.get("rope_scaling") is not None:
+            assert hparams["rope_scaling"]["rope_type"] == "linear"
+            # important: this rope_scaling is only applied for global layers, and not used by 1B model
+            self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.LINEAR)
+            self.gguf_writer.add_rope_scaling_factor(hparams["rope_scaling"]["factor"])
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        del bid  # unused
+
+        if name.startswith("language_model."):
+            name = name.replace("language_model.", "")
+        elif name.startswith("multi_modal_projector.") or name.startswith("vision_tower.") \
+                or name.startswith("multimodal_projector.") or name.startswith("vision_model."): # this is for old HF model, should be removed later
+            # ignore vision tensors
+            return []
+
+        # remove OOV (out-of-vocabulary) rows in token_embd
+        if "embed_tokens.weight" in name:
+            vocab = self._create_vocab_sentencepiece()
+            tokens = vocab[0]
+            data_torch = data_torch[:len(tokens)]
+
+        # ref code in Gemma3RMSNorm
+        # output = output * (1.0 + self.weight.float())
         if name.endswith("norm.weight"):
             data_torch = data_torch + 1
 

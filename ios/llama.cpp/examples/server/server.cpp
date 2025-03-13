@@ -384,8 +384,9 @@ struct server_task {
                             SRV_DBG("Grammar trigger token: %d (`%s`)\n", token, word.c_str());
                             common_grammar_trigger trigger;
                             trigger.type = COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN;
-                            trigger.value = (llama_token) token;
-                            params.sampling.grammar_triggers.push_back(trigger);
+                            trigger.value = word;
+                            trigger.token = token;
+                            params.sampling.grammar_triggers.push_back(std::move(trigger));
                         } else {
                             SRV_DBG("Grammar trigger word: `%s`\n", word.c_str());
                             params.sampling.grammar_triggers.push_back({COMMON_GRAMMAR_TRIGGER_TYPE_WORD, word});
@@ -750,7 +751,10 @@ struct server_task_result_cmpl_final : server_task_result {
                         {"name", tc.name},
                         {"arguments", tc.arguments},
                     }},
-                    {"id", tc.id},
+                    // Some templates generate and require an id (sometimes in a very specific format, e.g. Mistral Nemo).
+                    // We only generate a random id for the ones that don't generate one by themselves
+                    // (they also won't get to see it as their template likely doesn't use it, so it's all for the client)
+                    {"id", tc.id.empty() ? gen_tool_call_id() : tc.id},
                 });
             }
             message["tool_calls"] = tool_calls;
@@ -2036,6 +2040,18 @@ struct server_context {
         return ret;
     }
 
+    bool can_be_detokenized(const struct llama_context * ctx, const std::vector<llama_token> & tokens) {
+        const llama_model * model = llama_get_model(ctx);
+        const llama_vocab * vocab = llama_model_get_vocab(model);
+        const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+        for (const auto & token : tokens) {
+            if (token < 0 || token >= n_vocab) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool launch_slot_with_task(server_slot & slot, const server_task & task) {
         slot.reset();
         slot.id_task       = task.id;
@@ -2050,6 +2066,11 @@ struct server_context {
             slot.lora = task.params.lora;
         }
 
+        bool can_detokenize = can_be_detokenized(ctx, slot.prompt_tokens);
+        if (!can_detokenize) {
+            send_error(task, "Prompt contains invalid tokens", ERROR_TYPE_INVALID_REQUEST);
+            return false;
+        }
         SLT_DBG(slot, "launching slot : %s\n", safe_json_to_str(slot.to_json()).c_str());
 
         if (slot.n_predict > 0 && slot.params.n_predict > slot.n_predict) {
@@ -2092,7 +2113,7 @@ struct server_context {
         SRV_DBG("%s", "clearing KV cache\n");
 
         // clear the entire KV cache
-        llama_kv_cache_clear(ctx);
+        llama_kv_self_clear(ctx);
         clean_kv_cache = false;
     }
 
@@ -2634,8 +2655,8 @@ struct server_context {
                     res->n_tasks_deferred    = queue_tasks.queue_tasks_deferred.size();
                     res->t_start             = metrics.t_start;
 
-                    res->kv_cache_tokens_count = llama_get_kv_cache_token_count(ctx);
-                    res->kv_cache_used_cells   = llama_get_kv_cache_used_cells(ctx);
+                    res->kv_cache_tokens_count = llama_kv_self_n_tokens(ctx);
+                    res->kv_cache_used_cells   = llama_kv_self_used_cells(ctx);
 
                     res->n_prompt_tokens_processed_total = metrics.n_prompt_tokens_processed_total;
                     res->t_prompt_processing_total       = metrics.t_prompt_processing_total;
@@ -2751,7 +2772,7 @@ struct server_context {
 
                     // Erase token cache
                     const size_t n_erased = slot->cache_tokens.size();
-                    llama_kv_cache_seq_rm(ctx, slot->id, -1, -1);
+                    llama_kv_self_seq_rm(ctx, slot->id, -1, -1);
                     slot->cache_tokens.clear();
 
                     auto res = std::make_unique<server_task_result_slot_erase>();
@@ -2819,8 +2840,8 @@ struct server_context {
 
                 SLT_WRN(slot, "slot context shift, n_keep = %d, n_left = %d, n_discard = %d\n", n_keep, n_left, n_discard);
 
-                llama_kv_cache_seq_rm (ctx, slot.id, n_keep            , n_keep + n_discard);
-                llama_kv_cache_seq_add(ctx, slot.id, n_keep + n_discard, slot.n_past,        -n_discard);
+                llama_kv_self_seq_rm (ctx, slot.id, n_keep            , n_keep + n_discard);
+                llama_kv_self_seq_add(ctx, slot.id, n_keep + n_discard, slot.n_past,        -n_discard);
 
                 if (slot.params.cache_prompt) {
                     for (size_t i = n_keep + n_discard; i < slot.cache_tokens.size(); i++) {
@@ -3011,8 +3032,8 @@ struct server_context {
 
                                             const int64_t kv_shift = (int64_t) head_p - (int64_t) head_c;
 
-                                            llama_kv_cache_seq_rm (ctx, slot.id, head_p, head_c);
-                                            llama_kv_cache_seq_add(ctx, slot.id, head_c, head_c + n_match, kv_shift);
+                                            llama_kv_self_seq_rm (ctx, slot.id, head_p, head_c);
+                                            llama_kv_self_seq_add(ctx, slot.id, head_c, head_c + n_match, kv_shift);
 
                                             for (size_t i = 0; i < n_match; i++) {
                                                 slot.cache_tokens[head_p + i] = slot.cache_tokens[head_c + i];
@@ -3050,9 +3071,9 @@ struct server_context {
                     }
 
                     // keep only the common part
-                    if (!llama_kv_cache_seq_rm(ctx, slot.id, slot.n_past, -1)) {
+                    if (!llama_kv_self_seq_rm(ctx, slot.id, slot.n_past, -1)) {
                         // could not partially delete (likely using a non-Transformer model)
-                        llama_kv_cache_seq_rm(ctx, slot.id, -1, -1);
+                        llama_kv_self_seq_rm(ctx, slot.id, -1, -1);
 
                         // there is no common part left
                         slot.n_past = 0;
@@ -3292,7 +3313,7 @@ struct server_context {
                 slot.cache_tokens.push_back(id);
                 slot.cache_tokens.insert(slot.cache_tokens.end(), ids.begin(), ids.end() - 1);
 
-                llama_kv_cache_seq_rm(ctx, slot.id, slot.n_past, -1);
+                llama_kv_self_seq_rm(ctx, slot.id, slot.n_past, -1);
 
                 for (size_t i = 0; i < ids.size(); ++i) {
                     completion_token_output result;

@@ -435,6 +435,10 @@ static std::string gen_chatcmplid() {
     return "chatcmpl-" + random_string();
 }
 
+static std::string gen_tool_call_id() {
+    return random_string();
+}
+
 //
 // other common utils
 //

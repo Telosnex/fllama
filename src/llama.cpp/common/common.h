@@ -407,8 +407,6 @@ struct common_params {
     int32_t i_pos  = -1;  // position of the passkey in the junk text
 
     // imatrix params
-    std::string out_file = "imatrix.dat"; // save the resulting imatrix to this file
-
     int32_t n_out_freq  = 10; // output the imatrix every n_out_freq iterations
     int32_t n_save_freq =  0; // save the imatrix every n_save_freq iterations
     int32_t i_chunk     =  0; // start processing from this chunk
@@ -420,16 +418,16 @@ struct common_params {
     int n_pca_batch = 100;
     int n_pca_iterations = 1000;
     dimre_method cvector_dimre_method = DIMRE_METHOD_PCA;
-    std::string cvector_outfile       = "control_vector.gguf";
     std::string cvector_positive_file = "examples/cvector-generator/positive.txt";
     std::string cvector_negative_file = "examples/cvector-generator/negative.txt";
 
     bool spm_infill = false; // suffix/prefix/middle pattern for infill
 
-    std::string lora_outfile = "ggml-lora-merged-f16.gguf";
-
     // batched-bench params
     bool batched_bench_output_jsonl = false;
+
+    // common params
+    std::string out_file; // output filename for all example programs
 };
 
 // call once at the start of a program if it uses libcommon

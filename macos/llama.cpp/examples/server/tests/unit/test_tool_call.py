@@ -92,6 +92,7 @@ def do_test_completion_with_required_tool_tiny(server: ServerProcess, tool: dict
     assert tool_calls and len(tool_calls) == 1, f'Expected 1 tool call in {choice["message"]}'
     tool_call = tool_calls[0]
     assert choice["message"].get("content") in (None, ""), f'Expected no content in {choice["message"]}'
+    assert len(tool_call.get("id", "")) > 0, f'Expected non empty tool call id in {tool_call}'
     expected_function_name = "python" if tool["type"] == "code_interpreter" else tool["function"]["name"]
     assert expected_function_name == tool_call["function"]["name"]
     actual_arguments = tool_call["function"]["arguments"]
@@ -373,6 +374,7 @@ def do_test_weather(server: ServerProcess, **kwargs):
     tool_call = tool_calls[0]
     # assert choice["message"].get("content") in (None, ""), f'Expected no content in {choice["message"]}'
     assert tool_call["function"]["name"] == WEATHER_TOOL["function"]["name"], f'Expected weather tool call, got {tool_call["function"]["name"]}'
+    assert len(tool_call.get("id", "")) > 0, f'Expected non empty tool call id in {tool_call}'
     actual_arguments = json.loads(tool_call["function"]["arguments"])
     assert 'location' in actual_arguments, f"location not found in {json.dumps(actual_arguments)}"
     location = actual_arguments["location"]
@@ -596,6 +598,7 @@ def do_test_hello_world(server: ServerProcess, **kwargs):
     tool_call = tool_calls[0]
     # assert choice["message"].get("content") in (None, ""), f'Expected no content in {choice["message"]}'
     assert tool_call["function"]["name"] == PYTHON_TOOL["function"]["name"]
+    assert len(tool_call.get("id", "")) > 0, f'Expected non empty tool call id in {tool_call}'
     actual_arguments = json.loads(tool_call["function"]["arguments"])
     assert 'code' in actual_arguments, f"code not found in {json.dumps(actual_arguments)}"
     code = actual_arguments["code"]
