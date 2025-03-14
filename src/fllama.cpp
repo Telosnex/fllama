@@ -796,10 +796,6 @@ fllama_inference_sync(fllama_inference_request request,
                         std::string(e.what()),
                     request.dart_logger);
         log_message("Falling back to raw input", request.dart_logger);
-        log_message("One More Time Error processing OpenAI chat format: " +
-                        std::string(e.what()),
-                    request.dart_logger);
-        log_message("Fr Exception");
       }
     } else {
       log_message("No OpenAI chat format provided, using raw input",

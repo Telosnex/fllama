@@ -119,7 +119,6 @@ Future<int> fllamaChat(
   final String eosToken;
   final String bosToken;
   final String chatTemplate;
-  print('AYO');
 
   chatTemplate = '';
   // fllamaSanitizeChatTemplate(
