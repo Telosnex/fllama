@@ -53,6 +53,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -104,17 +105,45 @@ static void log_message(const char *message, fllama_log_callback dart_logger) {
     fprintf(stderr, "%s\n", message);
     fflush(stderr); // Ensure output is written immediately
   } else {
-    // Create a copy of the message to ensure it stays alive
-    std::string msg_copy(message);
-    dart_logger(msg_copy.c_str());
+    // We need to create a persistently allocated string for each log message
+    // to ensure it stays alive long enough for Dart to process it
+    static std::mutex log_mutex;
+    static std::deque<std::string> message_queue;
+    static const size_t MAX_QUEUE_SIZE = 1000; // Limit memory usage
+    
+    // Process the message - replace any newlines to prevent log splitting issues
+    std::string processed_message = message;
+    
+    // Replace any newline characters with a placeholder
+    size_t pos = 0;
+    while ((pos = processed_message.find('\n', pos)) != std::string::npos) {
+      processed_message.replace(pos, 1, " [NL] ");
+      pos += 6; // Length of " [NL] "
+    }
+    
+    // Use a mutex to ensure thread safety when updating the queue
+    {
+      std::lock_guard<std::mutex> lock(log_mutex);
+      
+      // Add the new message to the queue
+      message_queue.push_back(processed_message);
+      
+      // Keep the queue size bounded
+      while (message_queue.size() > MAX_QUEUE_SIZE) {
+        message_queue.pop_front();
+      }
+      
+      // Pass the pointer to the last message in the queue
+      // This string will remain valid as long as we don't remove it from the queue
+      dart_logger(message_queue.back().c_str());
+    }
   }
 }
 
 static void log_message(const std::string &message,
                         fllama_log_callback dart_logger) {
-  // Create a stable string that won't be destroyed
-  std::string msg_copy = message;
-  log_message(msg_copy.c_str(), dart_logger);
+  // Simply pass the c_str() pointer directly to the other overload
+  log_message(message.c_str(), dart_logger);
 }
 
 static InferenceQueue global_inference_queue;
