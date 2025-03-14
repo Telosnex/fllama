@@ -815,8 +815,8 @@ fllama_inference_sync(fllama_inference_request request,
       auto ctx_clip = clip_model_load(mmproj_path, /*verbosity=*/1);
       std::cout << "Loaded model" << std::endl;
       // Use proper thread count for CLIP processing - matching gemma3-cli.cpp
-      image_embeddings = llava_image_embed_make_with_prompt_base64(
-          ctx_clip, request.num_threads, final_request_input);
+      // Use Gemma3-specific image processing if this is a Gemma3 model
+      image_embeddings = llava_image_embed_make_with_prompt_base64(ctx_clip, request.num_threads, final_request_input);
       clip_free(ctx_clip);
     }
 
@@ -835,7 +835,7 @@ fllama_inference_sync(fllama_inference_request request,
                      "with clip output"
                   << std::endl;
       }
-      final_request_input = remove_all_images_from_prompt(request.input, "");
+      final_request_input = remove_all_images_from_prompt(final_request_input, "");
     }
 
     int64_t model_load_end = ggml_time_ms();
@@ -876,8 +876,7 @@ fllama_inference_sync(fllama_inference_request request,
     bool is_gemma3 = is_gemma3_model_detected;
     if (is_gemma3) {
       log_message(
-          "Detected Gemma 3 model, NOT using Gemma-specific image handling "
-          "because is commented out. It may have been leading to a crash.",
+          "Detected Gemma 3 model, using Gemma-specific conversation format",
           request.dart_logger);
     }
 
@@ -922,13 +921,26 @@ fllama_inference_sync(fllama_inference_request request,
         log_message("Adding image #" + std::to_string(idx_embedding + 1) +
                         " to context.",
                     request.dart_logger);
+        // For Gemma3 models, print detailed information about the embeddings
+        if (is_gemma3_model_detected) {
+          fprintf(stderr, "Processing Gemma3 image with %d tokens from embedding\n", embedding->n_image_pos);
+          // Add <start_of_image> token
+          add_string_to_context(ctx, "<start_of_image>", n_batch, &n_past,
+                                add_bos, request.dart_logger);
+        }
+        
+        // Always force is_gemma3 flag to match is_gemma3_model_detected to avoid mismatches
         auto success = add_image_embed_to_context(ctx, embedding, n_batch,
-                                                  &n_past, is_gemma3);
+                                              &n_past, is_gemma3_model_detected);
         if (!success) {
           log_message(
               "Unable to add image to context. Continuing to run inference "
               "anyway.",
               request.dart_logger);
+        } else {
+          // Add <end_of_image> token
+          add_string_to_context(ctx, "<end_of_image>", n_batch, &n_past,
+                                add_bos, request.dart_logger);
         }
         llava_image_embed_free(embedding);
         log_message("Added image #" + std::to_string(idx_embedding + 1) +
@@ -956,17 +968,6 @@ fllama_inference_sync(fllama_inference_request request,
     }
 
     log_message("Added input to context.", request.dart_logger);
-    // Split the input into lines for more reliable logging
-    // log_message("[IMPORTANT] =================== FINAL INPUT START
-    // ===================", request.dart_logger); std::istringstream
-    // stream(final_request_input); std::string line; int line_number = 1; while
-    // (std::getline(stream, line)) {
-    //     std::string numbered_line = "[INPUT LINE " +
-    //     std::to_string(line_number++) + "] " + line;
-    //     log_message(numbered_line.c_str(), request.dart_logger);
-    // }
-    // log_message("[IMPORTANT] =================== FINAL INPUT END
-    // ======================", request.dart_logger);
     const char *eos_token_chars =
         request.eos_token != NULL ? request.eos_token
                                   : fllama_get_eos_token(request.model_path);
