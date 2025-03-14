@@ -858,11 +858,13 @@ void llama_model::load_hparams(llama_model_loader & ml) {
         case LLM_ARCH_GEMMA2:
             {
                 hparams.n_swa = 4096; // default value of gemma 2
+                hparams.n_swa_pattern = 2;
+                hparams.attn_soft_cap = true;
+
                 ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa, false);
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
                 ml.get_key(LLM_KV_ATTN_LOGIT_SOFTCAPPING,      hparams.f_attn_logit_softcapping, false);
                 ml.get_key(LLM_KV_FINAL_LOGIT_SOFTCAPPING,     hparams.f_final_logit_softcapping, false);
-                hparams.attn_soft_cap = true;
 
                 switch (hparams.n_layer) {
                     case 26: type = LLM_TYPE_2B; break;
@@ -873,6 +875,8 @@ void llama_model::load_hparams(llama_model_loader & ml) {
             } break;
         case LLM_ARCH_GEMMA3:
             {
+                hparams.n_swa_pattern = 6;
+
                 ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa);
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
 
@@ -952,6 +956,8 @@ void llama_model::load_hparams(llama_model_loader & ml) {
             } break;
         case LLM_ARCH_COHERE2:
             {
+                hparams.n_swa_pattern = 4;
+
                 ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW, hparams.n_swa);
                 ml.get_key(LLM_KV_LOGIT_SCALE,              hparams.f_logit_scale);
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS,  hparams.f_norm_eps);
@@ -7374,12 +7380,8 @@ struct llm_build_gemma3 : public llm_graph_context {
         // TODO: is causal == true correct? might need some changes
         auto * inp_attn = build_attn_inp_kv_unified(true, true);
 
-        // "5-to-1 interleaved attention"
-        // 5 layers of local attention followed by 1 layer of global attention
-        static const int sliding_window_pattern = 6;
-
         for (int il = 0; il < n_layer; ++il) {
-            const bool is_sliding = il % sliding_window_pattern < (sliding_window_pattern - 1);
+            const bool is_sliding = hparams.is_sliding(il);
 
             const float freq_base_l  = is_sliding ? 10000.0f : freq_base;
             const float freq_scale_l = is_sliding ? 1.0f     : freq_scale;
@@ -7970,13 +7972,8 @@ struct llm_build_cohere2 : public llm_graph_context {
 
         auto * inp_attn = build_attn_inp_kv_unified(true, true);
 
-        // sliding window switch pattern
-        const int32_t sliding_window_pattern = 4;
-
         for (int il = 0; il < n_layer; ++il) {
-            // three layers sliding window attention (window size 4096) and ROPE
-            // fourth layer uses global attention without positional embeddings
-            const bool is_sliding = il % sliding_window_pattern < (sliding_window_pattern - 1);
+            const bool is_sliding = hparams.is_sliding(il);
 
             // norm
             cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM, il);

@@ -168,6 +168,8 @@ private:
         ggml_tensor * cur,
         ggml_tensor * shift,
         ggml_tensor * factors,
+              float   freq_base,
+              float   freq_scale,
         ggml_backend_buffer * bbuf) const;
 
     llm_graph_result_ptr build_kv_self_shift(

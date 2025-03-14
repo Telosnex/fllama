@@ -36,6 +36,7 @@ struct llama_hparams {
     uint32_t n_layer;
     uint32_t n_rot;
     uint32_t n_swa = 0; // sliding window attention (SWA)
+    uint32_t n_swa_pattern = 1; // by default, all layers use non-sliding-window attention
     uint32_t n_embd_head_k; // dimension of keys (d_k). d_q is assumed to be the same, but there are n_head q heads, and only n_head_kv k-v heads
     uint32_t n_embd_head_v; // dimension of values (d_v) aka n_embd_head
     uint32_t n_expert = 0;
@@ -133,6 +134,8 @@ struct llama_hparams {
 
     // dimension of the recurrent state embeddings
     uint32_t n_embd_v_s() const;
+
+    bool is_sliding(uint32_t il) const;
 };
 
 static_assert(std::is_trivially_copyable<llama_hparams>::value, "llama_hparams must be trivially copyable");
