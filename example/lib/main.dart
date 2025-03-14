@@ -498,11 +498,22 @@ class _MyAppState extends State<MyApp> {
       // will repeat the same token.
       presencePenalty: 1.1,
       topP: _topP,
-      contextSize: 8192,
+      contextSize: 20000,
       // Don't use 0.0, some models will repeat
       // the same token.
       temperature: _temperature,
       logger: (log) {
+        if (log.contains('<unused')) {
+          // 25-03-11: Added because Gemma 3 outputs so many that it
+          // can break the VS Code log viewer.
+          return;
+        }
+        if (log.contains('ggml_')) {
+          // 25-03-11: Added because that's the biggest clutter-er left
+          // when trying to get logs reduced down to compare Gemma 3 working vs.
+          // not-working cases.
+          return;
+        }
         // ignore: avoid_print
         print('[llama.cpp] $log');
       },

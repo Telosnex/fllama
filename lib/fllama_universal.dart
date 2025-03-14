@@ -38,7 +38,8 @@ class MlcModelId {
 /// sort of interface, i.e. an OpenAI-like API. It translates an OpenAI-like
 /// request into a inference request.
 class FllamaInferenceRequest {
-  int contextSize; // llama.cpp handled 0 fine. StableLM Zephyr became default (4096).
+  int
+  contextSize; // llama.cpp handled 0 fine. StableLM Zephyr became default (4096).
   String input;
   int maxTokens;
   String modelPath;
@@ -111,27 +112,38 @@ class FllamaTokenizeRequest {
 /// - If a tool / function is supplied, force the model to only output JSON that
 ///   is valid according to the tool's JSON schema.
 Future<int> fllamaChat(
-    OpenAiRequest request, FllamaInferenceCallback callback) async {
+  OpenAiRequest request,
+  FllamaInferenceCallback callback,
+) async {
   final String text;
   final String eosToken;
   final String bosToken;
   final String chatTemplate;
+  print('AYO');
 
-  chatTemplate = fllamaSanitizeChatTemplate(
-      await fllamaChatTemplateGet(request.modelPath), request.modelPath);
-  eosToken = chatTemplate == chatMlTemplate
-      ? chatMlEosToken
-      : await fllamaEosTokenGet(request.modelPath);
-  bosToken = chatTemplate == chatMlTemplate
-      ? chatMlBosToken
-      : await fllamaBosTokenGet(request.modelPath);
+  chatTemplate = '';
+  // fllamaSanitizeChatTemplate(
+  //   await fllamaChatTemplateGet(request.modelPath),
+  //   request.modelPath,
+  // );
+  eosToken = '';
+  // chatTemplate == chatMlTemplate
+  //     ? chatMlEosToken
+  //     : await fllamaEosTokenGet(request.modelPath);
+  bosToken = '';
 
-  text = fllamaApplyChatTemplate(
-    chatTemplate: chatTemplate,
-    bosToken: bosToken,
-    eosToken: eosToken,
-    request: request,
-  );
+  //  chatTemplate == chatMlTemplate
+  //     ? chatMlBosToken
+  //     : await fllamaBosTokenGet(request.modelPath);
+
+  text =
+      '' ??
+      fllamaApplyChatTemplate(
+        chatTemplate: chatTemplate,
+        bosToken: bosToken,
+        eosToken: eosToken,
+        request: request,
+      );
 
   final inferenceRequest = FllamaInferenceRequest(
     contextSize: request.contextSize,
@@ -174,30 +186,27 @@ String fllamaApplyChatTemplate({
   }
 
   if (request.tools.isNotEmpty) {
-//     final tools = request.tools.map((tool) {
-//       return tool.typescriptDefinition;
-//     }).join('\n\n');
-//     jsonMessages.insert(0, {
-//       'role': 'system',
-//       'content': '''
-// You have access to the following functions:
-// $tools
+    //     final tools = request.tools.map((tool) {
+    //       return tool.typescriptDefinition;
+    //     }).join('\n\n');
+    //     jsonMessages.insert(0, {
+    //       'role': 'system',
+    //       'content': '''
+    // You have access to the following functions:
+    // $tools
 
-// You are a helpful assistant with tool calling capabilities.
-// When you receive a tool call response, use the output to format an answer to the orginal use question.
-// If you are using tools, respond in the format {"name": function name, "parameters": dictionary of function arguments}. If multiple tools are used, use array format.
-// ''',
-//     });
+    // You are a helpful assistant with tool calling capabilities.
+    // When you receive a tool call response, use the output to format an answer to the orginal use question.
+    // If you are using tools, respond in the format {"name": function name, "parameters": dictionary of function arguments}. If multiple tools are used, use array format.
+    // ''',
+    //     });
   }
 
   if (jsonMessages.isEmpty) {
     // Add dummy message.
     // Gemma 1.1's chat template accesses messages[0] without a condition on it
     // being empty.
-    jsonMessages.add({
-      'role': 'user',
-      'content': '',
-    });
+    jsonMessages.add({'role': 'user', 'content': ''});
   }
 
   // There's a strange chat template first encountered in an early version of
@@ -218,7 +227,7 @@ String fllamaApplyChatTemplate({
       // ignore: avoid_print
       print('[fllama] chat template asked to raise_exception: $message');
       return '';
-    }
+    },
   };
 
   // Workaround in case of Jinja2 exception.
@@ -246,7 +255,7 @@ String fllamaApplyChatTemplate({
     // ignore: avoid_print
     print('[fllama] chat template: $chatTemplate');
     // ignore: avoid_print
-    print('[fllama] messages: $jsonMessages');
+    // print('[fllama] messages: $jsonMessages');
     if (chatTemplate != chatMlTemplate) {
       final llamaChatTemplate = Llama3ChatTemplate();
       // ignore: avoid_print
@@ -271,7 +280,8 @@ String fllamaApplyChatTemplate({
     } else {
       // ignore: avoid_print
       print(
-          '[fllama] Exception thrown while applying chat template. ChatML could not be used as a fallback. Returning empty string. Exception: $e. Chat template: $chatTemplate. Messages: $jsonMessages.');
+        '[fllama] Exception thrown while applying chat template. ChatML could not be used as a fallback. Returning empty string. Exception: $e. Chat template: $chatTemplate. Messages: $jsonMessages.',
+      );
       return '';
     }
   }
@@ -297,14 +307,17 @@ String fllamaJsonSchemaToGrammar(String jsonSchema) {
 /// Given a chat template embedded in a .gguf file, returns the chat template
 /// itself, or a sensible fallback if the chat template is incorrect or missing.
 String fllamaSanitizeChatTemplate(
-    String builtInChatTemplate, String modelPath) {
+  String builtInChatTemplate,
+  String modelPath,
+) {
   final String chatTemplate;
 
   // Order is very important here, be careful.
   // ex. if isNotEmpty branch comes first, the check for an erroroneous
   // template never runs.
-  if (builtInChatTemplate
-      .contains('Only user and assistant roles are supported!')) {
+  if (builtInChatTemplate.contains(
+    'Only user and assistant roles are supported!',
+  )) {
     // There's a strange chat template first encountered in an early version of
     // LLaVa 1.6 x Mistral 7B.
     //
@@ -320,7 +333,8 @@ String fllamaSanitizeChatTemplate(
     chatTemplate = chatMlTemplate;
     // ignore: avoid_print
     print(
-        '[fllama] Using ChatML because built-in chat template seems erroneous. (contains "Only user and assistant roles are supported!")');
+      '[fllama] Using ChatML because built-in chat template seems erroneous. (contains "Only user and assistant roles are supported!")',
+    );
   } else if (builtInChatTemplate.isNotEmpty) {
     // First observed with https://huggingface.co/brittlewis12/Memphis-CoT-3B-GGUF
     // Replacing with trim() did not work. That was unexpected because the Jinja

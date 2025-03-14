@@ -81,14 +81,22 @@ static bool is_gemma3_model(const char *model_path) {
   if (model_path == nullptr) {
     return false;
   }
-  
+
   std::string path = std::string(model_path);
-  std::transform(path.begin(), path.end(), path.begin(), 
-                [](unsigned char c) { return std::tolower(c); });
-  
-  return (path.find("gemma-3") != std::string::npos || 
+  std::transform(path.begin(), path.end(), path.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  return (path.find("gemma-3") != std::string::npos ||
           path.find("gemma3") != std::string::npos);
 }
+
+// Note: Gemma3 chat formatting is now applied directly in the inference
+// sequence to match exactly how gemma3-cli.cpp handles it:
+// 1. <bos> token
+// 2. <start_of_turn>user\n
+// 3. [images] (processed with <start_of_image> and <end_of_image> tokens)
+// 4. Prompt text
+// 5. <end_of_turn><start_of_turn>model\n
 
 // Implement logging functions
 static void log_message(const char *message, fllama_log_callback dart_logger) {
@@ -274,17 +282,13 @@ std::string sanitize_utf8(const std::string &input) {
 }
 
 static json to_json_oaicompat_chat(
-    const std::string &content, 
-    const std::string &oaicompat_model,
-    const std::string &oaicompat_cmpl_id, 
-    const std::string &build_info,
-    stop_type stop, 
-    common_chat_format oaicompat_chat_format,
+    const std::string &content, const std::string &oaicompat_model,
+    const std::string &oaicompat_cmpl_id, const std::string &build_info,
+    stop_type stop, common_chat_format oaicompat_chat_format,
     // bool verbose,
     // const std::vector<completion_token_output>& probs_output,
     // bool post_sampling_probs,
-    int n_decoded, 
-    int n_prompt_tokens
+    int n_decoded, int n_prompt_tokens
     // const result_timings* timings
 ) {
   // Issues with invalid UTF-8 were virtually always reproducible on iOS
@@ -418,23 +422,28 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
                                   fllama_log_callback logger) {
   log_message("[DEBUG] add_tokens_to_context: start", logger);
   const int N = (int)tokens.size();
-  log_message("[DEBUG] add_tokens_to_context: token count: " + std::to_string(N), logger);
+  log_message("[DEBUG] add_tokens_to_context: token count: " +
+                  std::to_string(N),
+              logger);
   if (N == 0)
     return true;
 
   // Keep tokens data alive until we're done with the batch
   std::vector<llama_token> tokens_data = tokens;
-  log_message("[DEBUG] add_tokens_to_context: about to call llama_batch_get_one", logger);
+  log_message(
+      "[DEBUG] add_tokens_to_context: about to call llama_batch_get_one",
+      logger);
   llama_batch batch =
       llama_batch_get_one(tokens_data.data(), tokens_data.size());
-  log_message("[DEBUG] add_tokens_to_context: got batch with " + std::to_string(batch.n_tokens) +
-                  " tokens",
+  log_message("[DEBUG] add_tokens_to_context: got batch with " +
+                  std::to_string(batch.n_tokens) + " tokens",
               logger);
 
   // Check context space
   int n_ctx = llama_n_ctx(ctx_llama);
   int n_ctx_used = llama_get_kv_cache_used_cells(ctx_llama);
-  log_message("[DEBUG] add_tokens_to_context: ctx space: used=" + std::to_string(n_ctx_used) +
+  log_message("[DEBUG] add_tokens_to_context: ctx space: used=" +
+                  std::to_string(n_ctx_used) +
                   ", total=" + std::to_string(n_ctx),
               logger);
 
@@ -452,7 +461,9 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
 
   // Update past token count
   *n_past = llama_get_kv_cache_used_cells(ctx_llama);
-  log_message("[DEBUG] add_tokens_to_context: updated n_past to " + std::to_string(*n_past), logger);
+  log_message("[DEBUG] add_tokens_to_context: updated n_past to " +
+                  std::to_string(*n_past),
+              logger);
   return true;
 }
 
@@ -551,8 +562,11 @@ fllama_inference_sync(fllama_inference_request request,
     uint32_t n_batch = requested_context_size;
     ctx_params.n_batch = requested_context_size;
     // Why is n_ubatch set?
-    // For Gemma 3, as of 2025-03-12, n_ubatch has to be >= n_tokens 
-    // Error: /Users/jamesoleary/dev/fllama/macos/llama.cpp/src/llama-context.cpp:1196: GGML_ASSERT((cparams.causal_attn || cparams.n_ubatch >= n_tokens_all) && "non-causal attention requires n_ubatch >= n_tokens") failed
+    // For Gemma 3, as of 2025-03-12, n_ubatch has to be >= n_tokens
+    // Error:
+    // /Users/jamesoleary/dev/fllama/macos/llama.cpp/src/llama-context.cpp:1196:
+    // GGML_ASSERT((cparams.causal_attn || cparams.n_ubatch >= n_tokens_all) &&
+    // "non-causal attention requires n_ubatch >= n_tokens") failed
     ctx_params.n_ubatch = requested_context_size;
     std::cout << "[fllama] Batch size: " << ctx_params.n_batch << std::endl;
     ctx_params.flash_attn = false;
@@ -625,6 +639,8 @@ fllama_inference_sync(fllama_inference_request request,
     // !!! Specific to multimodal
     bool prompt_contains_img = prompt_contains_image(request.input);
     bool should_load_clip = false;
+    bool is_gemma3_model_detected = is_gemma3_model(request.model_path);
+
     if (prompt_contains_img) {
       log_message("Prompt contains images, will process them later.",
                   request.dart_logger);
@@ -638,6 +654,12 @@ fllama_inference_sync(fllama_inference_request request,
             request.dart_logger);
       } else {
         should_load_clip = true;
+      }
+
+      if (is_gemma3_model_detected) {
+        log_message("Detected Gemma3 model with images - will use "
+                    "Gemma3-specific processing",
+                    request.dart_logger);
       }
     }
 
@@ -681,7 +703,8 @@ fllama_inference_sync(fllama_inference_request request,
     auto openai_json_string = request.openai_request_json_string;
     auto common_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
     if (openai_json_string != NULL) {
-      log_message("Processing OpenAI-style API request via JSON", request.dart_logger);
+      log_message("Processing OpenAI-style API request via JSON",
+                  request.dart_logger);
       try {
         body = json::parse(openai_json_string);
 
@@ -727,13 +750,33 @@ fllama_inference_sync(fllama_inference_request request,
           auto result =
               common_chat_templates_apply(chat_templates.get(), tmpl_inputs);
           final_request_input = result.prompt;
+          auto formatted_content_contains_image =
+              prompt_contains_image(final_request_input);
+          if (formatted_content_contains_image) {
+            log_message(
+                "Formatted content contains images, will process them later.",
+                request.dart_logger);
+            std::string mmproj = request.model_mmproj_path == NULL
+                                     ? ""
+                                     : request.model_mmproj_path;
+            if (mmproj.empty()) {
+              log_message(
+                  "Warning: formatted content contains images, but inference "
+                  "request doesn't specify model_mmproj_path. Multimodal model "
+                  "requires a .mmproj file.",
+                  request.dart_logger);
+            } else {
+              prompt_contains_img = true;
+              should_load_clip = true;
+            }
+          }
           common_chat_format = result.format;
           log_message("Using formatted chat input with template",
                       request.dart_logger);
           log_message("Template format: " + std::to_string(result.format),
                       request.dart_logger);
-          log_message("Formatted input: " + final_request_input,
-                      request.dart_logger);
+          // log_message("Formatted input: " + final_request_input,
+          //             request.dart_logger);
         } else {
           std::string keys;
           for (auto it = body.begin(); it != body.end(); ++it) {
@@ -771,8 +814,9 @@ fllama_inference_sync(fllama_inference_request request,
       const char *mmproj_path = mmproj_path_std_str.c_str();
       auto ctx_clip = clip_model_load(mmproj_path, /*verbosity=*/1);
       std::cout << "Loaded model" << std::endl;
+      // Use proper thread count for CLIP processing - matching gemma3-cli.cpp
       image_embeddings = llava_image_embed_make_with_prompt_base64(
-          ctx_clip, 1 /* or params.n_threads */, final_request_input);
+          ctx_clip, request.num_threads, final_request_input);
       clip_free(ctx_clip);
     }
 
@@ -829,14 +873,45 @@ fllama_inference_sync(fllama_inference_request request,
     bool add_bos = llama_add_bos_token(vocab);
     int idx_embedding = 0;
     // Check if this is a Gemma 3 model
-    bool is_gemma3 = is_gemma3_model(request.model_path);
+    bool is_gemma3 = is_gemma3_model_detected;
     if (is_gemma3) {
-      log_message("Detected Gemma 3 model, using Gemma-specific image handling", request.dart_logger);
+      log_message(
+          "Detected Gemma 3 model, NOT using Gemma-specific image handling "
+          "because is commented out. It may have been leading to a crash.",
+          request.dart_logger);
     }
-    
+
+    //   // For Gemma3, we handle the entire token sequence in a specific order,
+    //   just like gemma3-cli.cpp
+
+    //   // 1. First add <bos> token
+    //   if (!add_token_to_context(ctx,
+    //                            llama_token_bos(vocab),
+    //                            &n_past, request.dart_logger)) {
+    //     log_message("Failed to add BOS token for Gemma3",
+    //     request.dart_logger); callback("Error: Failed to add BOS token for
+    //     Gemma3", "", true); cleanup(); return;
+    //   }
+
+    //   // 2. Add <start_of_turn>user\n
+    //   const std::string user_turn_start = "<start_of_turn>user\n";
+    //   if (!add_string_to_context(ctx, user_turn_start.c_str(), n_batch,
+    //   &n_past, false, request.dart_logger)) {
+    //     log_message("Failed to add user turn start for Gemma3",
+    //     request.dart_logger); callback("Error: Failed to add user turn start
+    //     for Gemma3", "", true); cleanup(); return;
+    //   }
+
+    //   // Now images will be added after this, followed by the prompt text,
+    //   and finally the turn end markers
+    // }
+
+    // Process images - for Gemma3 these must come after <start_of_turn>user\n
+    // and before the prompt text
     for (auto *embedding : image_embeddings) {
       if (embedding != NULL) {
-        // For Gemma 3, we don't need the "Attached Image" text as it uses <start_of_image> and <end_of_image> tokens
+        // For Gemma 3, we don't need the "Attached Image" text as it uses
+        // <start_of_image> and <end_of_image> tokens
         if (image_embeddings.size() > 1 && !is_gemma3) {
           const std::string image_prompt =
               "Attached Image #" + std::to_string(idx_embedding + 1) + ":\n";
@@ -847,8 +922,8 @@ fllama_inference_sync(fllama_inference_request request,
         log_message("Adding image #" + std::to_string(idx_embedding + 1) +
                         " to context.",
                     request.dart_logger);
-        auto success =
-            add_image_embed_to_context(ctx, embedding, n_batch, &n_past, is_gemma3);
+        auto success = add_image_embed_to_context(ctx, embedding, n_batch,
+                                                  &n_past, is_gemma3);
         if (!success) {
           log_message(
               "Unable to add image to context. Continuing to run inference "
@@ -869,7 +944,7 @@ fllama_inference_sync(fllama_inference_request request,
     log_message("Input tokens: " + std::to_string(tokens_list.size()),
                 request.dart_logger);
     add_tokens_to_context(ctx, tokens_list, n_batch, &n_past,
-      request.dart_logger);
+                          request.dart_logger);
     if (tokens_list.size() > n_ctx) {
       log_message("Input tokens exceed context size.", request.dart_logger);
       auto error_message = "Error: Input exceeds context size. Input tokens: " +
@@ -1004,12 +1079,13 @@ fllama_inference_sync(fllama_inference_request request,
                         request.dart_logger);
           }
         } else {
-          log_message("[DEBUG] skipping callback. completion_response null? " +
-                          std::to_string(completion_response == NULL) +
-                          ", has_valid_json? " + std::to_string(has_valid_json) +
-                          ", response == last_valid_json? " +
-                          std::to_string(completion_response == last_valid_json),
-                      request.dart_logger);
+          log_message(
+              "[DEBUG] skipping callback. completion_response null? " +
+                  std::to_string(completion_response == NULL) +
+                  ", has_valid_json? " + std::to_string(has_valid_json) +
+                  ", response == last_valid_json? " +
+                  std::to_string(completion_response == last_valid_json),
+              request.dart_logger);
         }
       }
 
@@ -1107,24 +1183,35 @@ fllama_inference_sync(fllama_inference_request request,
             "", request.model_path,
             "cmpl-" + std::to_string(request.request_id), "" /* build info */,
             STOP_TYPE_LIMIT, common_chat_format, n_gen, n_prompt_tokens);
-        json_string = completion_response == NULL ? NULL : completion_response.dump().c_str();
-        auto is_valid_string = json_string == NULL ? false : is_valid_utf8(json_string);
+        json_string = completion_response == NULL
+                          ? NULL
+                          : completion_response.dump().c_str();
+        auto is_valid_string =
+            json_string == NULL ? false : is_valid_utf8(json_string);
         if (is_valid_string) {
-          log_message("[DEBUG] Never had valid JSON, was able to produce valid JSON for an empty message", request.dart_logger);
+          log_message("[DEBUG] Never had valid JSON, was able to produce valid "
+                      "JSON for an empty message",
+                      request.dart_logger);
           // Never had valid JSON, was able to produce valid JSON for an empty
           // message.
           callback(c_result, json_string, true);
         } else {
           // Never had valid JSON, could not produce valid JSON for an empty
           // message.
-          callback(c_result, "Never had valid JSON, could not produce valid JSON for an empty message.", true);
+          callback(c_result,
+                   "Never had valid JSON, could not produce valid JSON for an "
+                   "empty message.",
+                   true);
         }
       } else {
         if (is_valid_utf8(last_valid_json_string)) {
-          log_message("[DEBUG] Final JSON  is valid UTF-8. Response length: " + std::to_string(last_valid_json_string.length()), request.dart_logger);
+          log_message("[DEBUG] Final JSON  is valid UTF-8. Response length: " +
+                          std::to_string(last_valid_json_string.length()),
+                      request.dart_logger);
           callback(c_result, last_valid_json_string.c_str(), true);
         } else {
-          log_message("[DEBUG] Final JSON response is invalid UTF-8", request.dart_logger);
+          log_message("[DEBUG] Final JSON response is invalid UTF-8",
+                      request.dart_logger);
           callback(c_result,
                    "{\"error\": \"Invalid UTF-8 in final JSON response\"}",
                    true);
