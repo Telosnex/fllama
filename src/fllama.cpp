@@ -746,7 +746,34 @@ fllama_inference_sync(fllama_inference_request request,
                           body["tool_choice"].template get<std::string>())
                     : COMMON_CHAT_TOOL_CHOICE_AUTO;
           }
-
+          
+          // Log tmpl_inputs before applying templates
+          log_message("DEBUG tmpl_inputs: {", request.dart_logger);
+          log_message("  use_jinja: " + std::to_string(tmpl_inputs.use_jinja), request.dart_logger);
+          log_message("  add_generation_prompt: " + std::to_string(tmpl_inputs.add_generation_prompt), request.dart_logger);
+          log_message("  messages count: " + std::to_string(tmpl_inputs.messages.size()), request.dart_logger);
+          
+          // Log message details (roles and brief content previews)
+          for (size_t i = 0; i < tmpl_inputs.messages.size(); i++) {
+            const auto& msg = tmpl_inputs.messages[i];
+            std::string content_preview = msg.content;
+            if (content_preview.length() > 50) {
+              content_preview = content_preview.substr(0, 47) + "...";
+            }
+            log_message("    message[" + std::to_string(i) + "]: role=" + msg.role + ", content_preview=\"" + content_preview + "\"", request.dart_logger);
+          }
+          
+          if (!tmpl_inputs.tools.empty()) {
+            log_message("  tools count: " + std::to_string(tmpl_inputs.tools.size()), request.dart_logger);
+            for (size_t i = 0; i < tmpl_inputs.tools.size(); i++) {
+              log_message("    tool[" + std::to_string(i) + "]: " + tmpl_inputs.tools[i].name, request.dart_logger);
+            }
+            
+            log_message("  tool_choice: " + std::to_string(static_cast<int>(tmpl_inputs.tool_choice)), request.dart_logger);
+          }
+          
+          log_message("}", request.dart_logger);
+          
           auto result =
               common_chat_templates_apply(chat_templates.get(), tmpl_inputs);
           final_request_input = result.prompt;
