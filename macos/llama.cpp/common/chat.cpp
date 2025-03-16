@@ -1397,54 +1397,13 @@ static common_chat_params common_chat_params_init_phi_4(const common_chat_templa
 
     // For Phi-4, we need to inject tools into the system message
     // because the template expects tools in the system message with <|tool|> tags
-    if (inputs.tools.empty()) {
-        // No tools, use normal approach
-        data.prompt = apply(tmpl, inputs.messages, json::array(), inputs.add_generation_prompt);
-    } else {
-        // Make a copy of messages that we can modify
-        json adjusted_messages = inputs.messages;
-        
-        // Extract just the function part of the OpenAI-formatted tools
-        json phi4_tools = json::array();
-        foreach_function(inputs.tools, [&](const json & tool) {
-            phi4_tools.push_back(tool.at("function"));
-        });
-        
-        // Phi-4 template expects tools in the system message with <|tool|> tags.
-        // Find the system message, or add one if it doesn't exist
-        bool found_system_msg = false;
-        for (auto & message : adjusted_messages) {
-            if (message.contains("role") && message["role"] == "system") {
-                // Add tools to the existing system message and update content to mention tools
-                message["tools"] = phi4_tools;
-                
-                // If the system message doesn't mention tools, append that information
-                std::string content = message["content"];
-                if (content.find("tool") == std::string::npos && 
-                    content.find("function") == std::string::npos) {
-                    message["content"] = content + " You have access to some tools.";
-                }
-                
-                found_system_msg = true;
-                break;
-            }
-        }
-        
-        // If no system message, add one with tools
-        if (!found_system_msg && !adjusted_messages.empty()) {
-            json system_msg = {
-                {"role", "system"},
-                {"content", "You are a helpful assistant with access to tools.\nTo use a tool, respond in this format: <|tool_call|>{\"name\": \"foo\", \"arguments\": {\"a\": 1}}<|/tool_call|>"},
-                {"tools", phi4_tools}
-            };
-            // Insert system message at the beginning
-            adjusted_messages.insert(adjusted_messages.begin(), system_msg);
-        }
-        
-        // Apply template with tools embedded in system message, passing empty tools separately
-        data.prompt = apply(tmpl, adjusted_messages, json(), inputs.add_generation_prompt);
-    } 
-    
+    // The Phi-4 template has issues with tool calls.
+    // It is advisable to use --chat-template-file models/templates/llama-cpp-deepseek-r1.jinja instead,
+    // - It expects tools from the system message (instead of as a global variable as most templates). 
+    // - It does not print tool calls (this is worked around by the Minja + the generic mode, but without the <|tool_call|> syntax)
+    // - With defaults, it prints tool call results (messages such as {"role": "tool", "name": "foo", "content": "42"}) as <|tool|>42<|end|> which conflicts with the tool description wrapping mechanism.
+    // - Tool call results are expected to be injected as a message from the <|tool_response|> role. i.e. <|tool_response|>(json.dump())<|end|>
+    data.prompt = apply(tmpl, inputs.messages, inputs.tools.empty() ? json() : inputs.tools, inputs.add_generation_prompt);
     data.format = COMMON_CHAT_FORMAT_PHI_4;
     return data;
 }
