@@ -713,9 +713,6 @@ fllama_inference_sync(fllama_inference_request request,
     ctx = llama_new_context_with_model(model, ctx_params);
     if (model == NULL || ctx == NULL) {
       std::cout << "[fllama] Unable to load model." << std::endl;
-      if (model != NULL) {
-        llama_model_free(model);
-      }
       callback(/* response */ "Error: Unable to load model.", /* json */ "",
                /* done */ true);
       log_message("Error: Unable to load model.", request.dart_logger);

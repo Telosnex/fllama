@@ -79,7 +79,9 @@ struct llama_hparams {
 
     float    rope_attn_factor = 1.0f;
     float    rope_freq_base_train;
+    float    rope_freq_base_train_swa;
     float    rope_freq_scale_train;
+    float    rope_freq_scale_train_swa;
     uint32_t n_ctx_orig_yarn;
     float    rope_yarn_log_mul;
 
@@ -135,7 +137,7 @@ struct llama_hparams {
     // dimension of the recurrent state embeddings
     uint32_t n_embd_v_s() const;
 
-    bool is_sliding(uint32_t il) const;
+    bool is_swa(uint32_t il) const;
 };
 
 static_assert(std::is_trivially_copyable<llama_hparams>::value, "llama_hparams must be trivially copyable");
