@@ -1414,7 +1414,6 @@ static common_chat_msg common_chat_parse_phi_4(const std::string & input) {
     return parse_json_tool_calls(input, std::nullopt, function_regex, close_regex);
 }
 
-
 static common_chat_params common_chat_params_init_hermes_2_pro(const common_chat_template & tmpl, const struct templates_params & inputs) {
     common_chat_params data;
     // (content)?(<tool_call>{"name": "foo", "arguments": {"a": 1}}</tool_call>)*

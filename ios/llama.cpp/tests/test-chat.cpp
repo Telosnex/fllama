@@ -821,7 +821,7 @@ static void test_template_output_parsers() {
                       "{\"name\": \"special_function\", \"parameters\": {\"arg1\": 1}}");
     }
     {
-        auto tmpls = read_templates("models/templates/microsoft-Phi-4-mini-instruct.jinja");
+        auto tmpls = read_templates("models/templates/llama-cpp-microsoft-Phi-4-mini-instruct.jinja");
         std::vector<std::string>   end_tokens{ "<|end|>" };
     
         assert_equals(COMMON_CHAT_FORMAT_PHI_4, common_chat_templates_apply(tmpls.get(), inputs_tools).format);
@@ -833,21 +833,21 @@ static void test_template_output_parsers() {
         assert_msg_equals(
             common_chat_msg{"assistant", "I'll help with that.", {}, tool_calls, "", "", ""},
             common_chat_parse(
-                "I'll help with that.<|tool_call|>{\"name\":\"special_function\",\"arguments\":{\"arg1\":1}}</|tool_call|>",
+                "I'll help with that.<|tool_call|>{\"name\":\"special_function\",\"arguments\":{\"arg1\":1}}<|/tool_call|>",
                 COMMON_CHAT_FORMAT_PHI_4));
 
         // Test with content after tool call
         assert_msg_equals(
             common_chat_msg{"assistant", "I'll help with that.", {}, tool_calls, "", "", ""},
             common_chat_parse(
-                "<|tool_call|>{\"name\":\"special_function\",\"arguments\":{\"arg1\":1}}</|tool_call|>I'll help with that.",
+                "<|tool_call|>{\"name\":\"special_function\",\"arguments\":{\"arg1\":1}}<|/tool_call|>I'll help with that.",
                 COMMON_CHAT_FORMAT_PHI_4));
 
         // Test with newlines.
         assert_msg_equals(message_assist_call, common_chat_parse(
             "<|tool_call|>\n"
             "{\"name\": \"special_function\", \"arguments\": {\"arg1\": 1}}\n"
-            "</|tool_call|>",
+            "<|/tool_call|>",
             COMMON_CHAT_FORMAT_PHI_4));
     }
     {
