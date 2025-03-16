@@ -117,8 +117,8 @@ static void log_message(const char *message, fllama_log_callback dart_logger) {
     // Replace any newline characters with a placeholder
     size_t pos = 0;
     while ((pos = processed_message.find('\n', pos)) != std::string::npos) {
-      processed_message.replace(pos, 1, " [NL] ");
-      pos += 6; // Length of " [NL] "
+      processed_message.replace(pos, 1, "[NL]");
+      pos += 4; // Length of " [NL] "
     }
     
     // Use a mutex to ensure thread safety when updating the queue
