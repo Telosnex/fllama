@@ -26,6 +26,29 @@ class Message {
   Message(this.role, this.text);
 }
 
+/// Corresponds to COMMON_CHAT_TOOL_CHOICE_* in llama.cpp.
+///
+/// In OpenAI's API, required must specify a tool name and guarantees a
+/// response with that tool.
+///
+/// To replicate that behavior, pass required with a single tool in [tools].
+enum ToolChoice {
+  auto,
+  none,
+  required;
+
+  String get jsonName {
+    switch (this) {
+      case ToolChoice.auto:
+        return 'auto';
+      case ToolChoice.none:
+        return 'none';
+      case ToolChoice.required:
+        return 'required';
+    }
+  }
+}
+
 class OpenAiRequest {
   final List<Message> messages;
   final List<Tool> tools;
@@ -41,6 +64,7 @@ class OpenAiRequest {
   final int contextSize;
   final String? jinjaTemplate;
   final Function(String)? logger;
+  final ToolChoice toolChoice;
 
   String toJsonString() {
     final Map<String, dynamic> json = {
@@ -64,8 +88,8 @@ class OpenAiRequest {
       'top_p': topP,
       'frequency_penalty': frequencyPenalty,
       'presence_penalty': presencePenalty,
-      if (jinjaTemplate != null)
-        'jinja_template': jinjaTemplate,
+      'tool_choice': toolChoice.jsonName,
+      if (jinjaTemplate != null) 'jinja_template': jinjaTemplate,
     };
     return jsonEncode(json);
   }
@@ -73,6 +97,7 @@ class OpenAiRequest {
   OpenAiRequest({
     this.messages = const [],
     this.tools = const [],
+    this.toolChoice,
     // Randomness of the output.
     // Higher numbers mean more likelihood of non-top tokens being chosen.
     // 0 <= temperature <= any positive number
