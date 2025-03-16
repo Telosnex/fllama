@@ -64,7 +64,7 @@ class OpenAiRequest {
   final int contextSize;
   final String? jinjaTemplate;
   final Function(String)? logger;
-  final ToolChoice toolChoice;
+  final ToolChoice? toolChoice;
 
   String toJsonString() {
     final Map<String, dynamic> json = {
@@ -88,7 +88,7 @@ class OpenAiRequest {
       'top_p': topP,
       'frequency_penalty': frequencyPenalty,
       'presence_penalty': presencePenalty,
-      'tool_choice': toolChoice.jsonName,
+      if (toolChoice != null) 'tool_choice': toolChoice?.jsonName,
       if (jinjaTemplate != null) 'jinja_template': jinjaTemplate,
     };
     return jsonEncode(json);
