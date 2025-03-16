@@ -563,6 +563,9 @@ static void log_callback_wrapper(enum ggml_log_level level, const char *text,
 EMSCRIPTEN_KEEPALIVE void
 fllama_inference_sync(fllama_inference_request request,
                       fllama_inference_callback callback) {
+  // Easier to do this up top: Gemma 3 multimodal requires some specific setup
+  // throughout the method.
+  bool is_gemma3_model_detected = is_gemma3_model(request.model_path);
   // Setup parameters, then load the model and create a context.
   int64_t start = ggml_time_ms();
   std::cout << "[fllama] Inference thread start" << std::endl;
@@ -590,6 +593,14 @@ fllama_inference_sync(fllama_inference_request request,
     // not be the case)
     uint32_t n_batch = requested_context_size;
     ctx_params.n_batch = requested_context_size;
+    if (is_gemma3_model_detected) {
+      // For Gemma 3, as of 2025-03-12, n_ubatch has to be >= n_tokens
+      // Error:
+      // /Users/jamesoleary/dev/fllama/macos/llama.cpp/src/llama-context.cpp:1196:
+      // GGML_ASSERT((cparams.causal_attn || cparams.n_ubatch >= n_tokens_all) &&
+      // "non-causal attention requires n_ubatch >= n_tokens") failed
+      ctx_params.n_ubatch = requested_context_size;
+    }
     std::cout << "[fllama] Batch size: " << ctx_params.n_batch << std::endl;
     ctx_params.flash_attn = false;
     std::cout << "[fllama] flash_attn: " << ctx_params.flash_attn << std::endl;
@@ -661,7 +672,6 @@ fllama_inference_sync(fllama_inference_request request,
     // !!! Specific to multimodal
     bool prompt_contains_img = prompt_contains_image(request.input);
     bool should_load_clip = false;
-    bool is_gemma3_model_detected = is_gemma3_model(request.model_path);
 
     if (prompt_contains_img) {
       log_message("Prompt contains images, will process them later.",
