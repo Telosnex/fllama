@@ -728,15 +728,22 @@ fllama_inference_sync(fllama_inference_request request,
 
     nlohmann::ordered_json body = NULL;
 
-    auto chat_templates = common_chat_templates_init(model, "");
     auto openai_json_string = request.openai_request_json_string;
     auto common_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
+    std::string jinja_template = "";
     if (openai_json_string != NULL) {
       log_message("Processing OpenAI-style API request via JSON",
                   request.dart_logger);
       try {
         body = json::parse(openai_json_string);
+        if (body.contains("jinja_template") && body["jinja_template"].is_string()) {
+          jinja_template = body["jinja_template"].get<std::string>();
+          body.erase("jinja_template");
+          log_message("Using custom Jinja template: " + jinja_template,
+                      request.dart_logger);
+        }
 
+        auto chat_templates = common_chat_templates_init(model, jinja_template);
         // Try to use model's built-in template, fallback to chatml
         try {
           common_chat_format_example(chat_templates.get(), true);
@@ -829,10 +836,10 @@ fllama_inference_sync(fllama_inference_request request,
           common_chat_format = result.format;
           log_message("Using formatted chat input with template",
                       request.dart_logger);
-          log_message("Template format: " + std::to_string(result.format),
+          log_message("Template format: " + common_chat_format_name(result.format),
                       request.dart_logger);
-          // log_message("Formatted input: " + final_request_input,
-          //             request.dart_logger);
+          log_message("Formatted input: " + final_request_input,
+                      request.dart_logger);
         } else {
           std::string keys;
           for (auto it = body.begin(); it != body.end(); ++it) {

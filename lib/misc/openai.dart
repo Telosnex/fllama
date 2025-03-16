@@ -39,31 +39,33 @@ class OpenAiRequest {
   final String? mmprojPath;
   final int numGpuLayers;
   final int contextSize;
+  final String? jinjaTemplate;
   final Function(String)? logger;
 
   String toJsonString() {
     final Map<String, dynamic> json = {
-      'messages': messages
-          .map((m) => {
-                'role': m.role.openAiName,
-                'content': m.text,
-              })
-          .toList(),
-      'tools': tools.map((t) {
-        return {
-          'type': 'function',
-          'function': {
-            'name': t.name,
-            'description': t.description,
-            'parameters': jsonDecode(t.jsonSchema),
-          },
-        };
-      }).toList(),
+      'messages':
+          messages
+              .map((m) => {'role': m.role.openAiName, 'content': m.text})
+              .toList(),
+      'tools':
+          tools.map((t) {
+            return {
+              'type': 'function',
+              'function': {
+                'name': t.name,
+                'description': t.description,
+                'parameters': jsonDecode(t.jsonSchema),
+              },
+            };
+          }).toList(),
       'temperature': temperature,
       'max_tokens': maxTokens,
       'top_p': topP,
       'frequency_penalty': frequencyPenalty,
       'presence_penalty': presencePenalty,
+      if (jinjaTemplate != null)
+        'jinja_template': jinjaTemplate,
     };
     return jsonEncode(json);
   }
@@ -100,5 +102,6 @@ class OpenAiRequest {
     this.contextSize = 2048,
     // Optional logger.
     this.logger,
+    this.jinjaTemplate,
   });
 }
