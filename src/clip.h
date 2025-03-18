@@ -128,15 +128,13 @@ CLIP_API int get_deepest_feature_layer(const struct clip_ctx * ctx);
 
 CLIP_API bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img, int h, int w, float * vec);
 
-// Helper function for selecting the best resolution
-CLIP_API std::pair<int, int> select_best_resolution(const std::pair<int, int> & original_size, const std::vector<std::pair<int, int>> & possible_resolutions);
-
-// Helper function for getting the image grid shape
-CLIP_API static struct clip_image_grid_shape get_anyres_image_grid_shape(const std::pair<int, int> & image_size, const std::vector<std::pair<int, int>> & grid_pinpoints, int image_patch_size);
-
 #ifdef __cplusplus
 
 }
+
+// Helper function for selecting the best resolution
+CLIP_API std::pair<int, int> select_best_resolution(const std::pair<int, int> & original_size, const std::vector<std::pair<int, int>> & possible_resolutions);
+
 #endif
 
 #endif // CLIP_H
