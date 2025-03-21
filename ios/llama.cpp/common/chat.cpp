@@ -1399,7 +1399,7 @@ static common_chat_params common_chat_params_init_phi_4(const common_chat_templa
     // because the template expects tools in the system message with <|tool|> tags
     // The Phi-4 template has issues with tool calls.
     // It is advisable to use --chat-template-file models/templates/llama-cpp-microsoft-Phi-4-mini-instruct.jinja
-    // - It expects tools from the system message (instead of as a global variable as most templates). 
+    // - It expects tools from the system message (instead of as a global variable as most templates).
     // - It does not print tool calls (this is worked around by the Minja + the generic mode, but without the <|tool_call|> syntax)
     // - With defaults, it prints tool call results (messages such as {"role": "tool", "name": "foo", "content": "42"}) as <|tool|>42<|end|> which conflicts with the tool description wrapping mechanism.
     // - Tool call results are expected to be injected as a message from the <|tool_response|> role. i.e. <|tool_response|>(json.dump())<|end|>
@@ -1702,7 +1702,11 @@ static common_chat_params common_chat_templates_apply_jinja(
 
     // Phi-4 mini.
     if (src.find("<|tool|>") != std::string::npos) {
-        return common_chat_params_init_phi_4(tmpl, params);
+        if (src.find("<|tool_response|>") != std::string::npos) {
+            return common_chat_params_init_phi_4(tmpl, params);
+        } else {
+            LOG_WRN("[%s] Invalid legacy Phi 4 template detected: switching to Generic tool call format. To enable native support, please restart with `--chat-template-file models/template/microsoft-Phi-4-mini-instruct.jinja`", __func__);
+        }
     }
 
     // Plain handler (no tools)
