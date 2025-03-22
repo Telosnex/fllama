@@ -60,6 +60,7 @@
 #include <limits.h>
 #include <mutex>
 #include <queue>
+#include <random>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -610,12 +611,17 @@ fllama_inference_sync(fllama_inference_request request,
     // TODO: params.n_threads = request.num_threads;
     // std::cout << "[fllama] Number of threads: " << params.n_threads <<
     // std::endl;
+    // Generate a random seed using std::random_device for better randomness
+    std::random_device rd;
+    uint32_t random_seed = rd();
+    log_message("Using random seed: " + std::to_string(random_seed), request.dart_logger);
+    
     llama_sampler *smpl =
         llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(
         smpl, llama_sampler_init_min_p((1.0f - request.top_p), 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(request.temperature));
-    llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(random_seed));
 
     llama_model_params model_params = llama_model_default_params();
     // std::vector<llama_sampler_type> samplers = {
