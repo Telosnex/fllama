@@ -77,7 +77,11 @@ class OpenAiRequest {
       'messages': messages
           .map((m) => {
                 'role': m.role.openAiName,
-                'content': m.text,
+                // Avoid empty content, intent is when there's a tool call,
+                // but no text, in an assistant response, two messages are not
+                // created.
+                if (m.text.trim().isNotEmpty)
+                 'content': m.text,
                 if (m.toolResponseName != null) 'name': m.toolResponseName,
                 if (m.toolCalls?.isNotEmpty == true)
                   'tool_calls': m.toolCalls
