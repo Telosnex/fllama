@@ -25,8 +25,10 @@ enum Role {
 class Message {
   final Role role;
   final String text;
+  /// Optional name of tool in the message.
+  final String? name;
 
-  Message(this.role, this.text);
+  Message(this.role, this.text, {this.name});
 }
 
 /// Corresponds to COMMON_CHAT_TOOL_CHOICE_* in llama.cpp.
@@ -71,21 +73,19 @@ class OpenAiRequest {
 
   String toJsonString() {
     final Map<String, dynamic> json = {
-      'messages':
-          messages
-              .map((m) => {'role': m.role.openAiName, 'content': m.text})
-              .toList(),
-      'tools':
-          tools.map((t) {
-            return {
-              'type': 'function',
-              'function': {
-                'name': t.name,
-                'description': t.description,
-                'parameters': jsonDecode(t.jsonSchema),
-              },
-            };
-          }).toList(),
+      'messages': messages
+          .map((m) => {'role': m.role.openAiName, 'content': m.text})
+          .toList(),
+      'tools': tools.map((t) {
+        return {
+          'type': 'function',
+          'function': {
+            'name': t.name,
+            'description': t.description,
+            'parameters': jsonDecode(t.jsonSchema),
+          },
+        };
+      }).toList(),
       'temperature': temperature,
       'max_tokens': maxTokens,
       'top_p': topP,
