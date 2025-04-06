@@ -26,9 +26,10 @@ class Message {
   final Role role;
   final String text;
   /// Optional name of tool in the message.
-  final String? name;
+  final String? toolResponseName;
+  final List<Map<String, dynamic>>? toolCalls;
 
-  Message(this.role, this.text, {this.name});
+  Message(this.role, this.text, {this.toolCalls, this.toolResponseName});
 }
 
 /// Corresponds to COMMON_CHAT_TOOL_CHOICE_* in llama.cpp.
@@ -77,7 +78,9 @@ class OpenAiRequest {
           .map((m) => {
                 'role': m.role.openAiName,
                 'content': m.text,
-                if (m.name != null) 'name': m.name
+                if (m.toolResponseName != null) 'name': m.toolResponseName,
+                if (m.toolCalls?.isNotEmpty == true)
+                  'tool_calls': m.toolCalls
               })
           .toList(),
       'tools': tools.map((t) {
