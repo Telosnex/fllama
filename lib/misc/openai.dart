@@ -74,7 +74,11 @@ class OpenAiRequest {
   String toJsonString() {
     final Map<String, dynamic> json = {
       'messages': messages
-          .map((m) => {'role': m.role.openAiName, 'content': m.text})
+          .map((m) => {
+                'role': m.role.openAiName,
+                'content': m.text,
+                if (m.name != null) 'name': m.name
+              })
           .toList(),
       'tools': tools.map((t) {
         return {
