@@ -5,6 +5,7 @@ import 'package:fllama/misc/openai_tool.dart';
 enum Role {
   assistant,
   system,
+  tool,
   user;
 
   String get openAiName {
@@ -15,6 +16,8 @@ enum Role {
         return 'system';
       case Role.user:
         return 'user';
+      case Role.tool:
+        return 'tool';
     }
   }
 }
