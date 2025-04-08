@@ -3,11 +3,15 @@
 #include <exception>
 #include <iostream>
 #include <unordered_map>
+#include <chrono>
+#include <thread>
 
 // If fllama_inference_request and fllama_inference_callback types are defined
 // in an external header, include that here.
 InferenceQueue::InferenceQueue()
-    : done(false), worker(&InferenceQueue::process_inference, this) {}
+    : done(false), 
+      worker(&InferenceQueue::process_inference, this),
+      cleanup_thread(&InferenceQueue::cleanup_inactive_models, this) {}
 
 InferenceQueue::~InferenceQueue() {
   {
@@ -19,9 +23,24 @@ InferenceQueue::~InferenceQueue() {
     done = true;
   }
   cond_var.notify_one();
+  cleanup_cond_var.notify_one();
+  
   if (worker.joinable()) {
     worker.join();
   }
+  
+  if (cleanup_thread.joinable()) {
+    cleanup_thread.join();
+  }
+  
+  // Free any remaining models
+  std::lock_guard<std::mutex> lock(models_lock);
+  for (auto& pair : cached_models) {
+    auto& resources = pair.second;
+    if (resources->ctx) llama_free(resources->ctx);
+    if (resources->model) llama_model_free(resources->model);
+  }
+  cached_models.clear();
 }
 
 void InferenceQueue::enqueue(fllama_inference_request request,
@@ -46,6 +65,102 @@ bool InferenceQueue::is_cancelled(int request_id) {
   std::lock_guard<std::mutex> lock(queue_lock);
   return cancel_flags.find(request_id) != cancel_flags.end() &&
          cancel_flags[request_id];
+}
+
+void InferenceQueue::register_model(const std::string& model_path, llama_model* model, 
+                               llama_context* ctx) {
+  std::lock_guard<std::mutex> lock(models_lock);
+  
+  // Check if model already exists
+  auto it = cached_models.find(model_path);
+  if (it != cached_models.end()) {
+    // Model exists, update its last_used timestamp
+    it->second->last_used = std::chrono::steady_clock::now();
+    return;
+  }
+  
+  // Create a new model resource entry - note: we don't store the sampler anymore
+  cached_models[model_path] = 
+      std::unique_ptr<ModelResources>(new ModelResources(model, ctx));
+  
+  std::cout << "[InferenceQueue] Registered model: " << model_path << std::endl;
+}
+
+std::tuple<llama_model*, llama_context*> 
+InferenceQueue::get_cached_model(const std::string& model_path) {
+  std::lock_guard<std::mutex> lock(models_lock);
+  
+  auto it = cached_models.find(model_path);
+  if (it != cached_models.end()) {
+    // Update the last_used timestamp
+    it->second->last_used = std::chrono::steady_clock::now();
+    // Return model and context, but nullptr for sampler since we don't cache it
+    return std::make_tuple(it->second->model, it->second->ctx);
+  }
+  
+  // Model not found in cache
+  return std::make_tuple(nullptr, nullptr);
+}
+
+void InferenceQueue::mark_model_used(const std::string& model_path) {
+  std::lock_guard<std::mutex> lock(models_lock);
+  
+  auto it = cached_models.find(model_path);
+  if (it != cached_models.end()) {
+    it->second->last_used = std::chrono::steady_clock::now();
+  }
+}
+
+void InferenceQueue::check_inactive_models() {
+  cleanup_cond_var.notify_one();
+}
+
+void InferenceQueue::free_model_resources(const std::string& model_path) {
+  // This method should be called with models_lock already acquired
+  auto it = cached_models.find(model_path);
+  if (it != cached_models.end()) {
+    std::cout << "[InferenceQueue] Freeing model resources for: " << model_path << std::endl;
+    
+    auto& resources = it->second;
+    if (resources->ctx) llama_free(resources->ctx);
+    if (resources->model) llama_model_free(resources->model);
+    
+    cached_models.erase(it);
+  }
+}
+
+void InferenceQueue::cleanup_inactive_models() {
+  while (!done) {
+    // Wait for a cleanup notification or timeout
+    {
+      std::unique_lock<std::mutex> lock(models_lock);
+      
+      // Wait for notification or timeout (5 seconds)
+      auto status = cleanup_cond_var.wait_for(lock, std::chrono::seconds(5),
+                                             [this]{ return done; });
+      
+      // Check each model's inactivity time
+      auto now = std::chrono::steady_clock::now();
+      std::vector<std::string> models_to_free;
+      
+      for (const auto& pair : cached_models) {
+        const std::string& path = pair.first;
+        const auto& resources = pair.second;
+        
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            now - resources->last_used).count();
+        
+        if (elapsed >= MODEL_INACTIVITY_TIMEOUT_SEC) {
+          models_to_free.push_back(path);
+        }
+      }
+      
+      // Free resources for inactive models
+      for (const auto& path : models_to_free) {
+        free_model_resources(path);
+      }
+    }
+  }
 }
 
 void InferenceQueue::process_inference() {
@@ -92,5 +207,8 @@ void InferenceQueue::process_inference() {
     if (taskWrapperPtr) {
       (*taskWrapperPtr)();
     }
+    
+    // Trigger cleanup check after each task completes
+    cleanup_cond_var.notify_one();
   }
 }

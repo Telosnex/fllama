@@ -705,21 +705,47 @@ fllama_inference_sync(fllama_inference_request request,
     llama_context *ctx = nullptr;
     std::vector<llava_image_embed *> image_embeddings;
     char *c_result = nullptr;
-
+    bool model_is_cached = false;
+    std::string model_path_str = request.model_path ? request.model_path : "";
+    
     auto cleanup = [&]() {
-      if (model)
-        llama_model_free(model);
+      // Always free the sampler since we create a new one for each request
       if (smpl)
         llama_sampler_free(smpl);
-      if (ctx)
-        llama_free(ctx);
+      
+      // Only free model and context resources if they weren't cached
+      if (!model_is_cached) {
+        if (model)
+          llama_model_free(model);
+        if (ctx)
+          llama_free(ctx);
+      }
       llama_backend_free();
       free(c_result);
     };
     // Process OpenAI chat messages if provided
     log_message("Initializing llama model...", request.dart_logger);
-    model = llama_model_load_from_file(request.model_path, model_params);
-    ctx = llama_new_context_with_model(model, ctx_params);
+    
+    // Check if the model is already cached
+    std::tie(model, ctx) = global_inference_queue.get_cached_model(model_path_str);
+    
+    // Create a new sampler for each request since samplers are lightweight
+    // and depend on request-specific parameters (temperature, top_p, seed)
+    smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(smpl, llama_sampler_init_min_p((1.0f - request.top_p), 1));
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(request.temperature));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(random_seed));
+    
+    if (model && ctx) {
+      log_message("Using cached model: " + model_path_str, request.dart_logger);
+      model_is_cached = true;
+    } else {
+      // Load the model if not cached
+      log_message("Loading model from file: " + model_path_str, request.dart_logger);
+      model = llama_model_load_from_file(request.model_path, model_params);
+      ctx = llama_new_context_with_model(model, ctx_params);
+    }
+    
     if (model == NULL || ctx == NULL) {
       std::cout << "[fllama] Unable to load model." << std::endl;
       callback(/* response */ "Error: Unable to load model.", /* json */ "",
@@ -1302,12 +1328,26 @@ fllama_inference_sync(fllama_inference_request request,
     log_message(speed_string, request.dart_logger);
 
     log_message("Wrote speed of generation.", request.dart_logger);
-    // Free everything. Model loading time is negligible, especially when
-    // compared to amount of RAM consumed by leaving model in memory
-    // (~= size of model on disk)
-    log_message("Freeing resources...", request.dart_logger);
+    // Instead of freeing everything immediately, we'll either cache the model
+    // or free it based on our caching logic
+    log_message("Managing model resources...", request.dart_logger);
+    
+    // If model is not already cached, register it for caching
+    if (model && ctx && !model_is_cached) {
+      log_message("Caching model for future use", request.dart_logger);
+      global_inference_queue.register_model(model_path_str, model, ctx);
+      model_is_cached = true;
+    } else if (model_is_cached) {
+      // Update the last-used timestamp for the model
+      log_message("Updating last-used timestamp for cached model", request.dart_logger);
+      global_inference_queue.mark_model_used(model_path_str);
+    }
+    
+    // Now call cleanup() which will only free resources if they're not cached
     cleanup();
-    log_message("Freed resources.", request.dart_logger);
+    log_message("Cleanup complete - model will be freed after " + 
+                std::to_string(global_inference_queue.MODEL_INACTIVITY_TIMEOUT_SEC) + 
+                " seconds of inactivity", request.dart_logger);
   } catch (const std::exception &e) {
     std::string error_msg = "Unhandled error: " + std::string(e.what());
     if (callback != NULL) {
