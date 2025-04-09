@@ -92,14 +92,6 @@ static bool is_gemma3_model(const char *model_path) {
           path.find("gemma3") != std::string::npos);
 }
 
-// Note: Gemma3 chat formatting is now applied directly in the inference
-// sequence to match exactly how gemma3-cli.cpp handles it:
-// 1. <bos> token
-// 2. <start_of_turn>user\n
-// 3. [images] (processed with <start_of_image> and <end_of_image> tokens)
-// 4. Prompt text
-// 5. <end_of_turn><start_of_turn>model\n
-
 // Implement logging functions
 static void log_message(const char *message, fllama_log_callback dart_logger) {
   if (dart_logger == nullptr) {
@@ -976,33 +968,6 @@ fllama_inference_sync(fllama_inference_request request,
           request.dart_logger);
     }
 
-    //   // For Gemma3, we handle the entire token sequence in a specific order,
-    //   just like gemma3-cli.cpp
-
-    //   // 1. First add <bos> token
-    //   if (!add_token_to_context(ctx,
-    //                            llama_token_bos(vocab),
-    //                            &n_past, request.dart_logger)) {
-    //     log_message("Failed to add BOS token for Gemma3",
-    //     request.dart_logger); callback("Error: Failed to add BOS token for
-    //     Gemma3", "", true); cleanup(); return;
-    //   }
-
-    //   // 2. Add <start_of_turn>user\n
-    //   const std::string user_turn_start = "<start_of_turn>user\n";
-    //   if (!add_string_to_context(ctx, user_turn_start.c_str(), n_batch,
-    //   &n_past, false, request.dart_logger)) {
-    //     log_message("Failed to add user turn start for Gemma3",
-    //     request.dart_logger); callback("Error: Failed to add user turn start
-    //     for Gemma3", "", true); cleanup(); return;
-    //   }
-
-    //   // Now images will be added after this, followed by the prompt text,
-    //   and finally the turn end markers
-    // }
-
-    // Process images - for Gemma3 these must come after <start_of_turn>user\n
-    // and before the prompt text
     for (auto *embedding : image_embeddings) {
       if (embedding != NULL) {
         // For Gemma 3, we don't need the "Attached Image" text as it uses
