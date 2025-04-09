@@ -713,8 +713,12 @@ fllama_inference_sync(fllama_inference_request request,
       if (smpl)
         llama_sampler_free(smpl);
       
+      // If model was cached, decrement the active users counter
+      if (model_is_cached && !model_path_str.empty()) {
+        global_inference_queue.decrement_model_users(model_path_str);
+      }
       // Only free model and context resources if they weren't cached
-      if (!model_is_cached) {
+      else if (!model_is_cached) {
         if (model)
           llama_model_free(model);
         if (ctx)
@@ -739,6 +743,7 @@ fllama_inference_sync(fllama_inference_request request,
     if (model && ctx) {
       log_message("Using cached model: " + model_path_str, request.dart_logger);
       model_is_cached = true;
+      // Note: get_cached_model already increments the active_users count
     } else {
       // Load the model if not cached
       log_message("Loading model from file: " + model_path_str, request.dart_logger);
@@ -1337,17 +1342,16 @@ fllama_inference_sync(fllama_inference_request request,
       log_message("Caching model for future use", request.dart_logger);
       global_inference_queue.register_model(model_path_str, model, ctx);
       model_is_cached = true;
-    } else if (model_is_cached) {
-      // Update the last-used timestamp for the model
-      log_message("Updating last-used timestamp for cached model", request.dart_logger);
-      global_inference_queue.mark_model_used(model_path_str);
+      // We must explicitly increment since we're registering a new model
+      global_inference_queue.increment_model_users(model_path_str);
     }
     
-    // Now call cleanup() which will only free resources if they're not cached
+    // Now call cleanup() which will decrement the active users counter
+    // and only free resources if they're not cached and no longer in use
     cleanup();
     log_message("Cleanup complete - model will be freed after " + 
                 std::to_string(global_inference_queue.MODEL_INACTIVITY_TIMEOUT_SEC) + 
-                " seconds of inactivity", request.dart_logger);
+                " seconds of inactivity if no longer in use", request.dart_logger);
   } catch (const std::exception &e) {
     std::string error_msg = "Unhandled error: " + std::string(e.what());
     if (callback != NULL) {

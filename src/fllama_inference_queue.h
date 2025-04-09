@@ -25,7 +25,7 @@ namespace std {
     constexpr atomic(bool __i) noexcept : _M_i(__i) {}
     bool operator=(bool __i) volatile noexcept {
       _M_i = __i;
-      return __i
+      return __i;
     }
     operator bool() const volatile noexcept { return _M_i; }
   };
@@ -36,10 +36,12 @@ struct ModelResources {
   llama_model* model;
   llama_context* ctx;
   std::chrono::time_point<std::chrono::steady_clock> last_used;
+  std::atomic<int> active_users;
   
   ModelResources(llama_model* m, llama_context* c)
       : model(m), ctx(c),
-        last_used(std::chrono::steady_clock::now()) {}
+        last_used(std::chrono::steady_clock::now()),
+        active_users(0) {}
 };
 
 struct TaskWrapper {
@@ -71,6 +73,8 @@ public:
                       llama_context* ctx);
   std::tuple<llama_model*, llama_context*> get_cached_model(const std::string& model_path);
   void mark_model_used(const std::string& model_path);
+  void increment_model_users(const std::string& model_path);
+  void decrement_model_users(const std::string& model_path);
   void check_inactive_models();
 
 private:

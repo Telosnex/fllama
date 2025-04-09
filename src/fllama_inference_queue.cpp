@@ -94,7 +94,11 @@ InferenceQueue::get_cached_model(const std::string& model_path) {
   if (it != cached_models.end()) {
     // Update the last_used timestamp
     it->second->last_used = std::chrono::steady_clock::now();
-    // Return model and context, but nullptr for sampler since we don't cache it
+    // Increment the active users counter
+    it->second->active_users++;
+    std::cout << "[InferenceQueue] Model " << model_path << " in use by " 
+              << it->second->active_users << " processes" << std::endl;
+    // Return model and context
     return std::make_tuple(it->second->model, it->second->ctx);
   }
   
@@ -111,6 +115,32 @@ void InferenceQueue::mark_model_used(const std::string& model_path) {
   }
 }
 
+void InferenceQueue::increment_model_users(const std::string& model_path) {
+  std::lock_guard<std::mutex> lock(models_lock);
+  
+  auto it = cached_models.find(model_path);
+  if (it != cached_models.end()) {
+    it->second->active_users++;
+    std::cout << "[InferenceQueue] Model " << model_path << " in use by " 
+              << it->second->active_users << " processes" << std::endl;
+  }
+}
+
+void InferenceQueue::decrement_model_users(const std::string& model_path) {
+  std::lock_guard<std::mutex> lock(models_lock);
+  
+  auto it = cached_models.find(model_path);
+  if (it != cached_models.end()) {
+    if (it->second->active_users > 0) {
+      it->second->active_users--;
+      std::cout << "[InferenceQueue] Model " << model_path << " now in use by " 
+                << it->second->active_users << " processes" << std::endl;
+    }
+    // Update last_used timestamp when a user is done with the model
+    it->second->last_used = std::chrono::steady_clock::now();
+  }
+}
+
 void InferenceQueue::check_inactive_models() {
   cleanup_cond_var.notify_one();
 }
@@ -119,9 +149,17 @@ void InferenceQueue::free_model_resources(const std::string& model_path) {
   // This method should be called with models_lock already acquired
   auto it = cached_models.find(model_path);
   if (it != cached_models.end()) {
+    auto& resources = it->second;
+    
+    // Only free if no active users
+    if (resources->active_users > 0) {
+      std::cout << "[InferenceQueue] Cannot free model " << model_path 
+                << " - still has " << resources->active_users << " active users" << std::endl;
+      return;
+    }
+    
     std::cout << "[InferenceQueue] Freeing model resources for: " << model_path << std::endl;
     
-    auto& resources = it->second;
     if (resources->ctx) llama_free(resources->ctx);
     if (resources->model) llama_model_free(resources->model);
     
@@ -150,8 +188,13 @@ void InferenceQueue::cleanup_inactive_models() {
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
             now - resources->last_used).count();
         
-        if (elapsed >= MODEL_INACTIVITY_TIMEOUT_SEC) {
+        // Only consider freeing models that have been inactive AND have no active users
+        if (elapsed >= MODEL_INACTIVITY_TIMEOUT_SEC && resources->active_users == 0) {
           models_to_free.push_back(path);
+        } else if (elapsed >= MODEL_INACTIVITY_TIMEOUT_SEC) {
+          std::cout << "[InferenceQueue] Model " << path 
+                    << " inactive for " << elapsed << "s but has " 
+                    << resources->active_users << " active users" << std::endl;
         }
       }
       
@@ -205,7 +248,15 @@ void InferenceQueue::process_inference() {
     // Since taskWrapperPtr is a std::unique_ptr<TaskWrapper>, access members
     // using ->
     if (taskWrapperPtr) {
-      (*taskWrapperPtr)();
+      try {
+        (*taskWrapperPtr)();
+      } catch (const std::exception &e) {
+        // Log exception but continue processing queue
+        std::cerr << "[InferenceQueue] Exception in task execution: " 
+                  << e.what() << std::endl;
+      } catch (...) {
+        std::cerr << "[InferenceQueue] Unknown exception in task execution" << std::endl;
+      }
     }
     
     // Trigger cleanup check after each task completes
