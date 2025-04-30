@@ -85,6 +85,9 @@ public:
   // context / token-state reuse logic.  Returns nullptr if the model is not
   // cached.
   ModelResources* get_model_resources(const std::string& model_path);
+
+  // Checks if context reuse is possible without incrementing active_users
+  bool can_reuse_context(const std::string& model_path);
   void mark_model_used(const std::string& model_path);
   void increment_model_users(const std::string& model_path);
   void decrement_model_users(const std::string& model_path);

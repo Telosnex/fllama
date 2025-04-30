@@ -83,11 +83,11 @@ void InferenceQueue::register_model(const std::string& model_path, llama_model* 
   cached_models[model_path] = 
       std::unique_ptr<ModelResources>(new ModelResources(model, ctx));
   
-  // Set active_users to 1 for newly registered model since it's currently in use
-  // This replaces the extra increment in the inference code
-  cached_models[model_path]->active_users = 1;
+  // Initialize active_users to 0 - the caller should use get_cached_model() afterward
+  // which will properly increment the counter
+  cached_models[model_path]->active_users = 0;
   
-  std::cout << "[InferenceQueue] Registered model: " << model_path << " in use by 1 process" << std::endl;
+  std::cout << "[InferenceQueue] Registered model: " << model_path << " (waiting for first use)" << std::endl;
 }
 
 std::tuple<llama_model*, llama_context*> 
@@ -119,6 +119,19 @@ ModelResources* InferenceQueue::get_model_resources(const std::string& model_pat
   return nullptr;
 }
 
+bool InferenceQueue::can_reuse_context(const std::string& model_path) {
+  std::lock_guard<std::mutex> lock(models_lock);
+  
+  auto it = cached_models.find(model_path);
+  if (it != cached_models.end()) {
+    // We can reuse context if no active users
+    return it->second->active_users == 0;
+  }
+  
+  // Can't reuse context for a model that's not cached
+  return false;
+}
+
 void InferenceQueue::mark_model_used(const std::string& model_path) {
   std::lock_guard<std::mutex> lock(models_lock);
   
@@ -148,9 +161,20 @@ void InferenceQueue::decrement_model_users(const std::string& model_path) {
       it->second->active_users--;
       std::cout << "[InferenceQueue] Model " << model_path << " now in use by " 
                 << it->second->active_users << " processes" << std::endl;
+      
+      if (it->second->active_users == 0) {
+        std::cout << "[InferenceQueue] Model " << model_path 
+                  << " has no active users. Context can now be reused." << std::endl;
+      }
+    } else {
+      std::cout << "[InferenceQueue] Warning: Attempted to decrement user count for " 
+                << model_path << " but count is already 0" << std::endl;
     }
     // Update last_used timestamp when a user is done with the model
     it->second->last_used = std::chrono::steady_clock::now();
+  } else {
+    std::cout << "[InferenceQueue] Warning: Attempted to decrement user count for non-existent model: "
+              << model_path << std::endl;
   }
 }
 

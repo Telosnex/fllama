@@ -700,17 +700,40 @@ fllama_inference_sync(fllama_inference_request request,
     bool model_is_cached = false;
     std::string model_path_str = request.model_path ? request.model_path : "";
     
+    // Create a RAII guard to ensure model users are always decremented
+    // This will run when the current scope exits, regardless of how (return, exception, etc.)
+    class ModelUsersGuard {
+    public:
+      ModelUsersGuard(bool& is_cached, const std::string& path) 
+        : is_model_cached(is_cached), model_path(path), active(false) {}
+      
+      void activate() { active = true; }
+      
+      ~ModelUsersGuard() {
+        if (active && is_model_cached && !model_path.empty()) {
+          std::cout << "[ModelUsersGuard] Auto-decrementing users for " << model_path << std::endl;
+          global_inference_queue.decrement_model_users(model_path);
+        }
+      }
+      
+    private:
+      bool& is_model_cached;
+      std::string model_path;
+      bool active;
+    };
+    
+    // Create the guard but don't activate it yet
+    ModelUsersGuard users_guard(model_is_cached, model_path_str);
+    
     auto cleanup = [&]() {
       // Always free the sampler since we create a new one for each request
       if (smpl)
         llama_sampler_free(smpl);
       
-      // If model was cached, decrement the active users counter
-      if (model_is_cached && !model_path_str.empty()) {
-        global_inference_queue.decrement_model_users(model_path_str);
-      }
+      // Note: Not decrementing users here, the guard handles it
+      
       // Only free model and context resources if they weren't cached
-      else if (!model_is_cached) {
+      if (!model_is_cached) {
         if (model)
           llama_model_free(model);
         if (ctx)
@@ -722,7 +745,14 @@ fllama_inference_sync(fllama_inference_request request,
     // Process OpenAI chat messages if provided
     log_message("Initializing llama model...", request.dart_logger);
     
-    // Check if the model is already cached
+    // First check if context reuse is possible (before incrementing any counters)
+    bool context_reuse_possible = global_inference_queue.can_reuse_context(model_path_str);
+    log_message(context_reuse_possible ? 
+               "Context reuse is possible - model is cached and not in use" : 
+               "Context reuse not possible - model either not cached or already in use", 
+               request.dart_logger);
+
+    // Now get or load the model (this will increment active_users for cached models)
     std::tie(model, ctx) = global_inference_queue.get_cached_model(model_path_str);
     ModelResources* model_resources = global_inference_queue.get_model_resources(model_path_str);
     
@@ -737,11 +767,14 @@ fllama_inference_sync(fllama_inference_request request,
       log_message("Using cached model: " + model_path_str, request.dart_logger);
       model_is_cached = true;
       // Note: get_cached_model already increments the active_users count
+      // Activate the guard to ensure decrement happens on any exit path
+      users_guard.activate();
     } else {
       // Load the model if not cached
       log_message("Loading model from file: " + model_path_str, request.dart_logger);
       model = llama_model_load_from_file(request.model_path, model_params);
       ctx = llama_new_context_with_model(model, ctx_params);
+      // Not cached yet, so don't activate guard until/unless we register it later
     }
     
     if (model == NULL || ctx == NULL) {
@@ -973,7 +1006,7 @@ fllama_inference_sync(fllama_inference_request request,
     if (model_resources) {
       std::scoped_lock lk(model_resources->token_state_mutex);
 
-      if (model_resources->active_users == 0) {
+      if (context_reuse_possible) {
         const std::vector<llama_token> &prev_tokens = model_resources->token_state;
         if (!prev_tokens.empty() && tokens_list.size() >= prev_tokens.size()) {
           bool is_prefix = true;
@@ -996,7 +1029,7 @@ fllama_inference_sync(fllama_inference_request request,
           }
         }
       } else {
-        log_message("[CACHE] Context busy (" + std::to_string(model_resources->active_users) + ") - skip reuse", request.dart_logger);
+        // We already logged the reason why context reuse isn't possible earlier
       }
     }
 
@@ -1368,32 +1401,32 @@ fllama_inference_sync(fllama_inference_request request,
     // Update cached token_state for future reuse
     // -------------------------------------------------------------------
     if (model_resources) {
+      // Take a single lock for the entire token state update to avoid race conditions
+      std::scoped_lock lk(model_resources->token_state_mutex);
+      
       if (!reused_context) {
         // We fed the full prompt, start fresh token state
-        std::scoped_lock lk(model_resources->token_state_mutex);
         model_resources->token_state = tokens_list;
       } else {
         // We only fed suffix tokens, token_state already has prefix
-        // (prev_tokens).  Ensure it matches up to prefix_len, then append
+        // (prev_tokens). Ensure it matches up to prefix_len, then append
         // suffix tokens we actually fed (which may be zero)
-        {
-          std::scoped_lock lk(model_resources->token_state_mutex);
-          if (model_resources->token_state.size() != prefix_len) {
-            model_resources->token_state.resize(prefix_len);
-          }
-          // Append suffix tokens from prompt if any
-          for (size_t i = prefix_len; i < tokens_list.size(); ++i) {
-            model_resources->token_state.push_back(tokens_list[i]);
-          }
+        if (model_resources->token_state.size() != prefix_len) {
+          model_resources->token_state.resize(prefix_len);
+        }
+        // Append suffix tokens from prompt if any
+        for (size_t i = prefix_len; i < tokens_list.size(); ++i) {
+          model_resources->token_state.push_back(tokens_list[i]);
         }
       }
+      
       // Append generated tokens
-      {
-        std::scoped_lock lk(model_resources->token_state_mutex);
-        model_resources->token_state.insert(model_resources->token_state.end(),
-                                            generated_token_ids.begin(),
-                                            generated_token_ids.end());
-      }
+      model_resources->token_state.insert(model_resources->token_state.end(),
+                                        generated_token_ids.begin(),
+                                        generated_token_ids.end());
+      
+      log_message("Updated token state cache for future reuse. Total tokens: " + 
+                 std::to_string(model_resources->token_state.size()), request.dart_logger);
     }
     // Instead of freeing everything immediately, we'll either cache the model
     // or free it based on our caching logic
@@ -1401,10 +1434,23 @@ fllama_inference_sync(fllama_inference_request request,
     
     // If model is not already cached, register it for caching
     if (model && ctx && !model_is_cached) {
-      log_message("Caching model for future use", request.dart_logger);
+      log_message("Registering model in cache for future use", request.dart_logger);
       global_inference_queue.register_model(model_path_str, model, ctx);
       model_is_cached = true;
-      // Don't increment counter here - already handled by get_cached_model() call earlier
+      // Must increment counter for newly registered models as get_cached_model() didn't find it
+      global_inference_queue.increment_model_users(model_path_str);
+      // Now activate the guard since we've registered and incremented
+      users_guard.activate();
+      log_message("Incremented user count for newly registered model", request.dart_logger);
+    }
+    
+    // Log the reuse status for debugging
+    if (reused_context) {
+      log_message("Successfully reused context with " + std::to_string(prefix_len) + 
+                 " prefix tokens out of " + std::to_string(tokens_list.size()) + " total tokens", 
+                 request.dart_logger);
+    } else {
+      log_message("Did not reuse context - using fresh context", request.dart_logger);
     }
     
     // Now call cleanup() which will decrement the active users counter
