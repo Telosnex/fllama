@@ -987,20 +987,20 @@ fllama_inference_sync(fllama_inference_request request,
           if (is_prefix && static_cast<int>(tokens_list.size()) <= n_ctx_limit) {
             reused_context = true;
             prefix_len = prev_tokens.size();
+            n_past = static_cast<int>(prefix_len);
+            log_message("[CACHE] Reusing context. Prefix tokens: " + std::to_string(prefix_len), request.dart_logger);
           } else if (is_prefix) {
             log_message("[CACHE] Prefix matches but combined tokens exceed context window (" +
                         std::to_string(tokens_list.size()) + "/" + std::to_string(n_ctx_limit) +
                         "). Skipping reuse.", request.dart_logger);
           }
-            n_past = static_cast<int>(prefix_len);
-            log_message("[CACHE] Reusing context. Prefix tokens: " + std::to_string(prefix_len), request.dart_logger);
-          }
         }
       } else {
         log_message("[CACHE] Context busy (" + std::to_string(model_resources->active_users) + ") - skip reuse", request.dart_logger);
       }
+    }
 
-      if (!reused_context) {
+    if (!reused_context) {
       // Either no cached context or tokens diverged.  We must reset and feed
       // the entire prompt again.
       if (ctx) {
