@@ -83,7 +83,11 @@ void InferenceQueue::register_model(const std::string& model_path, llama_model* 
   cached_models[model_path] = 
       std::unique_ptr<ModelResources>(new ModelResources(model, ctx));
   
-  std::cout << "[InferenceQueue] Registered model: " << model_path << std::endl;
+  // Set active_users to 1 for newly registered model since it's currently in use
+  // This replaces the extra increment in the inference code
+  cached_models[model_path]->active_users = 1;
+  
+  std::cout << "[InferenceQueue] Registered model: " << model_path << " in use by 1 process" << std::endl;
 }
 
 std::tuple<llama_model*, llama_context*> 

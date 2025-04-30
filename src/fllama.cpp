@@ -1404,8 +1404,7 @@ fllama_inference_sync(fllama_inference_request request,
       log_message("Caching model for future use", request.dart_logger);
       global_inference_queue.register_model(model_path_str, model, ctx);
       model_is_cached = true;
-      // We must explicitly increment since we're registering a new model
-      global_inference_queue.increment_model_users(model_path_str);
+      // Don't increment counter here - already handled by get_cached_model() call earlier
     }
     
     // Now call cleanup() which will decrement the active users counter
