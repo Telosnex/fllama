@@ -106,6 +106,15 @@ InferenceQueue::get_cached_model(const std::string& model_path) {
   return std::make_tuple(nullptr, nullptr);
 }
 
+ModelResources* InferenceQueue::get_model_resources(const std::string& model_path) {
+  std::lock_guard<std::mutex> lock(models_lock);
+  auto it = cached_models.find(model_path);
+  if (it != cached_models.end()) {
+    return it->second.get();
+  }
+  return nullptr;
+}
+
 void InferenceQueue::mark_model_used(const std::string& model_path) {
   std::lock_guard<std::mutex> lock(models_lock);
   

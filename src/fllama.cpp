@@ -724,6 +724,7 @@ fllama_inference_sync(fllama_inference_request request,
     
     // Check if the model is already cached
     std::tie(model, ctx) = global_inference_queue.get_cached_model(model_path_str);
+    ModelResources* model_resources = global_inference_queue.get_model_resources(model_path_str);
     
     // Create a new sampler for each request since samplers are lightweight
     // and depend on request-specific parameters (temperature, top_p, seed)
@@ -932,7 +933,9 @@ fllama_inference_sync(fllama_inference_request request,
                     " ms.",
                 request.dart_logger);
 
-    // Tokenize the prompt
+    // Tokenize the prompt.  We will later use these tokens to decide whether
+    // we can reuse an existing cached llama_context or whether we need to
+    // replay the full prompt from scratch.
     const int n_ctx = llama_n_ctx(ctx);
     const llama_vocab *vocab = llama_model_get_vocab(model);
 
@@ -958,6 +961,53 @@ fllama_inference_sync(fllama_inference_request request,
 
     // 2. Load the prompt into the context.
     int n_past = 0;
+
+    // -------------------------------------------------------------------
+    // Context & token-state reuse logic
+    // -------------------------------------------------------------------
+    // If we have a cached model and the new request's tokens have the
+    // previous token_state as a prefix, we can avoid replaying those tokens
+    // and simply continue the context from where we left off.
+    bool reused_context = false;
+    size_t prefix_len = 0;
+    if (model_resources) {
+      std::scoped_lock lk(model_resources->token_state_mutex);
+
+      if (model_resources->active_users == 0) {
+        const std::vector<llama_token> &prev_tokens = model_resources->token_state;
+        if (!prev_tokens.empty() && tokens_list.size() >= prev_tokens.size()) {
+          bool is_prefix = true;
+          for (size_t i = 0; i < prev_tokens.size(); ++i) {
+            if (tokens_list[i] != prev_tokens[i]) {
+              is_prefix = false;
+              break;
+            }
+          }
+          int n_ctx_limit = llama_n_ctx(ctx);
+          if (is_prefix && static_cast<int>(tokens_list.size()) <= n_ctx_limit) {
+            reused_context = true;
+            prefix_len = prev_tokens.size();
+          } else if (is_prefix) {
+            log_message("[CACHE] Prefix matches but combined tokens exceed context window (" +
+                        std::to_string(tokens_list.size()) + "/" + std::to_string(n_ctx_limit) +
+                        "). Skipping reuse.", request.dart_logger);
+          }
+            n_past = static_cast<int>(prefix_len);
+            log_message("[CACHE] Reusing context. Prefix tokens: " + std::to_string(prefix_len), request.dart_logger);
+          }
+        }
+      } else {
+        log_message("[CACHE] Context busy (" + std::to_string(model_resources->active_users) + ") - skip reuse", request.dart_logger);
+      }
+
+      if (!reused_context) {
+      // Either no cached context or tokens diverged.  We must reset and feed
+      // the entire prompt again.
+      if (ctx) {
+        llama_kv_cache_clear(ctx);
+        if (model_resources) model_resources->token_state.clear();
+      }
+    }
     bool add_bos = llama_add_bos_token(vocab);
     int idx_embedding = 0;
     // Check if this is a Gemma 3 model
@@ -1016,8 +1066,19 @@ fllama_inference_sync(fllama_inference_request request,
     log_message("Context size: " + std::to_string(n_ctx), request.dart_logger);
     log_message("Input tokens: " + std::to_string(tokens_list.size()),
                 request.dart_logger);
-    add_tokens_to_context(ctx, tokens_list, n_batch, &n_past,
-                          request.dart_logger);
+    // If we reused the context, only feed the suffix tokens (if any)
+    if (reused_context) {
+      std::vector<llama_token> suffix_tokens(tokens_list.begin() + prefix_len,
+                                             tokens_list.end());
+      if (!suffix_tokens.empty()) {
+        add_tokens_to_context(ctx, suffix_tokens, n_batch, &n_past,
+                              request.dart_logger);
+      }
+    } else {
+      // Full prompt must be fed
+      add_tokens_to_context(ctx, tokens_list, n_batch, &n_past,
+                            request.dart_logger);
+    }
     if (tokens_list.size() > n_ctx) {
       log_message("Input tokens exceed context size.", request.dart_logger);
       auto error_message = "Error: Input exceeds context size. Input tokens: " +
@@ -1092,6 +1153,7 @@ fllama_inference_sync(fllama_inference_request request,
      * [decode "cat"] -> sample "sat" -> ...
      */
     log_message("[DEBUG] starting token generation loop", request.dart_logger);
+    std::vector<llama_token> generated_token_ids;
     llama_token new_token_id = llama_sampler_sample(smpl, ctx, -1);
     llama_batch batch = llama_batch_get_one(&new_token_id, 1);
 
@@ -1113,6 +1175,9 @@ fllama_inference_sync(fllama_inference_request request,
                     request.dart_logger);
         break;
       }
+
+      // Record generated token id for cache update later
+      generated_token_ids.push_back(new_token_id);
 
       // Add to result and send partial update
       std::string piece(token_text, token_len);
@@ -1298,6 +1363,38 @@ fllama_inference_sync(fllama_inference_request request,
     log_message(speed_string, request.dart_logger);
 
     log_message("Wrote speed of generation.", request.dart_logger);
+
+    // -------------------------------------------------------------------
+    // Update cached token_state for future reuse
+    // -------------------------------------------------------------------
+    if (model_resources) {
+      if (!reused_context) {
+        // We fed the full prompt, start fresh token state
+        std::scoped_lock lk(model_resources->token_state_mutex);
+        model_resources->token_state = tokens_list;
+      } else {
+        // We only fed suffix tokens, token_state already has prefix
+        // (prev_tokens).  Ensure it matches up to prefix_len, then append
+        // suffix tokens we actually fed (which may be zero)
+        {
+          std::scoped_lock lk(model_resources->token_state_mutex);
+          if (model_resources->token_state.size() != prefix_len) {
+            model_resources->token_state.resize(prefix_len);
+          }
+          // Append suffix tokens from prompt if any
+          for (size_t i = prefix_len; i < tokens_list.size(); ++i) {
+            model_resources->token_state.push_back(tokens_list[i]);
+          }
+        }
+      }
+      // Append generated tokens
+      {
+        std::scoped_lock lk(model_resources->token_state_mutex);
+        model_resources->token_state.insert(model_resources->token_state.end(),
+                                            generated_token_ids.begin(),
+                                            generated_token_ids.end());
+      }
+    }
     // Instead of freeing everything immediately, we'll either cache the model
     // or free it based on our caching logic
     log_message("Managing model resources...", request.dart_logger);

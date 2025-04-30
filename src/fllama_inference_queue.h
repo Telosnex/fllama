@@ -42,6 +42,15 @@ struct ModelResources {
       : model(m), ctx(c),
         last_used(std::chrono::steady_clock::now()),
         active_users(0) {}
+
+  // Keep track of the tokens that are currently loaded in the KV cache of
+  // this context. The sequence is the full conversation so far (prompt + all
+  // generated tokens).  If a new request arrives whose input tokens have this
+  // vector as a strict prefix, we can reuse the context and simply append the
+  // suffix tokens instead of starting from an empty context.
+  std::vector<llama_token> token_state;
+  // Guard for concurrent access to token_state
+  std::mutex token_state_mutex;
 };
 
 struct TaskWrapper {
@@ -72,6 +81,10 @@ public:
   void register_model(const std::string& model_path, llama_model* model, 
                       llama_context* ctx);
   std::tuple<llama_model*, llama_context*> get_cached_model(const std::string& model_path);
+  // Direct access to the ModelResources struct for advanced use cases such as
+  // context / token-state reuse logic.  Returns nullptr if the model is not
+  // cached.
+  ModelResources* get_model_resources(const std::string& model_path);
   void mark_model_used(const std::string& model_path);
   void increment_model_users(const std::string& model_path);
   void decrement_model_users(const std::string& model_path);
