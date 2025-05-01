@@ -65,7 +65,7 @@ if (GGML_LTO)
     endif()
 endif()
 
-if (GGML_CCACHE)
+if (GGML_CCACHE AND NOT CMAKE_C_COMPILER_LAUNCHER AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
     find_program(GGML_CCACHE_FOUND ccache)
     find_program(GGML_SCCACHE_FOUND sccache)
 
@@ -267,6 +267,7 @@ function(ggml_add_cpu_backend_variant tag_name)
     set(GGML_CPU_TAG_NAME ${tag_name})
     # other: OPENMP LLAMAFILE CPU_HBM
     foreach (feat NATIVE
+                  SSE42
                   AVX AVX2 BMI2 AVX_VNNI FMA F16C
                   AVX512 AVX512_VBMI AVX512_VNNI AVX512_BF16
                   AMX_TILE AMX_INT8 AMX_BF16)
@@ -286,14 +287,16 @@ if (GGML_CPU_ALL_VARIANTS)
     if (NOT GGML_BACKEND_DL)
         message(FATAL_ERROR "GGML_CPU_ALL_VARIANTS requires GGML_BACKEND_DL")
     endif()
-    ggml_add_cpu_backend_variant(sandybridge    AVX)
-    ggml_add_cpu_backend_variant(haswell        AVX F16C AVX2 BMI2 FMA)
-    ggml_add_cpu_backend_variant(skylakex       AVX F16C AVX2 BMI2 FMA AVX512)
-    ggml_add_cpu_backend_variant(icelake        AVX F16C AVX2 BMI2 FMA AVX512 AVX512_VBMI AVX512_VNNI)
-    ggml_add_cpu_backend_variant(alderlake      AVX F16C AVX2 BMI2 FMA AVX_VNNI)
+    ggml_add_cpu_backend_variant(x64)
+    ggml_add_cpu_backend_variant(sse42        SSE42)
+    ggml_add_cpu_backend_variant(sandybridge  SSE42 AVX)
+    ggml_add_cpu_backend_variant(haswell      SSE42 AVX F16C AVX2 BMI2 FMA)
+    ggml_add_cpu_backend_variant(skylakex     SSE42 AVX F16C AVX2 BMI2 FMA AVX512)
+    ggml_add_cpu_backend_variant(icelake      SSE42 AVX F16C AVX2 BMI2 FMA AVX512 AVX512_VBMI AVX512_VNNI)
+    ggml_add_cpu_backend_variant(alderlake    SSE42 AVX F16C AVX2 BMI2 FMA AVX_VNNI)
     if (NOT MSVC)
         # MSVC doesn't support AMX
-        ggml_add_cpu_backend_variant(sapphirerapids AVX F16C AVX2 BMI2 FMA AVX512 AVX512_VBMI AVX512_VNNI AVX512_BF16 AMX_TILE AMX_INT8)
+        ggml_add_cpu_backend_variant(sapphirerapids SSE42 AVX F16C AVX2 BMI2 FMA AVX512 AVX512_VBMI AVX512_VNNI AVX512_BF16 AMX_TILE AMX_INT8)
     endif()
 elseif (GGML_CPU)
     ggml_add_cpu_backend_variant_impl("")

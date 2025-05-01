@@ -3,7 +3,7 @@
 #include "common.h"
 #include "log.h"
 #include "llama.h"
-#include "common/base64.hpp"
+#include "base64.hpp"
 
 // increase max payload length to allow use of larger context size
 #define CPPHTTPLIB_FORM_URL_ENCODED_PAYLOAD_MAX_LENGTH 1048576
@@ -57,6 +57,32 @@ static T json_value(const json & body, const std::string & key, const T & defaul
 }
 
 const static std::string build_info("b" + std::to_string(LLAMA_BUILD_NUMBER) + "-" + LLAMA_COMMIT);
+
+// thin wrapper around common_grammar_trigger with (de)serialization functions
+struct server_grammar_trigger {
+    common_grammar_trigger value;
+
+    server_grammar_trigger() = default;
+    server_grammar_trigger(const common_grammar_trigger & value) : value(value) {}
+    server_grammar_trigger(const json & in) {
+        value.type = (common_grammar_trigger_type) in.at("type").get<int>();
+        value.value = in.at("value").get<std::string>();
+        if (value.type == COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN) {
+            value.token = (llama_token) in.at("token").get<int>();
+        }
+    }
+
+    json to_json() const {
+        json out {
+            {"type", (int) value.type},
+            {"value", value.value},
+        };
+        if (value.type == COMMON_GRAMMAR_TRIGGER_TYPE_TOKEN) {
+            out["token"] = (int) value.token;
+        }
+        return out;
+    }
+};
 
 //
 // tokenizer and input processing utils
@@ -616,8 +642,30 @@ static json oaicompat_completion_params_parse(
         throw std::runtime_error("Cannot use custom grammar constraints with tools.");
     }
 
+    // if the assistant message appears at the end of list, we do not add end-of-turn token
+    // for ex. this can be useful to modify the reasoning process in reasoning models
+    bool prefill_assistant_message = !inputs.messages.empty() && inputs.messages.back().role == "assistant";
+    common_chat_msg last_message;
+    if (prefill_assistant_message) {
+        last_message = inputs.messages.back();
+        inputs.messages.pop_back();
+
+        /* sanity check, max one assistant message at the end of the list */
+        if (!inputs.messages.empty() && inputs.messages.back().role == "assistant"){
+            throw std::runtime_error("Cannot have 2 or more assistant messages at the end of the list.");
+        }
+
+        inputs.extract_reasoning = false;
+        inputs.add_generation_prompt = true;
+    }
+
     // Apply chat template to the list of messages
     auto chat_params = common_chat_templates_apply(tmpls, inputs);
+
+    /* Append assistant prefilled message */
+    if (prefill_assistant_message) {
+         chat_params.prompt += last_message.content;
+    }
 
     llama_params["chat_format"]      = static_cast<int>(chat_params.format);
     llama_params["prompt"]           = chat_params.prompt;
@@ -627,7 +675,8 @@ static json oaicompat_completion_params_parse(
     llama_params["grammar_lazy"]     = chat_params.grammar_lazy;
     auto grammar_triggers = json::array();
     for (const auto & trigger : chat_params.grammar_triggers) {
-        grammar_triggers.push_back(trigger.to_json<json>());
+        server_grammar_trigger ct(trigger);
+        grammar_triggers.push_back(ct.to_json());
     }
     llama_params["grammar_triggers"] = grammar_triggers;
     llama_params["preserved_tokens"] = chat_params.preserved_tokens;
