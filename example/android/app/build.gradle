@@ -25,7 +25,9 @@ if (flutterVersionName == null) {
 android {
     namespace "com.example.fllama_example"
     compileSdkVersion flutter.compileSdkVersion
-    ndkVersion flutter.ndkVersion
+    // 2025-04-08:
+    // Avoid Your project is configured with Android NDK 26.3.11579264, but the following plugin(s) depend on a different Android NDK version:...(8 or so)
+    ndkVersion "27.0.12077973"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8

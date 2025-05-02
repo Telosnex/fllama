@@ -23,9 +23,12 @@ endif()
 set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
 
 if(ANDROID)
-    set(CMAKE_C_FLAGS "-DCMAKE_TOOLCHAIN_FILE=~/Library/Android/sdk/ndk/26.1.10909125/build/cmake/android.toolchain.cmake${CMAKE_C_FLAGS} -DANDROID_ABI=arm64-v8a -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 -O3")
-    set(CMAKE_CXX_FLAGS "-DCMAKE_TOOLCHAIN_FILE=~/Library/Android/sdk/ndk/26.1.10909125/build/cmake/android.toolchain.cmake ${CMAKE_CXX_FLAGS} -DANDROID_ABI=arm64-v8a -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 -O3")
+    set(CMAKE_C_FLAGS "-DCMAKE_TOOLCHAIN_FILE=~/Library/Android/sdk/ndk/26.1.10909125/build/cmake/android.toolchain.cmake${CMAKE_C_FLAGS} -DANDROID_ABI=arm64-v8a -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 -O3 -DLLAMA_CURL=OFF")
+    set(CMAKE_CXX_FLAGS "-DCMAKE_TOOLCHAIN_FILE=~/Library/Android/sdk/ndk/26.1.10909125/build/cmake/android.toolchain.cmake ${CMAKE_CXX_FLAGS} -DANDROID_ABI=arm64-v8a -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 -O3 -DLLAMA_CURL=OFF")
     # See discussion @ https://github.com/ggerganov/llama.cpp/pull/4926
+    # Re: -DLLAMA_CURL=OFF:
+    # CMake Error at llama.cpp/common/CMakeLists.txt:90 (message):
+    # Could NOT find CURL.  Hint: to disable this feature, set -DLLAMA_CURL=OFF
 endif()
 
 if(WIN32)
