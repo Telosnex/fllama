@@ -1027,6 +1027,10 @@ fllama_inference_sync(fllama_inference_request request,
                         std::to_string(tokens_list.size()) + "/" + std::to_string(n_ctx_limit) +
                         "). Skipping reuse.", request.dart_logger);
           }
+        } else {
+          log_message("[CACHE] No prefix match. Previous tokens: " +
+                      std::to_string(prev_tokens.size()) + ", current tokens: " +
+                      std::to_string(tokens_list.size()), request.dart_logger);
         }
       } else {
         // We already logged the reason why context reuse isn't possible earlier
