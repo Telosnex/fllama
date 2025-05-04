@@ -85,7 +85,7 @@ void InferenceQueue::register_model(const std::string& model_path, llama_model* 
   
   // Initialize active_users to 0 - the caller should use get_cached_model() afterward
   // which will properly increment the counter
-  cached_models[model_path]->active_users = 0;
+  cached_models[model_path]->active_users.store(0, std::memory_order_relaxed);
   
   std::cout << "[InferenceQueue] Registered model: " << model_path << " (waiting for first use)" << std::endl;
 }
@@ -98,10 +98,10 @@ InferenceQueue::get_cached_model(const std::string& model_path) {
   if (it != cached_models.end()) {
     // Update the last_used timestamp
     it->second->last_used = std::chrono::steady_clock::now();
-    // Increment the active users counter
-    it->second->active_users++;
+    // Increment the active users counter using atomic operations
+    int current = it->second->active_users.fetch_add(1, std::memory_order_relaxed) + 1;
     std::cout << "[InferenceQueue] Model " << model_path << " in use by " 
-              << it->second->active_users << " processes" << std::endl;
+              << current << " processes" << std::endl;
     // Return model and context
     return std::make_tuple(it->second->model, it->second->ctx);
   }
@@ -125,7 +125,7 @@ bool InferenceQueue::can_reuse_context(const std::string& model_path) {
   auto it = cached_models.find(model_path);
   if (it != cached_models.end()) {
     // We can reuse context if no active users
-    return it->second->active_users == 0;
+    return it->second->active_users.load(std::memory_order_relaxed) == 0;
   }
   
   // Can't reuse context for a model that's not cached
@@ -146,9 +146,9 @@ void InferenceQueue::increment_model_users(const std::string& model_path) {
   
   auto it = cached_models.find(model_path);
   if (it != cached_models.end()) {
-    it->second->active_users++;
+    int current = it->second->active_users.fetch_add(1, std::memory_order_relaxed) + 1;
     std::cout << "[InferenceQueue] Model " << model_path << " in use by " 
-              << it->second->active_users << " processes" << std::endl;
+              << current << " processes" << std::endl;
   }
 }
 
@@ -157,12 +157,13 @@ void InferenceQueue::decrement_model_users(const std::string& model_path) {
   
   auto it = cached_models.find(model_path);
   if (it != cached_models.end()) {
-    if (it->second->active_users > 0) {
-      it->second->active_users--;
+    int prev = it->second->active_users.load(std::memory_order_relaxed);
+    if (prev > 0) {
+      int current = it->second->active_users.fetch_sub(1, std::memory_order_relaxed) - 1;
       std::cout << "[InferenceQueue] Model " << model_path << " now in use by " 
-                << it->second->active_users << " processes" << std::endl;
+                << current << " processes" << std::endl;
       
-      if (it->second->active_users == 0) {
+      if (current == 0) {
         std::cout << "[InferenceQueue] Model " << model_path 
                   << " has no active users. Context can now be reused." << std::endl;
       }
@@ -189,9 +190,10 @@ void InferenceQueue::free_model_resources(const std::string& model_path) {
     auto& resources = it->second;
     
     // Only free if no active users
-    if (resources->active_users > 0) {
+    int users = resources->active_users.load(std::memory_order_relaxed);
+    if (users > 0) {
       std::cout << "[InferenceQueue] Cannot free model " << model_path 
-                << " - still has " << resources->active_users << " active users" << std::endl;
+                << " - still has " << users << " active users" << std::endl;
       return;
     }
     
@@ -226,12 +228,13 @@ void InferenceQueue::cleanup_inactive_models() {
             now - resources->last_used).count();
         
         // Only consider freeing models that have been inactive AND have no active users
-        if (elapsed >= MODEL_INACTIVITY_TIMEOUT_SEC && resources->active_users == 0) {
+        int users = resources->active_users.load(std::memory_order_relaxed);
+        if (elapsed >= MODEL_INACTIVITY_TIMEOUT_SEC && users == 0) {
           models_to_free.push_back(path);
         } else if (elapsed >= MODEL_INACTIVITY_TIMEOUT_SEC) {
           std::cout << "[InferenceQueue] Model " << path 
                     << " inactive for " << elapsed << "s but has " 
-                    << resources->active_users << " active users" << std::endl;
+                    << users << " active users" << std::endl;
         }
       }
       
