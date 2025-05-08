@@ -16,21 +16,6 @@
 #include "fllama.h"
 #include "llama.h"
 
-#if defined(__GNUC__) && __GNUC__ < 5 && !defined(__clang__)
-namespace std {
-  template <>
-  struct atomic<bool> {
-    bool _M_i;
-    atomic() noexcept = default;
-    constexpr atomic(bool __i) noexcept : _M_i(__i) {}
-    bool operator=(bool __i) volatile noexcept {
-      _M_i = __i;
-      return __i;
-    }
-    operator bool() const volatile noexcept { return _M_i; }
-  };
-}
-#endif 
 
 struct ModelResources {
   llama_model* model;
@@ -104,7 +89,7 @@ private:
   std::queue<TaskWrapper> tasks;    // Queue of tasks
   bool done; // Flag to control the lifecycle of the worker thread
 
-  std::unordered_map<int, std::atomic<bool>> cancel_flags;
+  std::unordered_map<int, bool> cancel_flags;
   std::unordered_map<std::string, std::unique_ptr<ModelResources>> cached_models;
   
   // Private methods

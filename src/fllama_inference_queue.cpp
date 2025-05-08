@@ -8,10 +8,11 @@
 
 // If fllama_inference_request and fllama_inference_callback types are defined
 // in an external header, include that here.
-InferenceQueue::InferenceQueue()
-    : done(false), 
-      worker(&InferenceQueue::process_inference, this),
-      cleanup_thread(&InferenceQueue::cleanup_inactive_models, this) {}
+InferenceQueue::InferenceQueue() : done(false) {
+  // Initialize threads after all other member variables are set
+  worker = std::thread(&InferenceQueue::process_inference, this);
+  cleanup_thread = std::thread(&InferenceQueue::cleanup_inactive_models, this);
+}
 
 InferenceQueue::~InferenceQueue() {
   {
@@ -64,7 +65,7 @@ void InferenceQueue::cancel(int request_id) {
 bool InferenceQueue::is_cancelled(int request_id) {
   std::lock_guard<std::mutex> lock(queue_lock);
   return cancel_flags.find(request_id) != cancel_flags.end() &&
-         cancel_flags[request_id];
+         cancel_flags[request_id] == true;
 }
 
 void InferenceQueue::register_model(const std::string& model_path, llama_model* model, 
@@ -276,7 +277,7 @@ void InferenceQueue::process_inference() {
     { // Scope to check cancellation flag
       std::lock_guard<std::mutex> inferenceLock(inference_lock);
       if (cancel_flags.find(current_request_id) != cancel_flags.end() &&
-          cancel_flags[current_request_id]) {
+          cancel_flags[current_request_id] == true) {
         // If the task is cancelled, do not execute it. Clean up cancellation
         // flag after checking.
         cancel_flags.erase(current_request_id);
