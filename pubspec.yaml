@@ -18,6 +18,7 @@ dependencies:
       url: https://github.com/Telosnex/jinja.dart.git
       ref: main
   uuid: ^4.3.3
+  flutter_tiktoken: ^0.0.1
 
 dev_dependencies:
   ffigen: ^9.0.0
