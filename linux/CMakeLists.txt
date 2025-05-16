@@ -12,6 +12,9 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_compile_options(-fPIC)
 
+# Disable CURL support
+add_definitions(-DLLAMA_CURL=OFF)
+
 # Invoke the build for native code shared with the other target platforms.
 # This can be changed to accommodate different builds.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DIR}/shared")
