@@ -13,7 +13,7 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 add_definitions(-UUNICODE -U_UNICODE)
 
 # Disable CURL support
-add_definitions(-DLLAMA_CURL=OFF)
+set(LLAMA_CURL OFF CACHE BOOL "Enable CURL for downloading models" FORCE)
 
 # Invoke the build for native code shared with the other target platforms.
 # This can be changed to accommodate different builds.
