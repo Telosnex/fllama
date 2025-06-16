@@ -13,21 +13,13 @@ dependencies:
   flutter:
     sdk: flutter
   plugin_platform_interface: ^2.0.2
-  jinja:
-    git:
-      url: https://github.com/Telosnex/jinja.dart.git
-      ref: main
+  jinja: ^0.6.2
   uuid: ^4.3.3
 
 dev_dependencies:
   ffigen: ^9.0.0
   flutter_lints: ^2.0.0
   test: ^1.24.9
-
-dependency_overrides:
-  # March 22 2024:
-  # Handle flutter_test depending on meta 1.11.0 while Jinja uses 1.12.0
-  meta: 1.12.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
