@@ -401,6 +401,10 @@ public:
     } else if (object_) {
       if (!value.is_hashable()) throw std::runtime_error("Unhashable type: " + value.dump());
       return object_->find(value.primitive_) != object_->end();
+    } else if (is_string()) {
+      if (!value.is_string()) return false;
+      return primitive_.get<std::string>()
+        .find(value.get<std::string>()) != std::string::npos;
     } else {
       throw std::runtime_error("contains can only be called on arrays and objects: " + dump());
     }
@@ -1355,8 +1359,8 @@ public:
               case Op::Gt:        return l > r;
               case Op::Le:        return l <= r;
               case Op::Ge:        return l >= r;
-              case Op::In:        return (r.is_array() || r.is_object()) && r.contains(l);
-              case Op::NotIn:     return !(r.is_array() && r.contains(l));
+              case Op::In:        return r.contains(l);
+              case Op::NotIn:     return !r.contains(l);
               default:            break;
           }
           throw std::runtime_error("Unknown binary operator");
@@ -1552,6 +1556,22 @@ public:
               else res[i] = std::tolower(res[i]);
             }
             return res;
+          } else if (method->get_name() == "replace") {
+            // expects old, new [, count]
+            vargs.expectArgs("replace method", {2, 3}, {0, 0});
+            auto old_s = vargs.args[0].get<std::string>();
+            auto new_s = vargs.args[1].get<std::string>();
+            int64_t count = vargs.args.size() == 3
+                            ? vargs.args[2].get<int64_t>() : -1;
+
+            std::string res = str;
+            size_t pos = 0;
+            while ((pos = res.find(old_s, pos)) != std::string::npos &&
+                  (count == -1 || count-- > 0)) {
+                res.replace(pos, old_s.length(), new_s);
+                pos += new_s.length();
+            }
+            return Value(res);
           }
         }
         throw std::runtime_error("Unknown method: " + method->get_name());
