@@ -35,6 +35,7 @@ static const std::map<std::string, llm_chat_template> LLM_CHAT_TEMPLATES = {
     { "mistral-v3",        LLM_CHAT_TEMPLATE_MISTRAL_V3        },
     { "mistral-v3-tekken", LLM_CHAT_TEMPLATE_MISTRAL_V3_TEKKEN },
     { "mistral-v7",        LLM_CHAT_TEMPLATE_MISTRAL_V7        },
+    { "mistral-v7-tekken", LLM_CHAT_TEMPLATE_MISTRAL_V7_TEKKEN },
     { "phi3",              LLM_CHAT_TEMPLATE_PHI_3             },
     { "phi4",              LLM_CHAT_TEMPLATE_PHI_4             },
     { "falcon3",           LLM_CHAT_TEMPLATE_FALCON_3          },
@@ -63,6 +64,7 @@ static const std::map<std::string, llm_chat_template> LLM_CHAT_TEMPLATES = {
     { "bailing",           LLM_CHAT_TEMPLATE_BAILING           },
     { "llama4",            LLM_CHAT_TEMPLATE_LLAMA4            },
     { "smolvlm",           LLM_CHAT_TEMPLATE_SMOLVLM           },
+    { "hunyuan-moe",       LLM_CHAT_TEMPLATE_HUNYUAN_MOE       },
 };
 
 llm_chat_template llm_chat_template_from_str(const std::string & name) {
@@ -168,7 +170,7 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
         // ref: https://huggingface.co/LGAI-EXAONE/EXAONE-3.0-7.8B-Instruct/discussions/8#66bae61b1893d14ee8ed85bb
         // EXAONE-3.0-7.8B-Instruct
         return LLM_CHAT_TEMPLATE_EXAONE_3;
-    } else if (tmpl_contains("rwkv-world")) {
+    } else if (tmpl_contains("rwkv-world") || tmpl_contains("{{- 'User: ' + message['content']|trim + '\\n\\n' -}}")) {
         return LLM_CHAT_TEMPLATE_RWKV_WORLD;
     } else if (tmpl_contains("<|start_of_role|>")) {
         return LLM_CHAT_TEMPLATE_GRANITE;
@@ -182,6 +184,10 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
         return LLM_CHAT_TEMPLATE_BAILING;
     } else if (tmpl_contains("<|header_start|>") && tmpl_contains("<|header_end|>")) {
         return LLM_CHAT_TEMPLATE_LLAMA4;
+    } else if (tmpl_contains("<|endofuserprompt|>")) {
+        return LLM_CHAT_TEMPLATE_DOTS1;
+    } else if (tmpl_contains("<|startoftext|>") && tmpl_contains("<|extra_4|>")) {
+        return LLM_CHAT_TEMPLATE_HUNYUAN_MOE;
     }
     return LLM_CHAT_TEMPLATE_UNKNOWN;
 }
@@ -202,19 +208,20 @@ int32_t llm_chat_apply_template(
         if (add_ass) {
             ss << "<|im_start|>assistant\n";
         }
-    } else if (tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V7) {
+    } else if (tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V7 || tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V7_TEKKEN) {
         // Official mistral 'v7' template
         // See: https://huggingface.co/mistralai/Mistral-Large-Instruct-2411#basic-instruct-template-v7
+        //      https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503#basic-instruct-template-v7-tekken
+        const char * trailing_space = tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V7 ? " " : "";
         for (auto message : chat) {
             std::string role(message->role);
             std::string content(message->content);
             if (role == "system") {
-                ss << "[SYSTEM_PROMPT] " << content << "[/SYSTEM_PROMPT]";
+                ss << "[SYSTEM_PROMPT]" << trailing_space << content << "[/SYSTEM_PROMPT]";
             } else if (role == "user") {
-                ss << "[INST] " << content << "[/INST]";
-            }
-            else {
-                ss << " " << content << "</s>";
+                ss << "[INST]" << trailing_space << content << "[/INST]";
+            } else {
+                ss << trailing_space << content << "</s>";
             }
         }
     } else if (tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V1
@@ -329,7 +336,7 @@ int32_t llm_chat_apply_template(
             std::string role(message->role);
             if (role == "system") {
                 // there is no system message for gemma, but we will merge it with user prompt, so nothing is broken
-                system_prompt = trim(message->content);
+                system_prompt += trim(message->content);
                 continue;
             }
             // in gemma, "assistant" is "model"
@@ -351,7 +358,7 @@ int32_t llm_chat_apply_template(
             std::string role(message->role);
             if (role == "system") {
                 // there is no system message support, we will merge it with user prompt
-                system_prompt = message->content;
+                system_prompt += message->content;
                 continue;
             } else if (role == "user") {
                 ss << "Human: ";
@@ -447,8 +454,16 @@ int32_t llm_chat_apply_template(
         if (add_ass) {
             ss << "<|assistant|>";
         }
-    } else if (tmpl == LLM_CHAT_TEMPLATE_CHATGLM_4 || tmpl == LLM_CHAT_TEMPLATE_GLMEDGE) {
+    } else if (tmpl == LLM_CHAT_TEMPLATE_CHATGLM_4) {
         ss << "[gMASK]" << "<sop>";
+        for (auto message : chat) {
+            std::string role(message->role);
+            ss << "<|" << role << "|>" << "\n" << message->content;
+        }
+        if (add_ass) {
+            ss << "<|assistant|>\n";
+        }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_GLMEDGE) {
         for (auto message : chat) {
             std::string role(message->role);
             ss << "<|" << role << "|>" << "\n" << message->content;
@@ -516,12 +531,17 @@ int32_t llm_chat_apply_template(
         }
     } else if (tmpl == LLM_CHAT_TEMPLATE_RWKV_WORLD) {
         // this template requires the model to have "\n\n" as EOT token
-        for (auto message : chat) {
-            std::string role(message->role);
-            if (role == "user") {
-                ss << "User: " << message->content << "\n\nAssistant:";
-            } else {
-                ss << message->content << "\n\n";
+        for (size_t i = 0; i < chat.size(); i++) {
+            std::string role(chat[i]->role);
+            if (role == "system") {
+                ss << "System: " << trim(chat[i]->content) << "\n\n";
+            } else if (role == "user") {
+                ss << "User: " << trim(chat[i]->content) << "\n\n";
+                if (i == chat.size() - 1) {
+                    ss << "Assistant:";
+                }
+            } else if (role == "assistant") {
+                ss << "Assistant: " << trim(chat[i]->content) << "\n\n";
             }
         }
     } else if (tmpl == LLM_CHAT_TEMPLATE_GRANITE) {
@@ -632,6 +652,33 @@ int32_t llm_chat_apply_template(
         }
         if (add_ass) {
             ss << "Assistant:";
+        }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_DOTS1) {
+        // dots.llm1.inst (DOTS1)
+        for (auto message : chat) {
+            std::string role(message->role);
+            if (role == "system") {
+                ss << "<|system|>" << message->content << "<|endofsystem|>";
+            } else if (role == "user") {
+                ss << "<|userprompt|>" << message->content << "<|endofuserprompt|>";
+            } else {
+                ss << "<|response|>" << message->content << "<|endofresponse|>";
+            }
+        }
+        if (add_ass) {
+            ss << "<|response|>";
+        }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_HUNYUAN_MOE) {
+        // tencent/Hunyuan-A13B-Instruct
+        for (auto message : chat) {
+            std::string role(message->role);
+            if (role == "system") {
+                ss << "<|startoftext|>" << message->content << "<|extra_4|>";
+            } else if (role == "assistant") {
+                ss << "<|startoftext|>" << message->content << "<|eos|>";
+            } else {
+                ss << "<|startoftext|>" << message->content << "<|extra_0|>";
+            }
         }
     } else {
         // template not supported

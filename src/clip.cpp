@@ -11,7 +11,7 @@
 #include "gguf.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "stb/stb_image.h"
 
 #include <cassert>
 #include <cmath>
@@ -609,7 +609,7 @@ struct clip_ctx {
         backend_buft.push_back(ggml_backend_get_default_buffer_type(backend_cpu));
 
         sched.reset(
-            ggml_backend_sched_new(backend_ptrs.data(), backend_buft.data(), backend_ptrs.size(), 8192, false)
+            ggml_backend_sched_new(backend_ptrs.data(), backend_buft.data(), backend_ptrs.size(), 8192, false, true)
         );
     }
 

@@ -16,8 +16,8 @@
 #include "../ios/llama.cpp/common/base64.hpp"
 #include "../ios/llama.cpp/common/chat.h"
 #include "../ios/llama.cpp/common/common.h"
-#include "../ios/llama.cpp/common/json.hpp"
-#include "../ios/llama.cpp/common/minja/minja.hpp"
+#include <nlohmann/json.hpp>
+#include "../ios/llama.cpp/vendor/minja/minja.hpp"
 #include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml/include/ggml.h"
 #include "../ios/llama.cpp/include/llama.h"
@@ -27,8 +27,8 @@
 #include "../macos/llama.cpp/common/base64.hpp"
 #include "../macos/llama.cpp/common/chat.h"
 #include "../macos/llama.cpp/common/common.h"
-#include "../macos/llama.cpp/common/json.hpp"
-#include "../macos/llama.cpp/common/minja/minja.hpp"
+#include <nlohmann/json.hpp>
+#include "../macos/llama.cpp/vendor/minja/minja.hpp"
 #include "../macos/llama.cpp/common/sampling.h"
 #include "../macos/llama.cpp/ggml/include/ggml.h"
 #include "../macos/llama.cpp/include/llama.h"
@@ -37,8 +37,8 @@
 #include "llama.cpp/common/base64.hpp"
 #include "llama.cpp/common/chat.h"
 #include "llama.cpp/common/common.h"
-#include "llama.cpp/common/json.hpp"
-#include "llama.cpp/common/minja/minja.hpp"
+#include <nlohmann/json.hpp>
+#include "llama.cpp/vendor/minja/minja.hpp"
 #include "llama.cpp/common/sampling.h"
 #include "llama.cpp/ggml/include/ggml.h"
 #include "llama.cpp/include/llama.h"
@@ -331,7 +331,9 @@ static json to_json_oaicompat_chat(
   if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS ||
       stop == STOP_TYPE_NONE) {
     try {
-      msg = common_chat_parse(content, oaicompat_chat_format);
+      common_chat_syntax syntax;
+      syntax.format = oaicompat_chat_format;
+      msg = common_chat_parse(content, /* is_partial= */ false, syntax);
       finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
     } catch (const std::exception &e) {
       // IMPORTANT NOTE OBSERVED W/PHI-4 MINI:
@@ -463,7 +465,7 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
 
   // Check context space
   int n_ctx = llama_n_ctx(ctx_llama);
-  int n_ctx_used = llama_get_kv_cache_used_cells(ctx_llama);
+  int n_ctx_used = llama_kv_self_used_cells(ctx_llama);
   log_message("[DEBUG] add_tokens_to_context: ctx space: used=" +
                   std::to_string(n_ctx_used) +
                   ", total=" + std::to_string(n_ctx),
@@ -482,7 +484,7 @@ static bool add_tokens_to_context(struct llama_context *ctx_llama,
   log_message("[DEBUG] add_tokens_to_context: decode successful", logger);
 
   // Update past token count
-  *n_past = llama_get_kv_cache_used_cells(ctx_llama);
+  *n_past = llama_kv_self_used_cells(ctx_llama);
   log_message("[DEBUG] add_tokens_to_context: updated n_past to " +
                   std::to_string(*n_past),
               logger);
@@ -500,7 +502,7 @@ static bool add_token_to_context(struct llama_context *ctx_llama,
 
   // Check context space first
   int n_ctx = llama_n_ctx(ctx_llama);
-  int n_ctx_used = llama_get_kv_cache_used_cells(ctx_llama);
+  int n_ctx_used = llama_kv_self_used_cells(ctx_llama);
   log_message("[DEBUG] ctx space: used=" + std::to_string(n_ctx_used) +
                   ", total=" + std::to_string(n_ctx),
               logger);
@@ -525,7 +527,7 @@ static bool add_token_to_context(struct llama_context *ctx_llama,
   log_message("[DEBUG] decode successful", logger);
 
   llama_batch_free(batch);
-  *n_past = llama_get_kv_cache_used_cells(ctx_llama);
+  *n_past = llama_kv_self_used_cells(ctx_llama);
   log_message("[DEBUG] add_token_to_context complete, n_past: " +
                   std::to_string(*n_past),
               logger);
@@ -899,7 +901,7 @@ fllama_inference_sync(fllama_inference_request request,
           common_chat_format = result.format;
           log_message("Using formatted chat input with template",
                       request.dart_logger);
-          log_message("Template format: " + common_chat_format_name(result.format),
+          log_message("Template format: " + std::string(common_chat_format_name(result.format)),
                       request.dart_logger);
           log_message("Formatted input: " + final_request_input,
                       request.dart_logger);
@@ -1041,7 +1043,7 @@ fllama_inference_sync(fllama_inference_request request,
       // Either no cached context or tokens diverged.  We must reset and feed
       // the entire prompt again.
       if (ctx) {
-        llama_kv_cache_clear(ctx);
+        llama_kv_self_clear(ctx);
         if (model_resources) model_resources->token_state.clear();
       }
     }
@@ -1197,7 +1199,7 @@ fllama_inference_sync(fllama_inference_request request,
     while (true) {
       // Check context space
       int n_ctx = llama_n_ctx(ctx);
-      int n_ctx_used = llama_get_kv_cache_used_cells(ctx);
+      int n_ctx_used = llama_kv_self_used_cells(ctx);
       if (n_ctx_used + batch.n_tokens > n_ctx) {
         log_message("[DEBUG] context size exceeded", request.dart_logger);
         break;
