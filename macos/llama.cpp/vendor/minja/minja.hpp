@@ -1359,8 +1359,8 @@ public:
               case Op::Gt:        return l > r;
               case Op::Le:        return l <= r;
               case Op::Ge:        return l >= r;
-              case Op::In:        return r.contains(l);
-              case Op::NotIn:     return !r.contains(l);
+              case Op::In:        return (r.is_array() || r.is_object() || r.is_string()) && r.contains(l);
+              case Op::NotIn:     return !((r.is_array() || r.is_string()) && r.contains(l));
               default:            break;
           }
           throw std::runtime_error("Unknown binary operator");
