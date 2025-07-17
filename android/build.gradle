@@ -50,11 +50,14 @@ android {
 
         externalNativeBuild {
             cmake {
-                // This is strange, I expected the build to work when src/CMakeLists.txt
+                // re: curl: This is strange, I expected the build to work when src/CMakeLists.txt
                 // had this added, but it did not work.
-                arguments "-DLLAMA_CURL=OFF"
+                //
+                // 25-07-17: Add build # and commit to workaround whatever llama.cpp
+                // rearchitecture happened since last drop 2-3 months ago.
+                arguments "-DLLAMA_CURL=OFF", "-DLLAMA_BUILD_NUMBER=1", "-DLLAMA_BUILD_COMMIT=unknown"
             }
-    }
+        }
     }
   
     // Invoke the shared CMake build with the Android Gradle Plugin.
