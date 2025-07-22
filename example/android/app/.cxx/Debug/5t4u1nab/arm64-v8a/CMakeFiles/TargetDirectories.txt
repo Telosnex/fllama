@@ -1,2 +1,0 @@
-/Users/jamesoleary/dev/fllama/example/android/app/.cxx/Debug/5t4u1nab/arm64-v8a/CMakeFiles/edit_cache.dir
-/Users/jamesoleary/dev/fllama/example/android/app/.cxx/Debug/5t4u1nab/arm64-v8a/CMakeFiles/rebuild_cache.dir
