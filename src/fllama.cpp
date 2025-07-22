@@ -595,10 +595,14 @@ fllama_inference_sync(fllama_inference_request request,
       // GGML_ASSERT((cparams.causal_attn || cparams.n_ubatch >= n_tokens_all) &&
       // "non-causal attention requires n_ubatch >= n_tokens") failed
       ctx_params.n_ubatch = requested_context_size;
+
+      // Should reduce RAM usage w/Gemma, have not observed so, yet.
+      ctx_params.swa_full = false;
     }
     std::cout << "[fllama] Batch size: " << ctx_params.n_batch << std::endl;
     ctx_params.flash_attn = false;
     std::cout << "[fllama] flash_attn: " << ctx_params.flash_attn << std::endl;
+    std::cout << "[fllama] swa_full: " << ctx_params.swa_full << std::endl;
 
     // TODO: params.n_predict = request.max_tokens;
     // std::cout << "[fllama] Max tokens: " << params.n_predict << std::endl;
