@@ -23,8 +23,37 @@ endif()
 set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
 
 if(ANDROID)
-    set(CMAKE_C_FLAGS "-DCMAKE_TOOLCHAIN_FILE=~/Library/Android/sdk/ndk/26.1.10909125/build/cmake/android.toolchain.cmake${CMAKE_C_FLAGS} -DANDROID_ABI=arm64-v8a -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 -O3 -DLLAMA_CURL=OFF -DGGML_NATIVE=ON")
-    set(CMAKE_CXX_FLAGS "-DCMAKE_TOOLCHAIN_FILE=~/Library/Android/sdk/ndk/26.1.10909125/build/cmake/android.toolchain.cmake ${CMAKE_CXX_FLAGS} -DANDROID_ABI=arm64-v8a -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23 -O3 -DLLAMA_CURL=OFF -DGGML_NATIVE=ON")
+    # Debug: Print build information for Android
+    message(STATUS "Android build detected")
+    message(STATUS "CMAKE_ANDROID_ARCH_ABI: ${CMAKE_ANDROID_ARCH_ABI}")
+    message(STATUS "CMAKE_SYSTEM_PROCESSOR: ${CMAKE_SYSTEM_PROCESSOR}")
+    
+    # Android-specific settings for llama.cpp (apply to all Android builds)
+    set(LLAMA_CURL OFF CACHE BOOL "Disable CURL for Android" FORCE)
+    set(GGML_LLAMAFILE OFF CACHE BOOL "Disable llamafile for Android" FORCE)
+    set(GGML_OPENMP OFF CACHE BOOL "Disable OpenMP for Android" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Use static libs for Android" FORCE)
+    
+    # Only apply ARM-specific optimizations for ARM64 builds
+    if(CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+        message(STATUS "ARM64 Android build - enabling dot product optimizations with KleiDiAI support")
+        # ARMv8.2-A with dot product only (i8mm not supported on this device)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.2-a+dotprod -O3")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.2-a+dotprod -O3")
+        
+        # Enable KleiDiAI ONLY for ARM64 builds (it's ARM64-specific)
+        # Disabled: it requires CMake 4.0+ and src/CMakeLists.txt (via flutter template)
+        # strongly suggests not going over 3.22, i.e. what is required for Flutter.
+        # Because KleidiAI showed a small lift on performance (well within variation, 3-5%) 
+        # for Android CPU on Pixel Fold, it is better to disable it for now. It is also
+        # worth leaving here as ersatz documentation of how to get it working.
+        # set(GGML_CPU_KLEIDIAI ON CACHE BOOL "Enable KleiDiAI optimizations" FORCE)
+    else()
+        message(STATUS "Non-ARM64 Android build (${CMAKE_ANDROID_ARCH_ABI}) - skipping ARM optimizations")
+        # Explicitly disable KleiDiAI for non-ARM64 architectures
+        # set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "Disable KleiDiAI for non-ARM64" FORCE)
+    endif()
+    
     # See discussion @ https://github.com/ggerganov/llama.cpp/pull/4926
     # Re: -DLLAMA_CURL=OFF:
     # CMake Error at llama.cpp/common/CMakeLists.txt:90 (message):
