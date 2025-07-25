@@ -12,8 +12,9 @@ fi
 # Build XCFramework if needed (this creates both device and simulator builds)
 if [ ! -d "llama.cpp/build-apple/llama.xcframework" ]; then
     echo "📦 Building XCFramework (this may take a few minutes)..."
+    # Use the bundled build-xcframework.sh script
     cd llama.cpp
-    bash ./build-xcframework.sh
+    bash ../build-xcframework.sh
     cd ..
 else
     echo "✅ XCFramework already exists"
