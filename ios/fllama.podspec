@@ -21,13 +21,6 @@ A new Flutter FFI plugin project.
   # Classes contains only the wrapper fllama.cpp that includes ../src/*.cpp files
   s.source_files = 'Classes/**/*'
   
-  # We use pre-built static libraries instead of compiling llama.cpp sources directly because:
-  # 1. llama.cpp uses architecture-specific subdirectories (arch/arm/, arch/x86/) with duplicate symbols
-  # 2. CocoaPods compiles all source files together, causing "duplicate symbol" errors
-  # 3. CMake properly selects the right architecture files at build time
-  # The libs/ directory contains: libllama.a, libggml*.a, libcommon.a
-  s.vendored_libraries = 'libs/*.a'
-  
   # Required frameworks:
   # - Foundation, Metal, MetalKit: Core llama.cpp/ggml requirements
   # - Accelerate: Required for vDSP functions in ggml-cpu optimizations
@@ -46,30 +39,18 @@ A new Flutter FFI plugin project.
     'CLANG_CXX_LIBRARY' => 'libc++',
     # Metal library embedding for iOS
     'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', 'GGML_USE_METAL=1', 'GGML_METAL_EMBED_LIBRARY=1'],
+    # Link the libraries directly using full paths (they'll be built by script phase)
+    'OTHER_LDFLAGS' => '-L$(PODS_TARGET_SRCROOT)/libs -lllama -lggml -lggml-base -lggml-cpu -lggml-metal -lggml-blas -lcommon',
   }
   
-  # Build llama.cpp using the existing build-xcframework.sh script
-  # This runs once and creates an XCFramework that we'll extract libraries from
-  s.prepare_command = <<-CMD
-    set -e
-    
-    # Build XCFramework if needed
-    if [ ! -d "llama.cpp/build-apple/llama.xcframework" ]; then
-      echo "Building llama.cpp XCFramework..."
-      cd llama.cpp
-      bash build-xcframework.sh
-      cd ..
-    fi
-    
-    # Extract static libraries from the iOS slice of the XCFramework
-    echo "Extracting iOS libraries from XCFramework..."
-    mkdir -p libs
-    
-    # Copy static libraries from the iOS simulator build (works for both device and sim on arm64)
-    if [ -d "llama.cpp/build-ios-sim" ]; then
-      find llama.cpp/build-ios-sim -name "*.a" -path "*/Release*" ! -path "*/build/*" -exec cp {} libs/ \\;
-    fi
-    
-    echo "Setup complete!"
-  CMD
+  # Build llama.cpp during Xcode compilation (not during pod install!)
+  # This provides proper progress feedback and caching
+  s.script_phases = [
+    {
+      :name => 'Build llama.cpp',
+      :script => 'cd "${PODS_TARGET_SRCROOT}" && bash build-llama-ios.sh',
+      :execution_position => :before_compile,
+      :show_env_vars_in_log => false
+    }
+  ]
 end
