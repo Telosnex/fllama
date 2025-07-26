@@ -8,19 +8,8 @@ project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 # Include build info generation
 include("${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/cmake/build-info.cmake")
 
-# Create the missing cmake directory and an empty build-info-gen-cpp.cmake file
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common/cmake")
-file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common/cmake/build-info-gen-cpp.cmake" "# Placeholder file")
 
-# Optional: Print a message to confirm the file was created
-message(STATUS "Created placeholder build-info-gen-cpp.cmake file")
-
-if(EMSCRIPTEN)
-  set(BUILD_SHARED_LIBS OFF) # Emscripten does better with static libraries for WebAssembly
-  message(STATUS "Emscripten detected, switching to static libraries")
-else()
-  set(BUILD_SHARED_LIBS OFF)
-endif()
+set(BUILD_SHARED_LIBS OFF)
 
 # Otherwise ex. Android build on macOS fails with `error: unknown target CPU 'cyclone'`
 set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
