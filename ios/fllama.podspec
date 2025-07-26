@@ -39,8 +39,9 @@ A new Flutter FFI plugin project.
     'CLANG_CXX_LIBRARY' => 'libc++',
     # Metal library embedding for iOS
     'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', 'GGML_USE_METAL=1', 'GGML_METAL_EMBED_LIBRARY=1'],
-    # Link the libraries directly using full paths (they'll be built by script phase)
-    'OTHER_LDFLAGS' => '-L$(PODS_TARGET_SRCROOT)/libs -lllama -lggml -lggml-base -lggml-cpu -lggml-metal -lggml-blas -lcommon',
+    # Link the libraries conditionally based on SDK target
+    'OTHER_LDFLAGS[sdk=iphoneos*]' => '-L$(PODS_TARGET_SRCROOT)/libs/device -lcommon -lggml-base -lggml-blas -lggml-cpu -lggml-metal -lggml -lllama',
+    'OTHER_LDFLAGS[sdk=iphonesimulator*]' => '-L$(PODS_TARGET_SRCROOT)/libs/simulator -lcommon -lggml-base -lggml-blas -lggml-cpu -lggml-metal -lggml -lllama',
   }
   
   # Build llama.cpp during Xcode compilation (not during pod install!)
