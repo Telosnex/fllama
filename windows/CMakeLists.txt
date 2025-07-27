@@ -15,16 +15,13 @@ add_definitions(-UUNICODE -U_UNICODE)
 # Disable CURL support
 set(LLAMA_CURL OFF CACHE BOOL "Enable CURL for downloading models" FORCE)
 
+# Include build info generation before adding subdirectories
+include("${CMAKE_CURRENT_SOURCE_DIR}/../src/llama.cpp/cmake/build-info.cmake")
+
 # Invoke the build for native code shared with the other target platforms.
 # This can be changed to accommodate different builds.
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DIR}/shared")
 
-# Create the missing cmake directory and an empty build-info-gen-cpp.cmake file
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../src/llama.cpp/common/cmake")
-file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/../src/llama.cpp/common/cmake/build-info-gen-cpp.cmake" "# Placeholder file")
-
-# Optional: Print a message to confirm the file was created
-message(STATUS "Created placeholder build-info-gen-cpp.cmake file")
 
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
