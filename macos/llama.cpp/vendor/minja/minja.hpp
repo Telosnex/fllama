@@ -401,10 +401,6 @@ public:
     } else if (object_) {
       if (!value.is_hashable()) throw std::runtime_error("Unhashable type: " + value.dump());
       return object_->find(value.primitive_) != object_->end();
-    } else if (is_string()) {
-      if (!value.is_string()) return false;
-      return primitive_.get<std::string>()
-        .find(value.get<std::string>()) != std::string::npos;
     } else {
       throw std::runtime_error("contains can only be called on arrays and objects: " + dump());
     }
@@ -1359,8 +1355,13 @@ public:
               case Op::Gt:        return l > r;
               case Op::Le:        return l <= r;
               case Op::Ge:        return l >= r;
-              case Op::In:        return (r.is_array() || r.is_object() || r.is_string()) && r.contains(l);
-              case Op::NotIn:     return !((r.is_array() || r.is_string()) && r.contains(l));
+              case Op::In:        return (((r.is_array() || r.is_object()) && r.contains(l)) ||
+                                          (l.is_string() && r.is_string() &&
+                                            r.to_str().find(l.to_str()) != std::string::npos));
+              case Op::NotIn:
+                                  return !(((r.is_array() || r.is_object()) && r.contains(l)) ||
+                                            (l.is_string() && r.is_string() &&
+                                              r.to_str().find(l.to_str()) != std::string::npos));
               default:            break;
           }
           throw std::runtime_error("Unknown binary operator");
@@ -1557,21 +1558,18 @@ public:
             }
             return res;
           } else if (method->get_name() == "replace") {
-            // expects old, new [, count]
             vargs.expectArgs("replace method", {2, 3}, {0, 0});
-            auto old_s = vargs.args[0].get<std::string>();
-            auto new_s = vargs.args[1].get<std::string>();
-            int64_t count = vargs.args.size() == 3
-                            ? vargs.args[2].get<int64_t>() : -1;
-
-            std::string res = str;
-            size_t pos = 0;
-            while ((pos = res.find(old_s, pos)) != std::string::npos &&
-                  (count == -1 || count-- > 0)) {
-                res.replace(pos, old_s.length(), new_s);
-                pos += new_s.length();
+            auto before = vargs.args[0].get<std::string>();
+            auto after = vargs.args[1].get<std::string>();
+            auto count = vargs.args.size() == 3 ? vargs.args[2].get<int64_t>()
+                                                : str.length();
+            size_t start_pos = 0;
+            while ((start_pos = str.find(before, start_pos)) != std::string::npos &&
+                  count-- > 0) {
+              str.replace(start_pos, before.length(), after);
+              start_pos += after.length();
             }
-            return Value(res);
+            return str;
           }
         }
         throw std::runtime_error("Unknown method: " + method->get_name());
@@ -2148,7 +2146,7 @@ private:
             }
           }
 
-          if ((has_first_colon || has_second_colon) && (start || end || step)) {
+          if ((has_first_colon || has_second_colon)) {
             index = std::make_shared<SliceExpr>(slice_loc, std::move(start), std::move(end), std::move(step));
           } else {
             index = std::move(start);
