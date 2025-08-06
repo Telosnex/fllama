@@ -699,68 +699,99 @@ fllama_inference_sync(fllama_inference_request request,
       }
     }
 
+    // Use ModelHandle for proper RAII and thread safety
+    ModelHandle model_handle;
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
     std::vector<llava_image_embed *> image_embeddings;
     char *c_result = nullptr;
-    bool model_is_cached = false;
     std::string model_path_str = request.model_path ? request.model_path : "";
+    bool context_reuse_possible = false;
+    ModelResources* model_resources = nullptr;
     
-    // Create a RAII guard to ensure model users are always decremented
-    // This will run when the current scope exits, regardless of how (return, exception, etc.)
-    class ModelUsersGuard {
+    // RAII helper to ensure context lock is released even on exception
+    class ContextLockGuard {
+      ModelHandle* handle_ptr = nullptr;
+      bool locked = false;
     public:
-      ModelUsersGuard(bool& is_cached, const std::string& path) 
-        : is_model_cached(is_cached), model_path(path), active(false) {}
+      ContextLockGuard() = default;
+      explicit ContextLockGuard(ModelHandle& h) : handle_ptr(&h) {}
       
-      void activate() { active = true; }
+      // Move constructor and assignment
+      ContextLockGuard(ContextLockGuard&& other) noexcept 
+        : handle_ptr(other.handle_ptr), locked(other.locked) {
+        other.handle_ptr = nullptr;
+        other.locked = false;
+      }
       
-      ~ModelUsersGuard() {
-        if (active && is_model_cached && !model_path.empty()) {
-          std::cout << "[ModelUsersGuard] Auto-decrementing users for " << model_path << std::endl;
-          global_inference_queue.decrement_model_users(model_path);
+      ContextLockGuard& operator=(ContextLockGuard&& other) noexcept {
+        if (this != &other) {
+          unlock();
+          handle_ptr = other.handle_ptr;
+          locked = other.locked;
+          other.handle_ptr = nullptr;
+          other.locked = false;
+        }
+        return *this;
+      }
+      
+      // Delete copy operations
+      ContextLockGuard(const ContextLockGuard&) = delete;
+      ContextLockGuard& operator=(const ContextLockGuard&) = delete;
+      
+      bool try_lock() {
+        if (handle_ptr && handle_ptr->valid()) {
+          locked = handle_ptr->try_lock_context_for_reuse();
+          return locked;
+        }
+        return false;
+      }
+      
+      void unlock() {
+        if (locked && handle_ptr) {
+          handle_ptr->unlock_context();
+          locked = false;
         }
       }
       
-    private:
-      bool& is_model_cached;
-      std::string model_path;
-      bool active;
+      ~ContextLockGuard() { unlock(); }
     };
-    
-    // Create the guard but don't activate it yet
-    ModelUsersGuard users_guard(model_is_cached, model_path_str);
     
     auto cleanup = [&]() {
       // Always free the sampler since we create a new one for each request
       if (smpl)
         llama_sampler_free(smpl);
       
-      // Note: Not decrementing users here, the guard handles it
-      
-      // Only free model and context resources if they weren't cached
-      if (!model_is_cached) {
-        if (model)
-          llama_model_free(model);
-        if (ctx)
-          llama_free(ctx);
-      }
+      // Note: The ModelHandle will automatically decrement users and handle cleanup
+      // We don't need to manually free model or context - the handle manages it
       llama_backend_free();
-      free(c_result);
+      // c_result is freed automatically by unique_ptr
     };
     // Process OpenAI chat messages if provided
     log_message("Initializing llama model...", request.dart_logger);
     
-    // First check if context reuse is possible (before incrementing any counters)
-    bool context_reuse_possible = global_inference_queue.can_reuse_context(model_path_str);
-    log_message(context_reuse_possible ? 
-               "Context reuse is possible - model is cached and not in use" : 
-               "Context reuse not possible - model either not cached or already in use", 
-               request.dart_logger);
-
-    // Now get or load the model (this will increment active_users for cached models)
-    std::tie(model, ctx) = global_inference_queue.get_cached_model(model_path_str);
-    ModelResources* model_resources = global_inference_queue.get_model_resources(model_path_str);
+    // Try to get an existing model using the safe handle API
+    model_handle = global_inference_queue.get_model_handle(model_path_str);
+    
+    // Create context lock guard that will auto-unlock on scope exit
+    ContextLockGuard context_guard(model_handle);
+    
+    if (model_handle.valid()) {
+      // Model exists and we have a safe handle to it
+      model = model_handle.model();
+      ctx = model_handle.ctx();
+      model_resources = model_handle.operator->();
+      
+      // Try to lock context for exclusive reuse
+      context_reuse_possible = context_guard.try_lock();
+      
+      log_message(context_reuse_possible ? 
+                 "Context reuse is possible - model is cached with single user" : 
+                 "Context reuse not possible - model has multiple users", 
+                 request.dart_logger);
+    } else {
+      log_message("Model not cached, will load from file", request.dart_logger);
+    }
     
     // Create a new sampler for each request since samplers are lightweight
     // and depend on request-specific parameters (temperature, top_p, seed)
@@ -769,18 +800,52 @@ fllama_inference_sync(fllama_inference_request request,
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(request.temperature));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(random_seed));
     
-    if (model && ctx) {
-      log_message("Using cached model: " + model_path_str, request.dart_logger);
-      model_is_cached = true;
-      // Note: get_cached_model already increments the active_users count
-      // Activate the guard to ensure decrement happens on any exit path
-      users_guard.activate();
-    } else {
-      // Load the model if not cached
+    if (!model_handle.valid()) {
+      // Need to load the model from file
       log_message("Loading model from file: " + model_path_str, request.dart_logger);
       model = llama_model_load_from_file(request.model_path, model_params);
-      ctx = llama_new_context_with_model(model, ctx_params);
-      // Not cached yet, so don't activate guard until/unless we register it later
+      if (!model) {
+        callback("Error: Failed to load model from file", "", true);
+        cleanup();
+        return;
+      }
+      ctx = llama_init_from_model(model, ctx_params);
+      if (!ctx) {
+        callback("Error: Failed to create context", "", true);
+        llama_model_free(model);
+        cleanup();
+        return;
+      }
+      
+      // Register and acquire the model atomically
+      model_handle = global_inference_queue.register_and_acquire_model(model_path_str, model, ctx);
+      if (!model_handle.valid()) {
+        // Registration failed - another thread may have loaded it simultaneously
+        log_message("Failed to register model - checking if another thread loaded it", request.dart_logger);
+        // Clean up our loaded model
+        llama_free(ctx);
+        llama_model_free(model);
+        
+        // Try to get the model again
+        model_handle = global_inference_queue.get_model_handle(model_path_str);
+        if (!model_handle.valid()) {
+          callback("Error: Failed to register or retrieve model", "", true);
+          cleanup();
+          return;
+        }
+      }
+      
+      // Update our pointers from the handle
+      model = model_handle.model();
+      ctx = model_handle.ctx();
+      model_resources = model_handle.operator->();
+      // Update the context guard with the new handle
+      context_guard = std::move(ContextLockGuard(model_handle));
+      // Try to lock context - should succeed since we just loaded it
+      context_reuse_possible = context_guard.try_lock();
+      log_message("Successfully loaded and registered model", request.dart_logger);
+    } else {
+      log_message("Using cached model: " + model_path_str, request.dart_logger);
     }
     
     if (model == NULL || ctx == NULL) {
@@ -1159,8 +1224,11 @@ fllama_inference_sync(fllama_inference_request request,
     const auto estimated_total_size = n_max_tokens * 10;
     std::string result;
     result.reserve(estimated_total_size);
-    c_result = (char *)malloc(
-        estimated_total_size); // Allocate once with estimated size
+    
+    // Use unique_ptr for automatic cleanup
+    auto c_result_holder = std::unique_ptr<char[], decltype(&free)>(
+        (char*)malloc(estimated_total_size), &free);
+    c_result = c_result_holder.get(); // Get raw pointer for compatibility
 
     int n_gen = 0;
     std::string buffer;   // Buffer to accumulate potential EOS token sequences
@@ -1442,17 +1510,8 @@ fllama_inference_sync(fllama_inference_request request,
     // or free it based on our caching logic
     log_message("Managing model resources...", request.dart_logger);
     
-    // If model is not already cached, register it for caching
-    if (model && ctx && !model_is_cached) {
-      log_message("Registering model in cache for future use", request.dart_logger);
-      global_inference_queue.register_model(model_path_str, model, ctx);
-      model_is_cached = true;
-      // Must increment counter for newly registered models as get_cached_model() didn't find it
-      global_inference_queue.increment_model_users(model_path_str);
-      // Now activate the guard since we've registered and incremented
-      users_guard.activate();
-      log_message("Incremented user count for newly registered model", request.dart_logger);
-    }
+    // Model registration and user count increment is now done immediately after loading
+    // to prevent race conditions where the model could be freed during inference
     
     // Log the reuse status for debugging
     if (reused_context) {

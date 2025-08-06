@@ -28,3 +28,11 @@ migrate_working_dir/
 .dart_tool/
 build/
 example/android/app/.cxx/
+macos/libs/libcommon.a
+macos/libs/libggml-base.a
+macos/libs/libggml-blas.a
+macos/libs/libggml-cpu.a
+macos/libs/libggml-metal.a
+macos/libs/libggml.a
+macos/libs/libllama.a
+macos/libs/libmtmd.a
