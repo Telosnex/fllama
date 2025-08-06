@@ -440,72 +440,145 @@ fllama_inference_cancel(int request_id) {
   global_inference_queue.cancel(request_id);
 }
 
+// Process tokens using batch views for better performance and memory management
+static bool process_tokens_with_batch_view(struct llama_context *ctx_llama,
+                                           const std::vector<llama_token> &tokens,
+                                           int n_batch, int *n_past,
+                                           fllama_log_callback logger) {
+  const int N = (int)tokens.size();
+  if (N == 0)
+    return true;
+
+  // Keep tokens data alive
+  std::vector<llama_token> tokens_data = tokens;
+  
+  // Process tokens in optimal chunks using batch views
+  const int optimal_chunk_size = std::min(n_batch, 512);
+  int32_t i_next = 0;
+  int batch_count = 0;
+  int64_t total_batch_time_ms = 0;
+  
+  // Create full batch but process it in views
+  for (int32_t i = 0; i < N; i = i_next) {
+    batch_count++;
+    int64_t batch_start_time = ggml_time_ms();
+    
+    // Determine chunk size for this iteration
+    int32_t n_tokens = std::min(optimal_chunk_size, N - i);
+    
+    // Check context space before processing this chunk
+    int n_ctx = llama_n_ctx(ctx_llama);
+    // Get the maximum position in context (0-based index)
+    int n_ctx_used = 0;
+    auto* memory = llama_get_memory(ctx_llama);
+    if (memory) {
+      llama_pos max_pos = llama_memory_seq_pos_max(memory, 0);
+      // Convert to count for checking space: if max_pos is 9, we have 10 tokens
+      n_ctx_used = max_pos + 1;  // Will be 0 if max_pos is -1 (empty)
+    }
+    
+    if (n_ctx_used + n_tokens > n_ctx) {
+      log_message("[ERROR] Context size would be exceeded: used=" +
+                  std::to_string(n_ctx_used) + ", adding=" + std::to_string(n_tokens) +
+                  ", total=" + std::to_string(n_ctx), logger);
+      return false;
+    }
+    
+    // Create a batch view for this chunk
+    llama_batch batch_view = llama_batch_get_one(tokens_data.data() + i, n_tokens);
+    
+    // Attempt to decode this chunk
+    int decode_result = llama_decode(ctx_llama, batch_view);
+    
+    if (decode_result != 0) {
+      // If decode failed, try with smaller batch
+      if (n_tokens > 1 && decode_result == 1) {
+        log_message("[INFO] Batch decode failed, retrying with smaller batch size: " + 
+                    std::to_string(n_tokens/2), logger);
+        
+        // Retry with half the batch size
+        int retry_chunk_size = n_tokens / 2;
+        for (int j = 0; j < n_tokens; j += retry_chunk_size) {
+          int chunk_end = std::min(j + retry_chunk_size, n_tokens);
+          llama_batch small_batch = llama_batch_get_one(tokens_data.data() + i + j, chunk_end - j);
+          
+          int64_t retry_start = ggml_time_ms();
+          if (llama_decode(ctx_llama, small_batch) != 0) {
+            log_message("[ERROR] Failed to decode even with smaller batch at position " + 
+                        std::to_string(i + j), logger);
+            return false;
+          }
+          int64_t retry_time = ggml_time_ms() - retry_start;
+          log_message("[BATCH] Retry batch " + std::to_string(j/retry_chunk_size + 1) + 
+                      ": processed " + std::to_string(chunk_end - j) + " tokens in " + 
+                      std::to_string(retry_time) + " ms (" + 
+                      std::to_string((chunk_end - j) * 1000.0 / retry_time) + " tokens/s)", logger);
+        }
+      } else {
+        log_message("[ERROR] Decode failed with code " + std::to_string(decode_result) +
+                    " for batch of size " + std::to_string(n_tokens), logger);
+        return false;
+      }
+    }
+    
+    // Calculate timing for this batch
+    int64_t batch_time_ms = ggml_time_ms() - batch_start_time;
+    total_batch_time_ms += batch_time_ms;
+    
+    // Move to next chunk
+    i_next = i + n_tokens;
+    
+    // Log timing and progress for EVERY batch
+    double tokens_per_second = n_tokens * 1000.0 / std::max(batch_time_ms, (int64_t)1);
+    log_message("[BATCH] Batch " + std::to_string(batch_count) + 
+                ": processed " + std::to_string(n_tokens) + " tokens in " + 
+                std::to_string(batch_time_ms) + " ms (" + 
+                std::to_string(tokens_per_second) + " tokens/s) - Total: " + 
+                std::to_string(i_next) + "/" + std::to_string(N) + " tokens", logger);
+  }
+  
+  // Log overall summary
+  if (batch_count > 1) {
+    double avg_tokens_per_second = N * 1000.0 / std::max(total_batch_time_ms, (int64_t)1);
+    log_message("[BATCH] Summary: Processed " + std::to_string(N) + " tokens in " + 
+                std::to_string(batch_count) + " batches, total time: " + 
+                std::to_string(total_batch_time_ms) + " ms (" + 
+                std::to_string(avg_tokens_per_second) + " tokens/s average)", logger);
+  }
+  
+  // Update past token count
+  auto* memory = llama_get_memory(ctx_llama);
+  if (!memory) {
+    *n_past = 0;
+  } else {
+    llama_pos max_pos = llama_memory_seq_pos_max(memory, 0);
+    *n_past = max_pos + 1;  // Convert 0-based position to count
+  }
+  return true;
+}
+
 static bool add_tokens_to_context(struct llama_context *ctx_llama,
                                   const std::vector<llama_token> &tokens,
                                   int n_batch, int *n_past,
                                   fllama_log_callback logger) {
-  log_message("[DEBUG] add_tokens_to_context: start", logger);
-  const int N = (int)tokens.size();
-  log_message("[DEBUG] add_tokens_to_context: token count: " +
-                  std::to_string(N),
-              logger);
-  if (N == 0)
-    return true;
-
-  // Keep tokens data alive until we're done with the batch
-  std::vector<llama_token> tokens_data = tokens;
-  log_message(
-      "[DEBUG] add_tokens_to_context: about to call llama_batch_get_one",
-      logger);
-  llama_batch batch =
-      llama_batch_get_one(tokens_data.data(), tokens_data.size());
-  log_message("[DEBUG] add_tokens_to_context: got batch with " +
-                  std::to_string(batch.n_tokens) + " tokens",
-              logger);
-
-  // Check context space
-  int n_ctx = llama_n_ctx(ctx_llama);
-  int n_ctx_used = llama_kv_self_used_cells(ctx_llama);
-  log_message("[DEBUG] add_tokens_to_context: ctx space: used=" +
-                  std::to_string(n_ctx_used) +
-                  ", total=" + std::to_string(n_ctx),
-              logger);
-
-  if (n_ctx_used + batch.n_tokens > n_ctx) {
-    log_message("[DEBUG] add_tokens_to_context: context size exceeded", logger);
-    return false;
-  }
-
-  log_message("[DEBUG] add_tokens_to_context: about to decode batch", logger);
-  if (llama_decode(ctx_llama, batch)) {
-    log_message("[DEBUG] add_tokens_to_context: failed to decode", logger);
-    return false;
-  }
-  log_message("[DEBUG] add_tokens_to_context: decode successful", logger);
-
-  // Update past token count
-  *n_past = llama_kv_self_used_cells(ctx_llama);
-  log_message("[DEBUG] add_tokens_to_context: updated n_past to " +
-                  std::to_string(*n_past),
-              logger);
-  return true;
+  // Use the new batch view processing function
+  return process_tokens_with_batch_view(ctx_llama, tokens, n_batch, n_past, logger);
 }
 
 static bool add_token_to_context(struct llama_context *ctx_llama,
                                  llama_token id, int *n_past,
                                  fllama_log_callback logger) {
-  log_message("[DEBUG] adding token " + std::to_string(id) + " to context",
-              logger);
-  log_message("[DEBUG] add_token_to_context start, token id: " +
-                  std::to_string(id),
-              logger);
+  // Adding token to context
 
-  // Check context space first
-  int n_ctx = llama_n_ctx(ctx_llama);
-  int n_ctx_used = llama_kv_self_used_cells(ctx_llama);
-  log_message("[DEBUG] ctx space: used=" + std::to_string(n_ctx_used) +
-                  ", total=" + std::to_string(n_ctx),
-              logger);
+    // Check context space
+    int n_ctx = llama_n_ctx(ctx_llama);
+    // Get the maximum position (0-based) and convert to count
+    int n_ctx_used = 0;
+    auto* memory = llama_get_memory(ctx_llama);
+    if (memory) {
+      llama_pos max_pos = llama_memory_seq_pos_max(memory, 0);
+      n_ctx_used = max_pos + 1;
+    }
 
   if (n_ctx_used + 1 > n_ctx) {
     log_message("context size exceeded", logger);
@@ -527,10 +600,13 @@ static bool add_token_to_context(struct llama_context *ctx_llama,
   log_message("[DEBUG] decode successful", logger);
 
   llama_batch_free(batch);
-  *n_past = llama_kv_self_used_cells(ctx_llama);
-  log_message("[DEBUG] add_token_to_context complete, n_past: " +
-                  std::to_string(*n_past),
-              logger);
+  auto* mem = llama_get_memory(ctx_llama);
+  if (!mem) {
+    *n_past = 1;  // We just added one token
+  } else {
+    llama_pos max_pos = llama_memory_seq_pos_max(mem, 0);
+    *n_past = max_pos + 1;  // Convert 0-based position to count
+  }
   return true;
 }
 
@@ -1109,11 +1185,70 @@ fllama_inference_sync(fllama_inference_request request,
     }
 
     if (!reused_context) {
-      // Either no cached context or tokens diverged.  We must reset and feed
-      // the entire prompt again.
-      if (ctx) {
-        llama_kv_self_clear(ctx);
-        if (model_resources) model_resources->token_state.clear();
+      // Either no cached context or tokens diverged. Try smarter strategies before full reset.
+      if (ctx && model_resources) {
+        // Check for sliding window attention models
+        const auto n_swa = llama_model_n_swa(model);
+        if (n_swa > 0 && n_past > 0) {
+          // For SWA models, check if we have enough valid cache data
+          const auto pos_min = llama_memory_seq_pos_min(llama_get_memory(ctx), 0);
+          if (pos_min > std::max(0, n_past - n_swa)) {
+            log_message("[CACHE] SWA model detected with insufficient cache data. Forcing full reprocessing.", request.dart_logger);
+            log_message("[CACHE] n_swa=" + std::to_string(n_swa) + ", n_past=" + std::to_string(n_past) + 
+                        ", pos_min=" + std::to_string(pos_min), request.dart_logger);
+            // Force full reprocessing for SWA models when cache is insufficient
+            n_past = 0;
+            llama_memory_clear(llama_get_memory(ctx), true);
+            model_resources->token_state.clear();
+          }
+        }
+        
+        // Strategy 1: Try partial KV cache deletion if we have a partial match
+        size_t common_prefix_len = 0;
+        if (!model_resources->token_state.empty() && !tokens_list.empty() && n_past > 0) {
+          // Find the common prefix between cached and new tokens
+          const size_t min_len = std::min(model_resources->token_state.size(), tokens_list.size());
+          for (size_t i = 0; i < min_len; ++i) {
+            if (model_resources->token_state[i] == tokens_list[i]) {
+              common_prefix_len++;
+            } else {
+              break;
+            }
+          }
+        }
+        
+        if (common_prefix_len > 0) {
+          // We have a partial match - try to keep the common prefix
+          log_message("[CACHE] Partial match found. Common prefix: " + std::to_string(common_prefix_len) + 
+                      " tokens. Attempting partial KV cache retention.", request.dart_logger);
+          
+          // Try to remove only the divergent part
+          if (llama_memory_seq_rm(llama_get_memory(ctx), 0, common_prefix_len, -1)) {
+            // Successfully removed divergent part, update state
+            model_resources->token_state.resize(common_prefix_len);
+            prefix_len = common_prefix_len;
+            n_past = static_cast<int>(common_prefix_len);
+            reused_context = true;  // Mark as partial reuse
+            log_message("[CACHE] Successfully retained " + std::to_string(common_prefix_len) + 
+                        " prefix tokens", request.dart_logger);
+          } else {
+            // Partial deletion failed, fall back to full clear
+            log_message("[CACHE] Partial deletion failed, clearing entire cache", request.dart_logger);
+            llama_memory_clear(llama_get_memory(ctx), true);
+            model_resources->token_state.clear();
+          }
+        } else {
+          // No common prefix, clear everything
+          log_message("[CACHE] No common prefix found, clearing entire cache", request.dart_logger);
+          llama_memory_clear(llama_get_memory(ctx), true);
+          model_resources->token_state.clear();
+        }
+      } else if (ctx) {
+        // No model resources, just clear
+        log_message(
+            "[CACHE] No model resources available, clearing context.",
+            request.dart_logger);
+        llama_memory_clear(llama_get_memory(ctx), true);
       }
     }
     bool add_bos = llama_add_bos_token(vocab);
@@ -1174,18 +1309,34 @@ fllama_inference_sync(fllama_inference_request request,
     log_message("Context size: " + std::to_string(n_ctx), request.dart_logger);
     log_message("Input tokens: " + std::to_string(tokens_list.size()),
                 request.dart_logger);
-    // If we reused the context, only feed the suffix tokens (if any)
+    // Process tokens in batches for better performance with batch views
     if (reused_context) {
-      std::vector<llama_token> suffix_tokens(tokens_list.begin() + prefix_len,
-                                             tokens_list.end());
-      if (!suffix_tokens.empty()) {
-        add_tokens_to_context(ctx, suffix_tokens, n_batch, &n_past,
-                              request.dart_logger);
+      // We have reused some context, only process new tokens
+      if (prefix_len < tokens_list.size()) {
+        std::vector<llama_token> suffix_tokens(tokens_list.begin() + prefix_len,
+                                               tokens_list.end());
+        log_message("[CACHE] Processing " + std::to_string(suffix_tokens.size()) + 
+                    " new tokens after reused prefix", request.dart_logger);
+        
+        // Process with batch views for better performance
+        if (!process_tokens_with_batch_view(ctx, suffix_tokens, n_batch, &n_past, request.dart_logger)) {
+          callback("Error: Failed to process prompt", "", true);
+          cleanup();
+          return;
+        }
+      } else {
+        log_message("[CACHE] All tokens already in cache, no new tokens to process", request.dart_logger);
       }
     } else {
-      // Full prompt must be fed
-      add_tokens_to_context(ctx, tokens_list, n_batch, &n_past,
-                            request.dart_logger);
+      // No reuse, but still process with batch views for better performance
+      log_message("[CACHE] Processing full prompt of " + std::to_string(tokens_list.size()) + 
+                  " tokens with batch views", request.dart_logger);
+      
+      if (!process_tokens_with_batch_view(ctx, tokens_list, n_batch, &n_past, request.dart_logger)) {
+        callback("Error: Failed to process prompt", "", true);
+        cleanup();
+        return;
+      }
     }
     if (tokens_list.size() > n_ctx) {
       log_message("Input tokens exceed context size.", request.dart_logger);
@@ -1269,12 +1420,71 @@ fllama_inference_sync(fllama_inference_request request,
     llama_batch batch = llama_batch_get_one(&new_token_id, 1);
 
     while (true) {
-      // Check context space
+      // Check context space and apply context shifting if needed
       int n_ctx = llama_n_ctx(ctx);
-      int n_ctx_used = llama_kv_self_used_cells(ctx);
-      if (n_ctx_used + batch.n_tokens > n_ctx) {
-        log_message("[DEBUG] context size exceeded", request.dart_logger);
+      int n_ctx_used = 0;
+      auto* memory = llama_get_memory(ctx);
+      if (!memory) {
+        // If no memory module, we can't do context shifting
         break;
+      } else {
+        llama_pos max_pos = llama_memory_seq_pos_max(memory, 0);
+        n_ctx_used = max_pos + 1;  // Convert 0-based position to count
+      }
+      
+      // Context shifting: When we're about to run out of context space,
+      // we shift the context window by removing older tokens from the KV cache
+      // This allows for infinite generation at the cost of forgetting earlier parts
+      if (n_ctx_used + batch.n_tokens > n_ctx) {
+        // Check if context shifting is available
+        if (!llama_memory_can_shift(llama_get_memory(ctx))) {
+          break;
+        }
+        
+        // Perform context shift
+        const int n_keep = 32;  // Keep first 32 tokens (usually includes system prompt)
+        const int n_left = n_ctx_used - n_keep;
+        const int n_discard = n_left / 2;  // Discard half of the available context
+        
+        log_message("[CONTEXT] Shifting context: keeping " + std::to_string(n_keep) + 
+                    " tokens, discarding " + std::to_string(n_discard) + " tokens", request.dart_logger);
+        
+        // Remove tokens from KV cache
+        if (!llama_memory_seq_rm(llama_get_memory(ctx), 0, n_keep, n_keep + n_discard)) {
+          log_message("[ERROR] Failed to remove tokens from KV cache during context shift", request.dart_logger);
+          break;
+        }
+        
+        // Shift remaining tokens
+        llama_memory_seq_add(llama_get_memory(ctx), 0, n_keep + n_discard, n_ctx_used, -n_discard);
+        
+        // Update n_past to reflect the shift
+        n_past -= n_discard;
+        
+        // Update cached tokens if model resources exist
+        if (model_resources) {
+          std::scoped_lock lk(model_resources->token_state_mutex);
+          if (model_resources->token_state.size() > static_cast<size_t>(n_keep + n_discard)) {
+            // Remove the discarded tokens from our cache
+            model_resources->token_state.erase(
+              model_resources->token_state.begin() + n_keep,
+              model_resources->token_state.begin() + n_keep + n_discard
+            );
+          }
+        }
+        
+        log_message("[CONTEXT] Context shift complete. New n_past: " + std::to_string(n_past), request.dart_logger);
+        
+        // Re-check if we now have space
+        memory = llama_get_memory(ctx);
+        if (!memory) {
+          break;
+        }
+        llama_pos new_max_pos = llama_memory_seq_pos_max(memory, 0);
+        n_ctx_used = new_max_pos + 1;  // Convert 0-based position to count
+        if (n_ctx_used + batch.n_tokens > n_ctx) {
+          break;
+        }
       }
 
       // Convert current token to text and output it
