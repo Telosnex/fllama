@@ -175,7 +175,7 @@ Future<SendPort> _helperIsolateSendPort = () async {
       if (data is _IsolateLogMessage) {
         // Call the original logger callback with the message from the isolate
         final logger = _loggerCallbacks[data.id];
-        if (logger != null) {
+        if (logger != null && data.message.trim().isNotEmpty) {
           logger(data.message);
         }
         return;
