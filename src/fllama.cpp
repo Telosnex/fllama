@@ -639,16 +639,23 @@ fllama_inference_sync(fllama_inference_request request,
   bool is_gemma3_model_detected = is_gemma3_model(request.model_path);
   // Setup parameters, then load the model and create a context.
   int64_t start = ggml_time_ms();
-  std::cout << "[fllama] Inference thread start" << std::endl;
+  log_message("[fllama] Inference thread start", request.dart_logger);
   try {
     ggml_backend_load_all();
-    std::cout << "[fllama] Backend initialized." << std::endl;
+    log_message("[fllama] Backend initialized.", request.dart_logger);
+    
+    // List all available backends
+    log_message("[fllama] Available backends:", request.dart_logger);
+    for (size_t i = 0; i < ggml_backend_reg_count(); i++) {
+        ggml_backend_reg_t reg = ggml_backend_reg_get(i);
+        log_message("[fllama]   - " + std::string(ggml_backend_reg_name(reg)), request.dart_logger);
+    }
 
     llama_context_params ctx_params = llama_context_default_params();
-    std::cout << "[fllama] Initializing params." << std::endl;
+    log_message("[fllama] Initializing params.", request.dart_logger);
     uint32_t requested_context_size = request.context_size;
     ctx_params.n_ctx = requested_context_size;
-    std::cout << "[fllama] Context size: " << ctx_params.n_ctx << std::endl;
+    log_message("[fllama] Context size: " + std::to_string(ctx_params.n_ctx), request.dart_logger);
     // >=32 needed for BLAS.
     // # Why is n_batch = context size?
     // Post-Jan 2025 update, the llama.cpp inference imitates simple-chat.cpp,
@@ -675,10 +682,10 @@ fllama_inference_sync(fllama_inference_request request,
       // Should reduce RAM usage w/Gemma, have not observed so, yet.
       ctx_params.swa_full = false;
     }
-    std::cout << "[fllama] Batch size: " << ctx_params.n_batch << std::endl;
+    log_message("[fllama] Batch size: " + std::to_string(ctx_params.n_batch), request.dart_logger);
     ctx_params.flash_attn = false;
-    std::cout << "[fllama] flash_attn: " << ctx_params.flash_attn << std::endl;
-    std::cout << "[fllama] swa_full: " << ctx_params.swa_full << std::endl;
+    log_message("[fllama] flash_attn: " + std::to_string(ctx_params.flash_attn), request.dart_logger);
+    log_message("[fllama] swa_full: " + std::to_string(ctx_params.swa_full), request.dart_logger);
 
     // TODO: params.n_predict = request.max_tokens;
     // std::cout << "[fllama] Max tokens: " << params.n_predict << std::endl;
@@ -715,15 +722,19 @@ fllama_inference_sync(fllama_inference_request request,
 // Otherwise, for physical iOS devices and other platforms
 #else
     model_params.n_gpu_layers = request.num_gpu_layers;
-    // fllama_log("[fllama] Number of GPU layers requested: " +
-    //  std::to_string(params.n_gpu_layers),
-    //  request.dart_logger);
-    std::cout << "[fllama] Number of GPU layers requested: "
-              << model_params.n_gpu_layers << std::endl;
+    log_message("[fllama] Number of GPU layers requested: " + std::to_string(model_params.n_gpu_layers), request.dart_logger);
+    
+    // Check if GPU offload is actually supported
+    if (llama_supports_gpu_offload()) {
+        log_message("[fllama] GPU offload IS supported!", request.dart_logger);
+    } else {
+        log_message("[fllama] WARNING: GPU offload NOT supported!", request.dart_logger);
+        log_message("[fllama] This means Metal backend is not available.", request.dart_logger);
+    }
 #endif
     // Check if a Dart logger function is provided, use it if available.
     if (request.dart_logger != NULL) {
-      std::cout << "[fllama] Request log callback for llama.cpp detected";
+      log_message("[fllama] Request log callback for llama.cpp detected", request.dart_logger);
       llama_log_set(
           [](enum ggml_log_level level, const char *text, void *user_data) {
             fllama_log_callback dart_logger =
@@ -731,10 +742,9 @@ fllama_inference_sync(fllama_inference_request request,
             dart_logger(text);
           },
           reinterpret_cast<void *>(request.dart_logger));
-      std::cout << "[fllama] Request log callback installed for llama.cpp. ";
+      log_message("[fllama] Request log callback installed for llama.cpp.", request.dart_logger);
     } else {
-      std::cout
-          << "[fllama] fllama default log callback installed for llama.cpp. ";
+      log_message("[fllama] fllama default log callback installed for llama.cpp.", request.dart_logger);
       llama_log_set(log_callback_wrapper, NULL);
     }
     // By default, llama.cpp emits a llama.log file containing ex. ~20 highest
@@ -925,10 +935,9 @@ fllama_inference_sync(fllama_inference_request request,
     }
     
     if (model == NULL || ctx == NULL) {
-      std::cout << "[fllama] Unable to load model." << std::endl;
+      log_message("[fllama] Unable to load model.", request.dart_logger);
       callback(/* response */ "Error: Unable to load model.", /* json */ "",
                /* done */ true);
-      log_message("Error: Unable to load model.", request.dart_logger);
       cleanup();
       return;
     }

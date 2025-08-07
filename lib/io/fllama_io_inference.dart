@@ -30,6 +30,11 @@ Future<int> fllamaInference(
   final _IsolateInferenceRequest isolateRequest =
       _IsolateInferenceRequest(requestId, request);
   _isolateInferenceCallbacks[requestId] = callback;
+  
+  // Store the logger callback so we can call it when we get messages from the isolate
+  if (request.logger != null) {
+    _loggerCallbacks[requestId] = request.logger;
+  }
   try {
     helperIsolateSendPort.send(isolateRequest);
   } catch (e) {
@@ -50,6 +55,13 @@ class _IsolateInferenceCancel {
   final int id;
 
   const _IsolateInferenceCancel(this.id);
+}
+
+class _IsolateLogMessage {
+  final int id;  // Request ID to know which logger to call
+  final String message;
+  
+  const _IsolateLogMessage(this.id, this.message);
 }
 
 class _IsolateInferenceResponse {
@@ -74,8 +86,12 @@ int _nextInferenceRequestId = 0;
 final Map<int, FllamaInferenceCallback> _isolateInferenceCallbacks =
     <int, FllamaInferenceCallback>{};
 
+/// Mapping from request IDs to the original logger callbacks
+final Map<int, void Function(String)?> _loggerCallbacks =
+    <int, void Function(String)?>{};
+
 Pointer<fllama_inference_request> _toNative(
-    FllamaInferenceRequest dart, int requestId) {
+    FllamaInferenceRequest dart, int requestId, [Map<int, NativeCallable>? loggerCallbacks, SendPort? sendPort]) {
   // Allocate memory for the request structure.
   final Pointer<fllama_inference_request> requestPointer =
       calloc<fllama_inference_request>();
@@ -118,14 +134,23 @@ Pointer<fllama_inference_request> _toNative(
   }
   if (dart.logger != null) {
     void onResponse(Pointer<Char> responsePointer) {
-      if (dart.logger != null) {
-        dart.logger!(pointerCharToString(responsePointer));
+      final message = pointerCharToString(responsePointer);
+      // Send log message back to main isolate if we have a sendPort
+      if (sendPort != null) {
+        sendPort.send(_IsolateLogMessage(requestId, message));
+      } else {
+        // Fallback to calling the logger directly (won't show in tests)
+        dart.logger!(message);
       }
     }
 
     final NativeCallable<FllamaLogCallbackNative> callback =
         NativeCallable<FllamaLogCallbackNative>.listener(onResponse);
     request.dart_logger = callback.nativeFunction;
+    // Store the callback to prevent garbage collection
+    if (loggerCallbacks != null) {
+      loggerCallbacks[requestId] = callback;
+    }
   }
   return requestPointer;
 }
@@ -147,6 +172,14 @@ Future<SendPort> _helperIsolateSendPort = () async {
         completer.complete(data);
         return;
       }
+      if (data is _IsolateLogMessage) {
+        // Call the original logger callback with the message from the isolate
+        final logger = _loggerCallbacks[data.id];
+        if (logger != null) {
+          logger(data.message);
+        }
+        return;
+      }
       if (data is _IsolateInferenceResponse) {
         final callback = _isolateInferenceCallbacks[data.id];
         if (callback != null) {
@@ -154,6 +187,8 @@ Future<SendPort> _helperIsolateSendPort = () async {
         }
         if (data.done) {
           _isolateInferenceCallbacks.remove(data.id);
+          _loggerCallbacks.remove(data.id);  // Clean up the logger callback
+          // Note: NativeCallable cleanup happens in the isolate when inference is done
           return;
         } else {
           return;
@@ -187,6 +222,9 @@ void fllamaCancelInference(int requestId) async {
   helperIsolateSendPort.send(isolateCancel);
 }
 
+// GLOBAL map to keep logger callbacks alive across ALL isolate invocations
+final Map<int, NativeCallable> _globalLoggerCallbacks = {};
+
 void _fllamaInferenceIsolate(SendPort sendPort) async {
   final ReceivePort helperReceivePort = ReceivePort();
   helperReceivePort.listen((dynamic data) {
@@ -201,11 +239,16 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
         throw UnsupportedError('Unsupported message type: ${data.runtimeType}');
       }
 
-      final nativeRequestPointer = _toNative(data.request, data.id);
+      final nativeRequestPointer = _toNative(data.request, data.id, _globalLoggerCallbacks, sendPort);
       final nativeRequest = nativeRequestPointer.ref;
       late final NativeCallable<NativeInferenceCallback> callback;
       void onResponse(Pointer<Char> responsePointer,
           Pointer<Char> openaiReponseJsonStringPointer, int done) {
+        // Clean up logger callback when inference is done
+        if (done == 1) {
+          final loggerCallback = _globalLoggerCallbacks.remove(data.id);
+          loggerCallback?.close();
+        }
         // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
         // order to allow only valid UTF-8.
         var decodedString = '';
@@ -290,6 +333,9 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
         nativeRequest,
         callback.nativeFunction,
       );
+      
+      // DON'T clean up logger callback here - inference hasn't happened yet!
+      // It gets cleaned up when we receive the done response in the main isolate
     } catch (e, s) {
       // ignore: avoid_print
       print('[fllama inference isolate] ERROR: $e. STACK: $s');
