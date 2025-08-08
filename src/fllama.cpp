@@ -1183,6 +1183,13 @@ fllama_inference_sync(fllama_inference_request request,
                         std::to_string(tokens_list.size()) + "/" + std::to_string(n_ctx_limit) +
                         "). Skipping reuse.", request.dart_logger);
           }
+            // Helpful diagnostics to understand first mismatch
+            size_t first_mismatch = 0;
+            const size_t min_len = std::min(prev_tokens.size(), tokens_list.size());
+            while (first_mismatch < min_len && prev_tokens[first_mismatch] == tokens_list[first_mismatch]) first_mismatch++;
+            log_message("[CACHE] Strict prefix failed. prev_tokens.size=" + std::to_string(prev_tokens.size()) +
+                        ", new_tokens.size=" + std::to_string(tokens_list.size()) +
+                        ", common_prefix_len=" + std::to_string(first_mismatch), request.dart_logger);
         } else {
           log_message("[CACHE] No prefix match. Previous tokens: " +
                       std::to_string(prev_tokens.size()) + ", current tokens: " +
@@ -1214,7 +1221,7 @@ fllama_inference_sync(fllama_inference_request request,
         
         // Strategy 1: Try partial KV cache deletion if we have a partial match
         size_t common_prefix_len = 0;
-        if (!model_resources->token_state.empty() && !tokens_list.empty() && n_past > 0) {
+        if (!model_resources->token_state.empty() && !tokens_list.empty()) {
           // Find the common prefix between cached and new tokens
           const size_t min_len = std::min(model_resources->token_state.size(), tokens_list.size());
           for (size_t i = 0; i < min_len; ++i) {
