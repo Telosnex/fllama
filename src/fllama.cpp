@@ -28,7 +28,6 @@
 #include "../macos/llama.cpp/common/chat.h"
 #include "../macos/llama.cpp/common/common.h"
 #include <nlohmann/json.hpp>
-#include "../macos/llama.cpp/vendor/minja/minja.hpp"
 #include "../macos/llama.cpp/common/sampling.h"
 #include "../macos/llama.cpp/ggml/include/ggml.h"
 #include "../macos/llama.cpp/include/llama.h"
@@ -149,7 +148,7 @@ enum stop_type {
 };
 
 template <typename T>
-static T json_value(const json &body, const std::string &key,
+static T json_value(const nlohmann::json &body, const std::string &key,
                     const T &default_value) {
   // Fallback null to default value
   if (body.contains(key) && !body.at(key).is_null()) {
@@ -165,8 +164,8 @@ static T json_value(const json &body, const std::string &key,
   }
 }
 
-static json oaicompat_completion_params_parse(const json &body) {
-  json llama_params;
+static nlohmann::json oaicompat_completion_params_parse(const nlohmann::json &body) {
+  nlohmann::json llama_params;
 
   if (!body.contains("prompt")) {
     throw std::runtime_error("\"prompt\" is required");
@@ -174,9 +173,9 @@ static json oaicompat_completion_params_parse(const json &body) {
 
   // Handle "stop" field
   if (body.contains("stop") && body.at("stop").is_string()) {
-    llama_params["stop"] = json::array({body.at("stop").get<std::string>()});
+    llama_params["stop"] = nlohmann::json::array({body.at("stop").get<std::string>()});
   } else {
-    llama_params["stop"] = json_value(body, "stop", json::array());
+    llama_params["stop"] = json_value(body, "stop", nlohmann::json::array());
   }
 
   // Handle "n" field
@@ -303,7 +302,7 @@ std::string sanitize_utf8(const std::string &input) {
   return result;
 }
 
-static json to_json_oaicompat_chat(
+static nlohmann::json to_json_oaicompat_chat(
     const std::string &content, const std::string &oaicompat_model,
     const std::string &oaicompat_cmpl_id, const std::string &build_info,
     stop_type stop, common_chat_format oaicompat_chat_format,
@@ -331,7 +330,7 @@ static json to_json_oaicompat_chat(
   if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS ||
       stop == STOP_TYPE_NONE) {
     try {
-      common_chat_syntax syntax;
+      common_chat_parser_params syntax;
       syntax.format = oaicompat_chat_format;
       msg = common_chat_parse(content, /* is_partial= */ false, syntax);
       finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
@@ -359,19 +358,19 @@ static json to_json_oaicompat_chat(
     }
   }
 
-  json message{
+  nlohmann::json message{
       {"role", "assistant"},
   };
   if (!msg.reasoning_content.empty()) {
     message["reasoning_content"] = msg.reasoning_content;
   }
   if (msg.content.empty() && !msg.tool_calls.empty()) {
-    message["content"] = json();
+    message["content"] = nlohmann::json();
   } else {
     message["content"] = msg.content;
   }
   if (!msg.tool_calls.empty()) {
-    auto tool_calls = json::array();
+    auto tool_calls = nlohmann::json::array();
     for (const auto &tc : msg.tool_calls) {
       tool_calls.push_back({
           {"type", "function"},
@@ -386,7 +385,7 @@ static json to_json_oaicompat_chat(
     message["tool_calls"] = tool_calls;
   }
 
-  json choice{
+  nlohmann::json choice{
       {"finish_reason", finish_reason},
       {"index", 0},
       {"message", message},
@@ -402,15 +401,15 @@ static json to_json_oaicompat_chat(
 
   std::time_t t = std::time(0);
 
-  json res =
-      json{{"choices", json::array({choice})},
+  nlohmann::json res =
+      nlohmann::json{{"choices", nlohmann::json::array({choice})},
            {"created", t},
            {"model", oaicompat_model},
            {"system_fingerprint", build_info},
            {"object", "chat.completion"},
            {"__llamacpp_detected_chat_format",
             common_chat_format_name(oaicompat_chat_format)},
-           {"usage", json{{"completion_tokens", n_decoded},
+           {"usage", nlohmann::json{{"completion_tokens", n_decoded},
                           {"prompt_tokens", n_prompt_tokens},
                           {"total_tokens", n_decoded + n_prompt_tokens}}},
            {"id", oaicompat_cmpl_id}};
@@ -683,8 +682,8 @@ fllama_inference_sync(fllama_inference_request request,
       ctx_params.swa_full = false;
     }
     log_message("[fllama] Batch size: " + std::to_string(ctx_params.n_batch), request.dart_logger);
-    ctx_params.flash_attn = false;
-    log_message("[fllama] flash_attn: " + std::to_string(ctx_params.flash_attn), request.dart_logger);
+    ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+    log_message(std::string("[fllama] flash_attn: ") + llama_flash_attn_type_name(ctx_params.flash_attn_type), request.dart_logger);
     log_message("[fllama] swa_full: " + std::to_string(ctx_params.swa_full), request.dart_logger);
 
     // TODO: params.n_predict = request.max_tokens;
@@ -954,7 +953,7 @@ fllama_inference_sync(fllama_inference_request request,
       log_message("Processing OpenAI-style API request via JSON",
                   request.dart_logger);
       try {
-        body = json::parse(openai_json_string);
+        body = nlohmann::json::parse(openai_json_string);
         if (body.contains("jinja_template") && body["jinja_template"].is_string()) {
           jinja_template = body["jinja_template"].get<std::string>();
           body.erase("jinja_template");
@@ -965,7 +964,11 @@ fllama_inference_sync(fllama_inference_request request,
         auto chat_templates = common_chat_templates_init(model, jinja_template);
         // Try to use model's built-in template, fallback to chatml
         try {
-          common_chat_format_example(chat_templates.get(), true);
+          // Third parameter is chat_template_kwargs - this is user configuration (e.g. via
+          // LLAMA_CHAT_TEMPLATE_KWARGS env var or CLI args), NOT something from the model.
+          // Empty map is correct here since we don't expose this configuration to users.
+          std::map<std::string, std::string> empty_template_kwargs;
+          common_chat_format_example(chat_templates.get(), true, empty_template_kwargs);
         } catch (const std::exception &e) {
           log_message(
               "Model's chat template not supported, falling back to chatml",
@@ -979,14 +982,14 @@ fllama_inference_sync(fllama_inference_request request,
           tmpl_inputs.use_jinja = true;
           tmpl_inputs.add_generation_prompt = true;
           tmpl_inputs.messages =
-              common_chat_msgs_parse_oaicompat<json>(body["messages"]);
+              common_chat_msgs_parse_oaicompat(body["messages"]);
 
           // Handle tools if present
           if (body.contains("tools")) {
 
             log_message("DEBUG Tools JSON: " + body["tools"].dump(),
                         request.dart_logger);
-            auto tools = json_value(body, "tools", json());
+            auto tools = json_value(body, "tools", nlohmann::json());
             log_message("DEBUG Tools after json_value: " + tools.dump(),
                         request.dart_logger);
 
@@ -1399,7 +1402,7 @@ fllama_inference_sync(fllama_inference_request request,
 
     int n_gen = 0;
     std::string buffer;   // Buffer to accumulate potential EOS token sequences
-    json last_valid_json; // Track last valid JSON response
+    nlohmann::json last_valid_json; // Track last valid JSON response
     std::string last_valid_json_string;
     bool has_valid_json = false;
 
