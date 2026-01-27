@@ -17,7 +17,6 @@
 #include "../ios/llama.cpp/common/chat.h"
 #include "../ios/llama.cpp/common/common.h"
 #include <nlohmann/json.hpp>
-#include "../ios/llama.cpp/vendor/minja/minja.hpp"
 #include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml/include/ggml.h"
 #include "../ios/llama.cpp/include/llama.h"
@@ -37,7 +36,6 @@
 #include "llama.cpp/common/chat.h"
 #include "llama.cpp/common/common.h"
 #include <nlohmann/json.hpp>
-#include "llama.cpp/vendor/minja/minja.hpp"
 #include "llama.cpp/common/sampling.h"
 #include "llama.cpp/ggml/include/ggml.h"
 #include "llama.cpp/include/llama.h"

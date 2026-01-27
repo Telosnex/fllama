@@ -4,9 +4,59 @@
 
 echo "🔨 Building llama.cpp for iOS..."
 
-# Check if libraries already exist
-if [ -d "libs" ] && [ "$(ls -A libs 2>/dev/null)" ]; then
-    echo "✅ Libraries already exist, skipping build"
+check_symbols() {
+    local libcommon="$1"
+    local libllama="$2"
+
+    # These symbols are used by fllama.cpp. Checking them here avoids confusing
+    # link errors when llama.cpp headers were updated but cached libs were not.
+    nm -gU "$libcommon" 2>/dev/null | grep -q "common_chat_format_example" || return 1
+    nm -gU "$libcommon" 2>/dev/null | grep -q "common_chat_msgs_parse_oaicompat" || return 1
+    nm -gU "$libcommon" 2>/dev/null | grep -q "common_chat_tools_parse_oaicompat" || return 1
+    nm -gU "$libcommon" 2>/dev/null | grep -q "common_chat_parse" || return 1
+    nm -gU "$libllama"  2>/dev/null | grep -q "llama_flash_attn_type_name" || return 1
+    return 0
+}
+
+check_target_libs() {
+    local target="$1" # device|simulator
+
+    if [ ! -f "libs/$target/libllama.a" ] || [ ! -f "libs/$target/libggml.a" ] || [ ! -f "libs/$target/libcommon.a" ]; then
+        return 1
+    fi
+
+    check_symbols "libs/$target/libcommon.a" "libs/$target/libllama.a" || return 1
+    return 0
+}
+
+should_skip_build() {
+    # Need libs for both device + simulator
+    if ! check_target_libs device; then
+        return 1
+    fi
+    if ! check_target_libs simulator; then
+        return 1
+    fi
+
+    # If llama.cpp is a git checkout, only skip when hash matches.
+    if [ -d "llama.cpp/.git" ]; then
+        local current_hash
+        current_hash=$(git -C llama.cpp rev-parse HEAD 2>/dev/null || echo "")
+        local cached_hash
+        cached_hash=$(cat libs/.llama_cpp_build_hash 2>/dev/null || echo "")
+        if [ -n "$current_hash" ] && [ "$current_hash" = "$cached_hash" ]; then
+            echo "✅ llama.cpp hash unchanged ($current_hash)"
+        else
+            echo "♻️  llama.cpp changed (or no cached hash); rebuilding"
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+if should_skip_build; then
+    echo "✅ Libraries already exist and look compatible; skipping build"
     exit 0
 fi
 
@@ -57,3 +107,8 @@ done
 echo "✅ llama.cpp build complete!"
 echo "📊 Generated libraries:"
 ls -lah libs/
+
+# Cache the llama.cpp git hash (if available) so we can skip rebuilds safely.
+if [ -d "llama.cpp/.git" ]; then
+    git -C llama.cpp rev-parse HEAD > libs/.llama_cpp_build_hash 2>/dev/null || true
+fi

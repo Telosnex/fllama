@@ -35,6 +35,11 @@ COMMON_CMAKE_ARGS=(
     -DLLAMA_BUILD_TOOLS=${LLAMA_BUILD_TOOLS}
     -DLLAMA_BUILD_TESTS=${LLAMA_BUILD_TESTS}
     -DLLAMA_BUILD_SERVER=${LLAMA_BUILD_SERVER}
+    # Disable networking deps for iOS builds. In llama.cpp, LLAMA_HTTPLIB defaults
+    # to ON, but we don't need download/server functionality in fllama and we want
+    # to avoid pulling in cpp-httplib/OpenSSL.
+    -DLLAMA_HTTPLIB=OFF
+    -DLLAMA_OPENSSL=OFF
     -DGGML_METAL_EMBED_LIBRARY=${GGML_METAL_EMBED_LIBRARY}
     -DGGML_BLAS_DEFAULT=${GGML_BLAS_DEFAULT}
     -DGGML_METAL=${GGML_METAL}
