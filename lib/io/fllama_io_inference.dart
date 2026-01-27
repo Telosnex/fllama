@@ -225,6 +225,19 @@ void fllamaCancelInference(int requestId) async {
 // GLOBAL map to keep logger callbacks alive across ALL isolate invocations
 final Map<int, NativeCallable> _globalLoggerCallbacks = {};
 
+// Track completed request IDs so we can clean up their logger callbacks safely
+final Set<int> _completedRequestIds = {};
+
+/// Clean up logger callbacks for completed requests.
+/// Called before starting a new request to prevent unbounded memory growth.
+void _cleanupCompletedLoggerCallbacks() {
+  for (final id in _completedRequestIds) {
+    final callback = _globalLoggerCallbacks.remove(id);
+    callback?.close();
+  }
+  _completedRequestIds.clear();
+}
+
 void _fllamaInferenceIsolate(SendPort sendPort) async {
   final ReceivePort helperReceivePort = ReceivePort();
   helperReceivePort.listen((dynamic data) {
@@ -239,15 +252,22 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
         throw UnsupportedError('Unsupported message type: ${data.runtimeType}');
       }
 
+      // Clean up logger callbacks from previously completed requests
+      // This is safe because at this point those requests are fully done on the C++ side
+      _cleanupCompletedLoggerCallbacks();
+      
       final nativeRequestPointer = _toNative(data.request, data.id, _globalLoggerCallbacks, sendPort);
       final nativeRequest = nativeRequestPointer.ref;
       late final NativeCallable<NativeInferenceCallback> callback;
       void onResponse(Pointer<Char> responsePointer,
           Pointer<Char> openaiReponseJsonStringPointer, int done) {
-        // Clean up logger callback when inference is done
+        // NOTE: We do NOT close the logger callback here even when done == 1.
+        // This is because the C++ side may continue calling log_message() after
+        // signaling done=1 (e.g., during cleanup). Instead, we mark this request
+        // as completed, and the callback will be cleaned up when the NEXT request
+        // comes in. This prevents the crash in DLRT_GetFfiCallbackMetadata.
         if (done == 1) {
-          final loggerCallback = _globalLoggerCallbacks.remove(data.id);
-          loggerCallback?.close();
+          _completedRequestIds.add(data.id);
         }
         // This is responsePointer.cast<Utf8>().toDartString(), inlined, in
         // order to allow only valid UTF-8.
@@ -335,7 +355,8 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
       );
       
       // DON'T clean up logger callback here - inference hasn't happened yet!
-      // It gets cleaned up when we receive the done response in the main isolate
+      // Logger cleanup is now deferred to avoid race conditions where C++
+      // continues logging after signaling done=1
     } catch (e, s) {
       // ignore: avoid_print
       print('[fllama inference isolate] ERROR: $e. STACK: $s');
