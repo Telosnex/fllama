@@ -2,6 +2,9 @@
 
 #include "ggml.h"
 
+#include <algorithm>
+#include <cassert>
+
 void llama_hparams::set_swa_pattern(uint32_t n_pattern, bool dense_first) {
     if (dense_first) {
         for (uint32_t il = 0; il < n_layer; ++il) {
@@ -57,6 +60,20 @@ uint32_t llama_hparams::n_gqa(uint32_t il) const {
     }
 
     return n_head/n_head_kv;
+}
+
+uint32_t llama_hparams::n_embd_inp() const {
+    uint32_t n_embd_inp = n_embd;
+
+    if (n_deepstack_layers > 0) {
+        n_embd_inp += n_embd * n_deepstack_layers;
+    }
+
+    return n_embd_inp;
+}
+
+uint32_t llama_hparams::n_embd_out() const {
+    return n_embd_out_impl > 0 ? n_embd_out_impl : n_embd;
 }
 
 uint32_t llama_hparams::n_embd_k_gqa(uint32_t il) const {
@@ -139,11 +156,15 @@ uint32_t llama_hparams::n_embd_s() const {
 }
 
 bool llama_hparams::is_recurrent(uint32_t il) const {
-    return recurrent_layer_arr[il];
+    if (il < n_layer) {
+        return recurrent_layer_arr[il];
+    }
+
+    GGML_ABORT("%s: il (%u) out of bounds (n_layer: %u)\n", __func__, il, n_layer);
 }
 
 uint32_t llama_hparams::n_pos_per_embd() const {
-    return rope_type == LLAMA_ROPE_TYPE_MROPE ? 4 : 1;
+    return rope_type == LLAMA_ROPE_TYPE_MROPE || rope_type == LLAMA_ROPE_TYPE_IMROPE ? 4 : 1;
 }
 
 bool llama_hparams::is_swa(uint32_t il) const {
@@ -152,4 +173,48 @@ bool llama_hparams::is_swa(uint32_t il) const {
     }
 
     GGML_ABORT("fatal error");
+}
+
+bool llama_hparams::is_mla() const {
+    assert((n_embd_head_k_mla_impl == 0 && n_embd_head_v_mla_impl == 0) ||
+           (n_embd_head_k_mla_impl != 0 && n_embd_head_v_mla_impl != 0));
+
+    return n_embd_head_k_mla_impl != 0 && n_embd_head_v_mla_impl != 0;
+}
+
+uint32_t llama_hparams::n_embd_head_k_mla() const {
+    return is_mla() ? n_embd_head_k_mla_impl : n_embd_head_k;
+}
+
+uint32_t llama_hparams::n_embd_head_v_mla() const {
+    return is_mla() ? n_embd_head_v_mla_impl : n_embd_head_v;
+}
+
+bool llama_hparams::has_kv(uint32_t il) const {
+    if (n_layer_kv_from_start >= 0) {
+        if (il < (uint32_t) n_layer_kv_from_start) {
+            return true;
+        }
+
+        return false;
+    }
+
+    // by default, all layers have kv
+    return true;
+}
+
+uint32_t llama_hparams::n_layer_kv() const {
+    uint32_t res = 0;
+
+    for (uint32_t il = 0; il < n_layer; ++il) {
+        if (has_kv(il)) {
+            res++;
+        }
+    }
+
+    return res;
+}
+
+bool llama_hparams::use_mrope() const {
+    return rope_sections[0] > 0 && rope_sections[1] > 0;
 }
