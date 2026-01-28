@@ -51,6 +51,7 @@ if [ ! -d "llama.cpp/build-macos" ]; then
         -DGGML_METAL_EMBED_LIBRARY=ON \
         -DLLAMA_HTTPLIB=OFF \
         -DLLAMA_CURL=OFF \
+        -DLLAMA_BUILD_SERVER=OFF \
         -S .
     
     echo "🏗️ Building libraries (this may take a few minutes)..."

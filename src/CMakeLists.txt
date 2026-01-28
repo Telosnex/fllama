@@ -17,6 +17,7 @@ set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
 # Disable HTTP/CURL support on all platforms (we handle model downloads in Dart, not C++)
 set(LLAMA_HTTPLIB OFF CACHE BOOL "Disable httplib for downloading" FORCE)
 set(LLAMA_CURL OFF CACHE BOOL "Disable CURL (deprecated)" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Disable server (requires httplib)" FORCE)
 
 if(ANDROID)
     # Debug: Print build information for Android

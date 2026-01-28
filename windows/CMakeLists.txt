@@ -15,6 +15,7 @@ add_definitions(-UUNICODE -U_UNICODE)
 # Disable HTTP/CURL support (we handle model downloads in Dart, not C++)
 set(LLAMA_HTTPLIB OFF CACHE BOOL "Disable httplib for downloading" FORCE)
 set(LLAMA_CURL OFF CACHE BOOL "Disable CURL (deprecated)" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Disable server (requires httplib)" FORCE)
 
 # Include build info generation before adding subdirectories
 include("${CMAKE_CURRENT_SOURCE_DIR}/../src/llama.cpp/cmake/build-info.cmake")
