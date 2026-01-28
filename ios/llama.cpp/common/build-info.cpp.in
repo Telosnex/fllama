@@ -1,4 +1,4 @@
-int LLAMA_BUILD_NUMBER = @LLAMA_BUILD_NUMBER@;
-char const *LLAMA_COMMIT = "@LLAMA_BUILD_COMMIT@";
-char const *LLAMA_COMPILER = "@BUILD_COMPILER@";
-char const *LLAMA_BUILD_TARGET = "@BUILD_TARGET@";
+int LLAMA_BUILD_NUMBER = 0;
+char const *LLAMA_COMMIT = "68ac3acb435450d5ba1e62748e17671815313dc3";
+char const *LLAMA_COMPILER = "fllama";
+char const *LLAMA_BUILD_TARGET = "fllama";
