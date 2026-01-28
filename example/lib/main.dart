@@ -642,7 +642,7 @@ class _MyAppState extends State<MyApp> {
 
 Future<String?> _pickGgufPath() async {
   if (!kIsWeb && TargetPlatform.android == defaultTargetPlatform) {
-    FilePickerResult? result = await FilePicker.pickFiles(
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.any,
     );
 
