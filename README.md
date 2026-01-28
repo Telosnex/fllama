@@ -153,8 +153,7 @@ Commercial licenses are also available. Contact info@telosnex.com. Expect very f
 11. When codemagic is green, copy src/llama.cpp to wasm_build/build/llama.cpp.
 12. Read note at top of build-wasm.sh. (TL;DR: need emscripten sdk in env).
 13. Run build-wasm.sh.
-14. Copy these files in wasm_build/build to example/web:
-- fllama_wasm.worker.mjs
+14. Copy these files from wasm_build/build to example/web:
 - fllama_wasm.js
 - fllama_wasm.wasm
 15. Test using instructions below, then commit and push.
@@ -162,7 +161,7 @@ Commercial licenses are also available. Contact info@telosnex.com. Expect very f
 
 # Web development
 - When C++ changes, use ./build-wasm.sh to build updated WASM files.
-- Copy: fllama_wasm.js, fllama_wasm.wasm, fllama_wasm.worker.mjs from wasm_build/build to example/web directory.
+- Copy: fllama_wasm.js, fllama_wasm.wasm from wasm_build/build to example/web directory.
 - From example directory: flutter run -d web-server --web-hostname=localhost --web-port=1234
 - Open Chrome and go to http://localhost:1234.
 - Enable WASM via modheader extension, set:
