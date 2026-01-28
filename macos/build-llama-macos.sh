@@ -52,6 +52,8 @@ if [ ! -d "llama.cpp/build-macos" ]; then
         -DLLAMA_HTTPLIB=OFF \
         -DLLAMA_CURL=OFF \
         -DLLAMA_BUILD_SERVER=OFF \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DLLAMA_BUILD_EXAMPLES=OFF \
         -S .
     
     echo "🏗️ Building libraries (this may take a few minutes)..."
