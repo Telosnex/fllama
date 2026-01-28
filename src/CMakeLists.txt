@@ -14,6 +14,10 @@ set(BUILD_SHARED_LIBS OFF)
 # Otherwise ex. Android build on macOS fails with `error: unknown target CPU 'cyclone'`
 set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
 
+# Disable HTTP/CURL support on all platforms (we handle model downloads in Dart, not C++)
+set(LLAMA_HTTPLIB OFF CACHE BOOL "Disable httplib for downloading" FORCE)
+set(LLAMA_CURL OFF CACHE BOOL "Disable CURL (deprecated)" FORCE)
+
 if(ANDROID)
     # Debug: Print build information for Android
     message(STATUS "Android build detected")
@@ -21,7 +25,6 @@ if(ANDROID)
     message(STATUS "CMAKE_SYSTEM_PROCESSOR: ${CMAKE_SYSTEM_PROCESSOR}")
     
     # Android-specific settings for llama.cpp (apply to all Android builds)
-    set(LLAMA_CURL OFF CACHE BOOL "Disable CURL for Android" FORCE)
     set(GGML_LLAMAFILE OFF CACHE BOOL "Disable llamafile for Android" FORCE)
     set(GGML_OPENMP OFF CACHE BOOL "Disable OpenMP for Android" FORCE)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Use static libs for Android" FORCE)
@@ -45,11 +48,6 @@ if(ANDROID)
         # Explicitly disable KleiDiAI for non-ARM64 architectures
         # set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "Disable KleiDiAI for non-ARM64" FORCE)
     endif()
-    
-    # See discussion @ https://github.com/ggerganov/llama.cpp/pull/4926
-    # Re: -DLLAMA_CURL=OFF:
-    # CMake Error at llama.cpp/common/CMakeLists.txt:90 (message):
-    # Could NOT find CURL.  Hint: to disable this feature, set -DLLAMA_CURL=OFF
 endif()
 
 if(WIN32)

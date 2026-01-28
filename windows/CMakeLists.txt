@@ -12,8 +12,9 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 # This fixed a build error with ggml-cpu.cpp after the 2025-01 drop.
 add_definitions(-UUNICODE -U_UNICODE)
 
-# Disable CURL support
-set(LLAMA_CURL OFF CACHE BOOL "Enable CURL for downloading models" FORCE)
+# Disable HTTP/CURL support (we handle model downloads in Dart, not C++)
+set(LLAMA_HTTPLIB OFF CACHE BOOL "Disable httplib for downloading" FORCE)
+set(LLAMA_CURL OFF CACHE BOOL "Disable CURL (deprecated)" FORCE)
 
 # Include build info generation before adding subdirectories
 include("${CMAKE_CURRENT_SOURCE_DIR}/../src/llama.cpp/cmake/build-info.cmake")
