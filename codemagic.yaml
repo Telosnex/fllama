@@ -53,25 +53,30 @@ definitions:
   script_android_build: &script_android_build
     name: Build AAB
     script:  |
-      cd example && flutter build appbundle --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt 
+      set -eo pipefail
+      cd example && flutter build appbundle --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_android_setup: &script_android_setup
     name: Android setup
     script: echo "flutter.sdk=$HOME/programs/flutter" > "$CM_BUILD_DIR/android/local.properties"
   script_ios_build: &script_ios_build
     name: Build IPA
     script: |
+      set -eo pipefail
       cd example && flutter build ios --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_linux_build: &script_linux_build
     name: Linux build
     script: |
+      set -eo pipefail
       cd example && flutter build linux --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_macos_build: &script_macos_build
     name: macOS build
     script: |
+      set -eo pipefail
       cd example && flutter build macos --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_web_build: &script_web_build
     name: Web build
     script: |
+      set -eo pipefail
       cd example && flutter build web --web-renderer canvaskit --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_windows_build: &script_windows_build
     name: Windows build
@@ -106,6 +111,7 @@ definitions:
       Write-Host "Building with Flutter..."
       cd example
       flutter build windows --verbose --no-tree-shake-icons *>&1 | Tee-Object -FilePath flutter_build_output.txt
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   # Required for llama.cpp / cmake. Fixes "NUGET.EXE not found." error on codemagic.
   # codemagic .NET MAUI apps docs referenced for implementation:
   #   https://docs.codemagic.io/yaml-quick-start/building-a-dotnet-maui-app/
