@@ -147,6 +147,14 @@ static void ggml_cuda_flash_attn_ext_mma_f16(ggml_backend_cuda_context & ctx, gg
             GGML_ASSERT(Q->ne[2] % K->ne[2] == 0);
             const int gqa_ratio = Q->ne[2] / K->ne[2];
             if (gqa_ratio == 20) { // GLM 4.7 Flash
+                if (cc >= GGML_CUDA_CC_DGX_SPARK) {
+                    if (Q->ne[1] <= 8) {
+                        ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx, dst);
+                        break;
+                    }
+                    ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 4>(ctx, dst);
+                    break;
+                }
                 if (cc >= GGML_CUDA_CC_BLACKWELL) {
                     if (Q->ne[1] <= 4 && K->ne[1] >= 65536) {
                         ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<576, 512, 16>(ctx, dst);
@@ -302,8 +310,6 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
         }
     }
 
-    const bool V_is_K_view = V->view_src && V->view_offs == 0 && (V->view_src == K || V->view_src == K->view_src);
-
     const int cc = ggml_cuda_info().devices[device].cc;
 
     switch (K->ne[0]) {
@@ -324,9 +330,6 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
                 return BEST_FATTN_KERNEL_NONE;
             }
             if (!gqa_opt_applies) {
-                return BEST_FATTN_KERNEL_NONE;
-            }
-            if (!V_is_K_view) {
                 return BEST_FATTN_KERNEL_NONE;
             }
             break;
@@ -435,6 +438,18 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
             return BEST_FATTN_KERNEL_TILE; // AMD WMMA is only faster if the full tile width of 16 can be utilized.
         }
         return BEST_FATTN_KERNEL_MMA_F16;
+    }
+
+    // Use MFMA flash attention for CDNA (MI100+):
+    if (amd_mfma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72 && Q->ne[0] != 256 && Q->ne[0] != 576) {
+        const int64_t eff_nq = Q->ne[1] * (gqa_opt_applies ? gqa_ratio : 1);
+        // MMA vs tile crossover benchmarked on MI300X @ d32768:
+        //   hsk=64  (gqa=4): MMA wins at eff >= 128 (+11%)
+        //   hsk=128 (gqa=4): MMA wins at eff >= 128 (+4%)
+        if (eff_nq >= (GGML_CUDA_CC_IS_CDNA1(cc) && Q->ne[0] == 64 ? 64 : 128)) {
+            return BEST_FATTN_KERNEL_MMA_F16;
+        }
+        // Fall through to tile kernel for small effective batch sizes.
     }
 
     // If there are no tensor cores available, use the generic tile kernel:
