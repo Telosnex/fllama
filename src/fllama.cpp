@@ -67,7 +67,6 @@
 #pragma warning(disable : 4244 4267) // possible loss of data
 #endif
 #include "ggml-backend.h"
-#include "llama.cpp/src/llama-sampling.h"
 
 // Forward declare logging functions
 static void log_message(const char *message,
