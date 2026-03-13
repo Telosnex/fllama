@@ -62,8 +62,30 @@ add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)
 add_subdirectory("llama.cpp/common" EXCLUDE_FROM_ALL)
 add_subdirectory("llama.cpp/tools/mtmd" EXCLUDE_FROM_ALL)
 
+# Build the server-context library directly from source files.
+# We cannot use add_subdirectory(tools/server) because it also defines the
+# llama-server executable which requires cpp-httplib (which we don't ship).
+find_package(Threads REQUIRED)
+set(SERVER_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/tools/server")
+add_library(server-context STATIC
+  ${SERVER_SRC_DIR}/server-task.cpp
+  ${SERVER_SRC_DIR}/server-queue.cpp
+  ${SERVER_SRC_DIR}/server-common.cpp
+  ${SERVER_SRC_DIR}/server-context.cpp
+)
+target_include_directories(server-context PUBLIC  ${SERVER_SRC_DIR})
+target_include_directories(server-context PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/tools/mtmd
+  ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp
+)
+if (BUILD_SHARED_LIBS)
+  set_target_properties(server-context PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+target_link_libraries(server-context PUBLIC common mtmd ${CMAKE_THREAD_LIBS_INIT})
+
 add_library(fllama SHARED
   "fllama_chat_template.cpp"
+  "fllama_download_stub.cpp"
   "fllama_eos.cpp"
   "fllama_inference_queue.cpp"
   "fllama_mtmd.cpp"
@@ -85,7 +107,7 @@ endif()
 target_include_directories(fllama PUBLIC .)
 add_executable(fllama_wasm fllama_wasm_entry.cpp)
 target_link_libraries(fllama_wasm fllama) # Link against your library
-target_link_libraries(fllama PUBLIC llama common mtmd)
+target_link_libraries(fllama PUBLIC llama common mtmd server-context)
 
 if(ANDROID)
     find_library(LOG_LIB log) # Find the log library

@@ -1,1721 +1,343 @@
+// fllama.cpp — Phase 3: thin adapter over llama.cpp's server_context
+//
+// fllama_inference() spawns a reader thread that posts a server_task and
+// streams results back via the Dart callback.  Multiple concurrent calls
+// are batched automatically by server_context::update_slots().
+
 #include "fllama.h"
-#include "fllama_chat_template.h"
-#include "fllama_eos.h"
 #include "fllama_inference_queue.h"
 #include "fllama_mtmd.h"
-#include "mtmd.h"
-#include "mtmd-helper.h"
 
-// LLaMA.cpp cross-platform support
+// server-context headers (no HTTP / httplib dependency)
+#include "server-context.h"
+#include "server-task.h"
+#include "server-common.h"
+
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #endif
 
 #if TARGET_OS_IOS
-// iOS-specific includes
-#include "../ios/llama.cpp/common/base64.hpp"
 #include "../ios/llama.cpp/common/chat.h"
 #include "../ios/llama.cpp/common/common.h"
-#include <nlohmann/json.hpp>
-#include "../ios/llama.cpp/common/sampling.h"
 #include "../ios/llama.cpp/ggml/include/ggml.h"
 #include "../ios/llama.cpp/include/llama.h"
-
 #elif TARGET_OS_OSX
-// macOS-specific includes
-#include "../macos/llama.cpp/common/base64.hpp"
 #include "../macos/llama.cpp/common/chat.h"
 #include "../macos/llama.cpp/common/common.h"
-#include <nlohmann/json.hpp>
-#include "../macos/llama.cpp/common/sampling.h"
 #include "../macos/llama.cpp/ggml/include/ggml.h"
 #include "../macos/llama.cpp/include/llama.h"
 #else
-// Other platforms
-#include "llama.cpp/common/base64.hpp"
 #include "llama.cpp/common/chat.h"
 #include "llama.cpp/common/common.h"
-#include <nlohmann/json.hpp>
-#include "llama.cpp/common/sampling.h"
 #include "llama.cpp/ggml/include/ggml.h"
 #include "llama.cpp/include/llama.h"
 #endif
 
 #include <atomic>
-#include <cassert>
 #include <chrono>
-#include <cinttypes>
-#include <cmath>
-#include <condition_variable>
-#include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <deque>
-#include <fstream>
-#include <functional>
 #include <iostream>
-#include <limits.h>
 #include <mutex>
-#include <queue>
 #include <random>
 #include <string>
 #include <thread>
-#include <unordered_set>
 #include <vector>
 
-#if defined(_MSC_VER)
-#pragma warning(disable : 4244 4267) // possible loss of data
-#endif
 #include "ggml-backend.h"
 
-// Forward declare logging functions
-static void log_message(const char *message,
-                        fllama_log_callback dart_logger = nullptr);
-static void log_message(const std::string &message,
-                        fllama_log_callback dart_logger = nullptr);
+// ── Logging ──────────────────────────────────────────────────────────────────
 
-// Implement logging functions
-static void log_message(const char *message, fllama_log_callback dart_logger) {
-  if (dart_logger == nullptr) {
-    fprintf(stderr, "%s\n", message);
-    fflush(stderr); // Ensure output is written immediately
-  } else {
-    // We need to create a persistently allocated string for each log message
-    // to ensure it stays alive long enough for Dart to process it
-    static std::mutex log_mutex;
-    static std::deque<std::string> message_queue;
-    static const size_t MAX_QUEUE_SIZE = 1000; // Limit memory usage
-    
-    // Process the message - replace any newlines to prevent log splitting issues
-    std::string processed_message = message;
-    
-    // Replace any newline characters with a placeholder
-    size_t pos = 0;
-    while ((pos = processed_message.find('\n', pos)) != std::string::npos) {
-      processed_message.replace(pos, 1, "[NL]");
-      pos += 4; // Length of " [NL] "
-    }
-    
-    // Use a mutex to ensure thread safety when updating the queue
-    {
-      std::lock_guard<std::mutex> lock(log_mutex);
-      
-      // Add the new message to the queue
-      message_queue.push_back(processed_message);
-      
-      // Keep the queue size bounded
-      while (message_queue.size() > MAX_QUEUE_SIZE) {
-        message_queue.pop_front();
-      }
-      
-      // Pass the pointer to the last message in the queue
-      // This string will remain valid as long as we don't remove it from the queue
-      dart_logger(message_queue.back().c_str());
-    }
+static void log_message(const char *msg,
+                        fllama_log_callback logger = nullptr) {
+  if (!logger) {
+    fprintf(stderr, "%s\n", msg);
+    fflush(stderr);
+    return;
   }
+  static std::mutex mtx;
+  static std::deque<std::string> q;
+  std::string s(msg);
+  for (size_t p = 0; (p = s.find('\n', p)) != std::string::npos; p += 4)
+    s.replace(p, 1, "[NL]");
+  std::lock_guard<std::mutex> lk(mtx);
+  q.push_back(std::move(s));
+  while (q.size() > 1000)
+    q.pop_front();
+  logger(q.back().c_str());
+}
+static void log_message(const std::string &m,
+                        fllama_log_callback l = nullptr) {
+  log_message(m.c_str(), l);
 }
 
-static void log_message(const std::string &message,
-                        fllama_log_callback dart_logger) {
-  // Simply pass the c_str() pointer directly to the other overload
-  log_message(message.c_str(), dart_logger);
-}
+// ── Globals ──────────────────────────────────────────────────────────────────
 
-static InferenceQueue global_inference_queue;
+static ServerManager g_mgr;
+static std::once_flag g_backend_init;
 
-enum stop_type {
-  STOP_TYPE_NONE,
-  STOP_TYPE_EOS,
-  STOP_TYPE_WORD,
-  STOP_TYPE_LIMIT,
-};
+// ── The actual inference logic (runs on per-request thread) ──────────────────
 
-template <typename T>
-static T json_value(const nlohmann::json &body, const std::string &key,
-                    const T &default_value) {
-  // Fallback null to default value
-  if (body.contains(key) && !body.at(key).is_null()) {
-    try {
-      return body.at(key);
-    } catch (NLOHMANN_JSON_NAMESPACE::detail::type_error const &) {
-      //  LOG_WRN("Wrong type supplied for parameter '%s'. Expected '%s', using
-      //  default value\n", key.c_str(), json(default_value).type_name());
-      return default_value;
+static void run_inference(fllama_inference_request request,
+                          fllama_inference_callback callback) {
+  try {
+    int64_t t0 = ggml_time_ms();
+    log_message("[fllama] Inference start", request.dart_logger);
+
+    // One-time backend init.
+    std::call_once(g_backend_init, [] {
+      ggml_backend_load_all();
+      llama_backend_init();
+    });
+
+    // ── 1. Build common_params ────────────────────────────────────────
+
+    common_params params;
+    params.model.path       = request.model_path;
+    params.n_ctx            = request.context_size;
+    params.n_batch          = request.context_size;
+    params.n_ubatch         = request.context_size;
+    params.flash_attn_type  = LLAMA_FLASH_ATTN_TYPE_AUTO;
+    params.n_parallel       = ServerManager::DEFAULT_N_PARALLEL;
+    params.n_predict        = request.max_tokens;
+    params.sampling.temp    = request.temperature;
+    params.sampling.top_p   = request.top_p;
+    params.sampling.penalty_freq   = request.penalty_freq;
+    params.sampling.penalty_repeat = request.penalty_repeat;
+    params.cpuparams.n_threads     = request.num_threads;
+    params.use_jinja = true;
+
+#if TARGET_IPHONE_SIMULATOR
+    params.n_gpu_layers = 0;
+#else
+    params.n_gpu_layers = request.num_gpu_layers;
+#endif
+
+    if (request.model_mmproj_path && strlen(request.model_mmproj_path) > 0)
+      params.mmproj.path = request.model_mmproj_path;
+
+    // ── 2. Get or create server_context ───────────────────────────────
+
+    auto *srv = g_mgr.get_or_create(
+        request.model_path, params, request.dart_logger);
+    if (!srv || !srv->srv_ctx) {
+      callback("Error: Failed to create inference context", "", true);
+      return;
     }
-  } else {
-    return default_value;
-  }
-}
+    // RAII — release when we leave scope.
+    struct Guard {
+      ServerManager &m; std::string p;
+      ~Guard() { m.release(p); }
+    } guard{g_mgr, request.model_path};
 
-static nlohmann::json oaicompat_completion_params_parse(const nlohmann::json &body) {
-  nlohmann::json llama_params;
+    log_message("[fllama] Model ready (" +
+                    std::to_string(ggml_time_ms() - t0) + " ms)",
+                request.dart_logger);
 
-  if (!body.contains("prompt")) {
-    throw std::runtime_error("\"prompt\" is required");
-  }
+    // ── 3. Build the prompt ───────────────────────────────────────────
 
-  // Handle "stop" field
-  if (body.contains("stop") && body.at("stop").is_string()) {
-    llama_params["stop"] = nlohmann::json::array({body.at("stop").get<std::string>()});
-  } else {
-    llama_params["stop"] = json_value(body, "stop", nlohmann::json::array());
-  }
+    std::string prompt = request.input ? request.input : "";
+    common_chat_parser_params parser_params;
+    bool is_oai = false;
 
-  // Handle "n" field
-  int n_choices = json_value(body, "n", 1);
-  if (n_choices != 1) {
-    throw std::runtime_error("Only one completion choice is allowed");
-  }
+    if (request.openai_request_json_string) {
+      is_oai = true;
+      try {
+        auto body = nlohmann::ordered_json::parse(
+            request.openai_request_json_string);
 
-  // Params supported by OAI but unsupported by llama.cpp
-  static const std::vector<std::string> unsupported_params{"best_of", "echo",
-                                                           "suffix"};
-  for (const auto &param : unsupported_params) {
-    if (body.contains(param)) {
-      throw std::runtime_error("Unsupported param: " + param);
-    }
-  }
-
-  // Copy remaining properties to llama_params
-  for (const auto &item : body.items()) {
-    // Exception: if "n_predict" is present, we overwrite the value specified
-    // earlier by "max_tokens"
-    if (!llama_params.contains(item.key()) || item.key() == "n_predict") {
-      llama_params[item.key()] = item.value();
-    }
-  }
-
-  return llama_params;
-}
-
-#include <string>
-#include <vector>
-
-// Helper function to validate UTF-8
-bool is_valid_utf8(const std::string &str) {
-  const unsigned char *bytes =
-      reinterpret_cast<const unsigned char *>(str.c_str());
-  size_t len = str.length();
-
-  for (size_t i = 0; i < len; i++) {
-    if (bytes[i] <= 0x7F) { // Single byte character
-      continue;
-    }
-
-    // Get number of bytes in this character
-    int extra_bytes;
-    if ((bytes[i] & 0xE0) == 0xC0) { // 2-byte sequence
-      extra_bytes = 1;
-    } else if ((bytes[i] & 0xF0) == 0xE0) { // 3-byte sequence
-      extra_bytes = 2;
-    } else if ((bytes[i] & 0xF8) == 0xF0) { // 4-byte sequence
-      extra_bytes = 3;
-    } else {
-      return false; // Invalid first byte
-    }
-
-    // Check if we have enough bytes left
-    if (i + extra_bytes >= len) {
-      return false;
-    }
-
-    // Validate continuation bytes
-    for (int j = 1; j <= extra_bytes; j++) {
-      if ((bytes[i + j] & 0xC0) != 0x80) {
-        return false;
-      }
-    }
-
-    i += extra_bytes; // Skip the extra bytes
-  }
-
-  return true;
-}
-
-// Helper function to sanitize UTF-8
-std::string sanitize_utf8(const std::string &input) {
-  std::string result;
-  result.reserve(input.length()); // Pre-allocate for efficiency
-
-  const unsigned char *bytes =
-      reinterpret_cast<const unsigned char *>(input.c_str());
-  size_t len = input.length();
-
-  for (size_t i = 0; i < len;) {
-    if (bytes[i] <= 0x7F) { // ASCII character
-      result.push_back(bytes[i]);
-      i++;
-      continue;
-    }
-
-    // Try to read a complete UTF-8 sequence
-    int sequence_length = 0;
-    if ((bytes[i] & 0xE0) == 0xC0)
-      sequence_length = 2;
-    else if ((bytes[i] & 0xF0) == 0xE0)
-      sequence_length = 3;
-    else if ((bytes[i] & 0xF8) == 0xF0)
-      sequence_length = 4;
-
-    bool valid_sequence = true;
-    if (sequence_length > 0 && i + sequence_length <= len) {
-      // Verify continuation bytes
-      for (int j = 1; j < sequence_length; j++) {
-        if ((bytes[i + j] & 0xC0) != 0x80) {
-          valid_sequence = false;
-          break;
+        std::string jinja_tmpl;
+        if (body.contains("jinja_template") &&
+            body["jinja_template"].is_string()) {
+          jinja_tmpl = body["jinja_template"].get<std::string>();
+          body.erase("jinja_template");
         }
+
+        auto *lctx  = srv->srv_ctx->get_llama_context();
+        auto *model  = llama_get_model(lctx);
+        auto  tmpls  = common_chat_templates_init(model, jinja_tmpl);
+
+        try {
+          std::map<std::string, std::string> empty;
+          common_chat_format_example(tmpls.get(), true, empty);
+        } catch (...) {
+          tmpls = common_chat_templates_init(model, "chatml");
+        }
+
+        if (body.contains("messages") && body["messages"].is_array()) {
+          common_chat_templates_inputs inputs;
+          inputs.use_jinja = true;
+          inputs.add_generation_prompt = true;
+          inputs.messages =
+              common_chat_msgs_parse_oaicompat(body["messages"]);
+
+          if (body.contains("tools")) {
+            inputs.tools =
+                common_chat_tools_parse_oaicompat(body["tools"]);
+            inputs.tool_choice =
+                body.contains("tool_choice")
+                    ? common_chat_tool_choice_parse_oaicompat(
+                          body["tool_choice"]
+                              .template get<std::string>())
+                    : COMMON_CHAT_TOOL_CHOICE_AUTO;
+          }
+
+          auto result =
+              common_chat_templates_apply(tmpls.get(), inputs);
+          prompt = result.prompt;
+          parser_params = common_chat_parser_params(result);
+          if (!result.parser.empty()) {
+            parser_params.parser.load(result.parser);
+          }
+
+          log_message("[fllama] Chat format: " +
+                          std::string(common_chat_format_name(
+                              result.format)),
+                      request.dart_logger);
+        }
+      } catch (const std::exception &e) {
+        log_message(std::string("[fllama] OAI parse error: ") + e.what(),
+                    request.dart_logger);
+        is_oai = false;
+      }
+    }
+
+    // ── 4. Multimodal — extract base64 → raw bytes ───────────────────
+
+    std::vector<raw_buffer> files;
+    if (fllama_prompt_contains_image(prompt)) {
+      auto img = fllama_extract_images(prompt);
+      prompt = std::move(img.text_with_markers);
+      for (auto &fb : img.file_bytes)
+        files.push_back(std::move(fb));
+      log_message("[fllama] Extracted " +
+                      std::to_string(files.size()) + " image(s)",
+                  request.dart_logger);
+    }
+
+    // ── 5. Create & post the server task ──────────────────────────────
+
+    auto reader = srv->srv_ctx->get_response_reader();
+
+    server_task task(SERVER_TASK_TYPE_COMPLETION);
+    task.id         = reader.get_new_id();
+    task.index      = 0;
+    task.cli        = true;
+    task.cli_prompt = prompt;
+    task.cli_files  = std::move(files);
+
+    task.params.stream       = true;
+    task.params.cache_prompt = true;
+    task.params.n_predict    = request.max_tokens;
+    task.params.sampling.temp           = request.temperature;
+    task.params.sampling.top_p          = request.top_p;
+    task.params.sampling.penalty_freq   = request.penalty_freq;
+    task.params.sampling.penalty_repeat = request.penalty_repeat;
+
+    std::random_device rd;
+    task.params.sampling.seed = rd();
+
+    if (is_oai) {
+      task.params.res_type           = TASK_RESPONSE_TYPE_OAI_CHAT;
+      task.params.oaicompat_model    = request.model_path;
+      task.params.oaicompat_cmpl_id  = gen_chatcmplid();
+      task.params.chat_parser_params = parser_params;
+    }
+
+    reader.post_task(std::move(task));
+
+    // ── 6. Read results, invoke callbacks ─────────────────────────────
+
+    int rid = request.request_id;
+    auto should_stop = [&] { return g_mgr.is_cancelled(rid); };
+
+    std::string full_content;
+    std::string last_json;
+
+    while (reader.has_next()) {
+      auto res = reader.next(should_stop);
+      if (!res) break;
+
+      if (res->is_error()) {
+        auto ej = res->to_json();
+        std::string msg = ej.contains("message")
+                              ? ej["message"].get<std::string>()
+                              : ej.dump();
+        callback(msg.c_str(), "", true);
+        g_mgr.clear_cancel(rid);
+        g_mgr.unregister_request_thread(rid);
+        return;
       }
 
-      if (valid_sequence) {
-        // Copy the entire valid sequence
-        result.append(reinterpret_cast<const char *>(bytes + i),
-                      sequence_length);
-        i += sequence_length;
+      auto *partial =
+          dynamic_cast<server_task_result_cmpl_partial *>(res.get());
+      if (partial) {
+        full_content += partial->content;
+        auto j = res->to_json();
+        if (!j.is_null()) {
+          last_json = j.dump();
+          callback(full_content.c_str(), last_json.c_str(), false);
+        }
         continue;
       }
+
+      auto *final_r =
+          dynamic_cast<server_task_result_cmpl_final *>(res.get());
+      if (final_r) {
+        full_content = final_r->content;
+        auto j = res->to_json();
+        last_json = j.is_null() ? "" : j.dump();
+        callback(full_content.c_str(), last_json.c_str(), true);
+
+        log_message("[fllama] Done. " +
+                        std::to_string(final_r->n_decoded) + " tok, " +
+                        std::to_string(ggml_time_ms() - t0) + " ms",
+                    request.dart_logger);
+        g_mgr.clear_cancel(rid);
+        g_mgr.unregister_request_thread(rid);
+        return;
+      }
     }
 
-    // If we get here, we encountered an invalid sequence
-    // Replace with Unicode replacement character (�) encoded in UTF-8
-    result.append("\xEF\xBF\xBD");
-    i++;
-  }
+    // Cancelled or exhausted without final result.
+    callback(full_content.c_str(), last_json.c_str(), true);
+    g_mgr.clear_cancel(rid);
+    g_mgr.unregister_request_thread(rid);
 
-  return result;
-}
-
-static nlohmann::json to_json_oaicompat_chat(
-    const std::string &content, const std::string &oaicompat_model,
-    const std::string &oaicompat_cmpl_id, const std::string &build_info,
-    stop_type stop, common_chat_format oaicompat_chat_format,
-    // bool verbose,
-    // const std::vector<completion_token_output>& probs_output,
-    // bool post_sampling_probs,
-    int n_decoded, int n_prompt_tokens
-    // const result_timings* timings
-) {
-  // Issues with invalid UTF-8 were virtually always reproducible on iOS
-  // Simulator with DeepSeek R1 Qwen 1.5B Distill.
-  try {
-    auto is_valid = is_valid_utf8(content);
-    // If sanitization changed the content, it means we had invalid UTF-8
-    if (!is_valid) {
-      return NULL;
-    }
   } catch (const std::exception &e) {
-    throw std::runtime_error("Failed to sanitize content: " +
-                             std::string(e.what()));
+    std::string msg = "Error: " + std::string(e.what());
+    callback(msg.c_str(), "", true);
+    g_mgr.clear_cancel(request.request_id);
+    g_mgr.unregister_request_thread(request.request_id);
+  } catch (...) {
+    callback("Error: Unknown exception", "", true);
+    g_mgr.clear_cancel(request.request_id);
+    g_mgr.unregister_request_thread(request.request_id);
   }
-
-  std::string finish_reason = "length";
-  common_chat_msg msg;
-  if (stop == STOP_TYPE_WORD || stop == STOP_TYPE_EOS ||
-      stop == STOP_TYPE_NONE) {
-    try {
-      common_chat_parser_params syntax;
-      syntax.format = oaicompat_chat_format;
-      msg = common_chat_parse(content, /* is_partial= */ false, syntax);
-      finish_reason = msg.tool_calls.empty() ? "stop" : "tool_calls";
-    } catch (const std::exception &e) {
-      // IMPORTANT NOTE OBSERVED W/PHI-4 MINI:
-      // Phi-4 mini fallback had some issues when integrated.
-      //
-      // Sometimes it would fail to parse a text response, and no response would
-      // be returned.
-      //
-      // Removing `return NULL` here, and in the else branch of the stop words,
-      // fixed this.
-      msg.content = content;
-    }
-  } else {
-    msg.content = content;
-  }
-
-  // Also validate any tool call content
-  if (!msg.tool_calls.empty()) {
-    for (auto &tc : msg.tool_calls) {
-      tc.name = sanitize_utf8(tc.name);
-      tc.arguments = sanitize_utf8(tc.arguments);
-      tc.id = sanitize_utf8(tc.id);
-    }
-  }
-
-  nlohmann::json message{
-      {"role", "assistant"},
-  };
-  if (!msg.reasoning_content.empty()) {
-    message["reasoning_content"] = msg.reasoning_content;
-  }
-  if (msg.content.empty() && !msg.tool_calls.empty()) {
-    message["content"] = nlohmann::json();
-  } else {
-    message["content"] = msg.content;
-  }
-  if (!msg.tool_calls.empty()) {
-    auto tool_calls = nlohmann::json::array();
-    for (const auto &tc : msg.tool_calls) {
-      tool_calls.push_back({
-          {"type", "function"},
-          {"function",
-           {
-               {"name", tc.name},
-               {"arguments", tc.arguments},
-           }},
-          {"id", tc.id},
-      });
-    }
-    message["tool_calls"] = tool_calls;
-  }
-
-  nlohmann::json choice{
-      {"finish_reason", finish_reason},
-      {"index", 0},
-      {"message", message},
-  };
-
-  // if (!probs_output.empty()) {
-  //     choice["logprobs"] = json{
-  //         {"content",
-  //         completion_token_output::probs_vector_to_json(probs_output,
-  //         post_sampling_probs)},
-  //     };
-  // }
-
-  std::time_t t = std::time(0);
-
-  nlohmann::json res =
-      nlohmann::json{{"choices", nlohmann::json::array({choice})},
-           {"created", t},
-           {"model", oaicompat_model},
-           {"system_fingerprint", build_info},
-           {"object", "chat.completion"},
-           {"__llamacpp_detected_chat_format",
-            common_chat_format_name(oaicompat_chat_format)},
-           {"usage", nlohmann::json{{"completion_tokens", n_decoded},
-                          {"prompt_tokens", n_prompt_tokens},
-                          {"total_tokens", n_decoded + n_prompt_tokens}}},
-           {"id", oaicompat_cmpl_id}};
-
-  // extra fields for debugging purposes
-  // if (verbose) {
-  //     res["__verbose"] = json{{"verbose", true}};
-  // }
-  // if (timings && timings->prompt_n >= 0) {
-  //     res.push_back({"timings", timings->to_json()});
-  // }
-
-  return res;
 }
+
+// ── FFI entry points ─────────────────────────────────────────────────────────
 
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE void fllama_inference(fllama_inference_request request,
                                            fllama_inference_callback callback) {
-  std::cout << "[fllama] Hello from fllama.cpp! Queueing your request."
-            << std::endl;
-  global_inference_queue.enqueue(request, callback);
-}
-
-EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void
-fllama_inference_cancel(int request_id) {
-  global_inference_queue.cancel(request_id);
-}
-
-// Process tokens using batch views for better performance and memory management
-static bool process_tokens_with_batch_view(struct llama_context *ctx_llama,
-                                           const std::vector<llama_token> &tokens,
-                                           int n_batch, int *n_past,
-                                           fllama_log_callback logger) {
-  const int N = (int)tokens.size();
-  if (N == 0)
-    return true;
-
-  // Keep tokens data alive
-  std::vector<llama_token> tokens_data = tokens;
-  
-  // Process tokens in optimal chunks using batch views
-  const int optimal_chunk_size = std::min(n_batch, 512);
-  int32_t i_next = 0;
-  int batch_count = 0;
-  int64_t total_batch_time_ms = 0;
-  
-  // Create full batch but process it in views
-  for (int32_t i = 0; i < N; i = i_next) {
-    batch_count++;
-    int64_t batch_start_time = ggml_time_ms();
-    
-    // Determine chunk size for this iteration
-    int32_t n_tokens = std::min(optimal_chunk_size, N - i);
-    
-    // Check context space before processing this chunk
-    int n_ctx = llama_n_ctx(ctx_llama);
-    // Get the maximum position in context (0-based index)
-    int n_ctx_used = 0;
-    auto* memory = llama_get_memory(ctx_llama);
-    if (memory) {
-      llama_pos max_pos = llama_memory_seq_pos_max(memory, 0);
-      // Convert to count for checking space: if max_pos is 9, we have 10 tokens
-      n_ctx_used = max_pos + 1;  // Will be 0 if max_pos is -1 (empty)
-    }
-    
-    if (n_ctx_used + n_tokens > n_ctx) {
-      log_message("[ERROR] Context size would be exceeded: used=" +
-                  std::to_string(n_ctx_used) + ", adding=" + std::to_string(n_tokens) +
-                  ", total=" + std::to_string(n_ctx), logger);
-      return false;
-    }
-    
-    // Create a batch view for this chunk
-    llama_batch batch_view = llama_batch_get_one(tokens_data.data() + i, n_tokens);
-    
-    // Attempt to decode this chunk
-    int decode_result = llama_decode(ctx_llama, batch_view);
-    
-    if (decode_result != 0) {
-      // If decode failed, try with smaller batch
-      if (n_tokens > 1 && decode_result == 1) {
-        log_message("[INFO] Batch decode failed, retrying with smaller batch size: " + 
-                    std::to_string(n_tokens/2), logger);
-        
-        // Retry with half the batch size
-        int retry_chunk_size = n_tokens / 2;
-        for (int j = 0; j < n_tokens; j += retry_chunk_size) {
-          int chunk_end = std::min(j + retry_chunk_size, n_tokens);
-          llama_batch small_batch = llama_batch_get_one(tokens_data.data() + i + j, chunk_end - j);
-          
-          int64_t retry_start = ggml_time_ms();
-          if (llama_decode(ctx_llama, small_batch) != 0) {
-            log_message("[ERROR] Failed to decode even with smaller batch at position " + 
-                        std::to_string(i + j), logger);
-            return false;
-          }
-          int64_t retry_time = ggml_time_ms() - retry_start;
-          log_message("[BATCH] Retry batch " + std::to_string(j/retry_chunk_size + 1) + 
-                      ": processed " + std::to_string(chunk_end - j) + " tokens in " + 
-                      std::to_string(retry_time) + " ms (" + 
-                      std::to_string((chunk_end - j) * 1000.0 / retry_time) + " tokens/s)", logger);
-        }
-      } else {
-        log_message("[ERROR] Decode failed with code " + std::to_string(decode_result) +
-                    " for batch of size " + std::to_string(n_tokens), logger);
-        return false;
-      }
-    }
-    
-    // Calculate timing for this batch
-    int64_t batch_time_ms = ggml_time_ms() - batch_start_time;
-    total_batch_time_ms += batch_time_ms;
-    
-    // Move to next chunk
-    i_next = i + n_tokens;
-    
-    // Log timing and progress for EVERY batch
-    double tokens_per_second = n_tokens * 1000.0 / std::max(batch_time_ms, (int64_t)1);
-    log_message("[BATCH] Batch " + std::to_string(batch_count) + 
-                ": processed " + std::to_string(n_tokens) + " tokens in " + 
-                std::to_string(batch_time_ms) + " ms (" + 
-                std::to_string(tokens_per_second) + " tokens/s) - Total: " + 
-                std::to_string(i_next) + "/" + std::to_string(N) + " tokens", logger);
-  }
-  
-  // Log overall summary
-  if (batch_count > 1) {
-    double avg_tokens_per_second = N * 1000.0 / std::max(total_batch_time_ms, (int64_t)1);
-    log_message("[BATCH] Summary: Processed " + std::to_string(N) + " tokens in " + 
-                std::to_string(batch_count) + " batches, total time: " + 
-                std::to_string(total_batch_time_ms) + " ms (" + 
-                std::to_string(avg_tokens_per_second) + " tokens/s average)", logger);
-  }
-  
-  // Update past token count
-  auto* memory = llama_get_memory(ctx_llama);
-  if (!memory) {
-    *n_past = 0;
-  } else {
-    llama_pos max_pos = llama_memory_seq_pos_max(memory, 0);
-    *n_past = max_pos + 1;  // Convert 0-based position to count
-  }
-  return true;
-}
-
-static void log_callback_wrapper(enum ggml_log_level level, const char *text,
-                                 void *user_data) {
-  std::cout << "[llama] " << text;
+  int rid = request.request_id;
+  std::thread t([request, callback] { run_inference(request, callback); });
+  g_mgr.register_request_thread(rid, std::move(t));
 }
 
 EMSCRIPTEN_KEEPALIVE void
 fllama_inference_sync(fllama_inference_request request,
                       fllama_inference_callback callback) {
-  // Setup parameters, then load the model and create a context.
-  int64_t start = ggml_time_ms();
-  log_message("[fllama] Inference thread start", request.dart_logger);
-  try {
-    ggml_backend_load_all();
-    log_message("[fllama] Backend initialized.", request.dart_logger);
-    
-    // List all available backends
-    log_message("[fllama] Available backends:", request.dart_logger);
-    for (size_t i = 0; i < ggml_backend_reg_count(); i++) {
-        ggml_backend_reg_t reg = ggml_backend_reg_get(i);
-        log_message("[fllama]   - " + std::string(ggml_backend_reg_name(reg)), request.dart_logger);
-    }
-
-    llama_context_params ctx_params = llama_context_default_params();
-    log_message("[fllama] Initializing params.", request.dart_logger);
-    uint32_t requested_context_size = request.context_size;
-    ctx_params.n_ctx = requested_context_size;
-    log_message("[fllama] Context size: " + std::to_string(ctx_params.n_ctx), request.dart_logger);
-    // >=32 needed for BLAS.
-    // # Why is n_batch = context size?
-    // Post-Jan 2025 update, the llama.cpp inference imitates simple-chat.cpp,
-    // which adds the entire prompt in one call. There isn't a downside to this,
-    // in early 2024, there used to be an issue with memory headroom and context
-    // size on extremely constrained devices, but that's no longer the case.
-    //
-    // Now, if we try using a batch size < input token count, there will be an
-    // assertion failure. In general, it seems batch_size = context_size is the
-    // best way because that guarantees as the batch updates after each
-    // inference run, there won't be any issues. (the idea there might be an
-    // issue assumes batch = input + all tokens generated thus far, which may
-    // not be the case)
-    uint32_t n_batch = requested_context_size;
-    ctx_params.n_batch = requested_context_size;
-    // Non-causal attention models (e.g. Gemma 3 multimodal) require
-    // n_ubatch >= n_tokens. Setting it to context size is safe for all models.
-    ctx_params.n_ubatch = requested_context_size;
-    log_message("[fllama] Batch size: " + std::to_string(ctx_params.n_batch), request.dart_logger);
-    ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
-    log_message(std::string("[fllama] flash_attn: ") + llama_flash_attn_type_name(ctx_params.flash_attn_type), request.dart_logger);
-    log_message("[fllama] swa_full: " + std::to_string(ctx_params.swa_full), request.dart_logger);
-
-    // TODO: params.n_predict = request.max_tokens;
-    // std::cout << "[fllama] Max tokens: " << params.n_predict << std::endl;
-    // TODO: params.n_threads = request.num_threads;
-    // std::cout << "[fllama] Number of threads: " << params.n_threads <<
-    // std::endl;
-    // Generate a random seed using std::random_device for better randomness
-    std::random_device rd;
-    uint32_t random_seed = rd();
-    log_message("Using random seed: " + std::to_string(random_seed), request.dart_logger);
-    
-    llama_sampler *smpl =
-        llama_sampler_chain_init(llama_sampler_chain_default_params());
-    llama_sampler_chain_add(
-        smpl, llama_sampler_init_min_p((1.0f - request.top_p), 1));
-    llama_sampler_chain_add(smpl, llama_sampler_init_temp(request.temperature));
-    llama_sampler_chain_add(smpl, llama_sampler_init_dist(random_seed));
-
-    llama_model_params model_params = llama_model_default_params();
-    // std::vector<llama_sampler_type> samplers = {
-    //     llama_sampler_type::TOP_P, llama_sampler_type::TEMPERATURE};
-    // params.sparams.samplers_sequence = samplers;
-    // params.sparams.top_p = request.top_p;
-    // std::cout << "[fllama] Top_p: " << params.sparams.top_p << std::endl;
-    // TODO: request.grammar
-    // if (request.grammar != NULL && strlen(request.grammar) > 0) {
-    //   std::cout << "[fllama] Grammar: " << request.grammar << std::endl;
-    //   params.sparams.grammar = std::string(request.grammar);
-    // }
-    // std::cout << "[fllama] Model path: " << params.model << std::endl;
-// Force CPU if iOS simulator: no GPU support available, hangs.
-#if TARGET_IPHONE_SIMULATOR
-    model_params.n_gpu_layers = 0;
-// Otherwise, for physical iOS devices and other platforms
-#else
-    model_params.n_gpu_layers = request.num_gpu_layers;
-    log_message("[fllama] Number of GPU layers requested: " + std::to_string(model_params.n_gpu_layers), request.dart_logger);
-    
-    // Check if GPU offload is actually supported
-    if (llama_supports_gpu_offload()) {
-        log_message("[fllama] GPU offload IS supported!", request.dart_logger);
-    } else {
-        log_message("[fllama] WARNING: GPU offload NOT supported!", request.dart_logger);
-        log_message("[fllama] This means Metal backend is not available.", request.dart_logger);
-    }
-#endif
-    // Check if a Dart logger function is provided, use it if available.
-    if (request.dart_logger != NULL) {
-      log_message("[fllama] Request log callback for llama.cpp detected", request.dart_logger);
-      llama_log_set(
-          [](enum ggml_log_level level, const char *text, void *user_data) {
-            fllama_log_callback dart_logger =
-                reinterpret_cast<fllama_log_callback>(user_data);
-            dart_logger(text);
-          },
-          reinterpret_cast<void *>(request.dart_logger));
-      log_message("[fllama] Request log callback installed for llama.cpp.", request.dart_logger);
-    } else {
-      log_message("[fllama] fllama default log callback installed for llama.cpp.", request.dart_logger);
-      llama_log_set(log_callback_wrapper, NULL);
-    }
-    // By default, llama.cpp emits a llama.log file containing ex. ~20 highest
-    // probability tokens and the tokens selected. This is interesting, but,
-    // there's privacy implications with that, as well as the log will grow
-    // unbounded according to an issue on the llama.cpp GitHub repo.
-    //
-    // This imitates the solution used in the llama.cpp server when
-    // --log-disable is passed.
-    //
-    // See https://github.com/ggerganov/llama.cpp/pull/4260.
-    // TODO: ???
-    // log_set_target(stdout);
-    log_message("Initialized llama logger.", request.dart_logger);
-
-    // Use ModelHandle for proper RAII and thread safety
-    ModelHandle model_handle;
-    llama_model *model = nullptr;
-    llama_context *ctx = nullptr;
-    char *c_result = nullptr;
-    std::string model_path_str = request.model_path ? request.model_path : "";
-    bool context_reuse_possible = false;
-    ModelResources* model_resources = nullptr;
-    
-    // RAII helper to ensure context lock is released even on exception
-    class ContextLockGuard {
-      ModelHandle* handle_ptr = nullptr;
-      bool locked = false;
-    public:
-      ContextLockGuard() = default;
-      explicit ContextLockGuard(ModelHandle& h) : handle_ptr(&h) {}
-      
-      // Move constructor and assignment
-      ContextLockGuard(ContextLockGuard&& other) noexcept 
-        : handle_ptr(other.handle_ptr), locked(other.locked) {
-        other.handle_ptr = nullptr;
-        other.locked = false;
-      }
-      
-      ContextLockGuard& operator=(ContextLockGuard&& other) noexcept {
-        if (this != &other) {
-          unlock();
-          handle_ptr = other.handle_ptr;
-          locked = other.locked;
-          other.handle_ptr = nullptr;
-          other.locked = false;
-        }
-        return *this;
-      }
-      
-      // Delete copy operations
-      ContextLockGuard(const ContextLockGuard&) = delete;
-      ContextLockGuard& operator=(const ContextLockGuard&) = delete;
-      
-      bool try_lock() {
-        if (handle_ptr && handle_ptr->valid()) {
-          locked = handle_ptr->try_lock_context_for_reuse();
-          return locked;
-        }
-        return false;
-      }
-      
-      void unlock() {
-        if (locked && handle_ptr) {
-          handle_ptr->unlock_context();
-          locked = false;
-        }
-      }
-      
-      ~ContextLockGuard() { unlock(); }
-    };
-    
-    auto cleanup = [&]() {
-      // Always free the sampler since we create a new one for each request
-      if (smpl)
-        llama_sampler_free(smpl);
-      
-      // Note: The ModelHandle will automatically decrement users and handle cleanup
-      // We don't need to manually free model or context - the handle manages it
-      llama_backend_free();
-      // c_result is freed automatically by unique_ptr
-    };
-    // Process OpenAI chat messages if provided
-    log_message("Initializing llama model...", request.dart_logger);
-    
-    // Try to get an existing model using the safe handle API
-    model_handle = global_inference_queue.get_model_handle(model_path_str);
-    
-    // Create context lock guard that will auto-unlock on scope exit
-    ContextLockGuard context_guard(model_handle);
-    
-    if (model_handle.valid()) {
-      // Model exists and we have a safe handle to it
-      model = model_handle.model();
-      ctx = model_handle.ctx();
-      model_resources = model_handle.operator->();
-      
-      // Try to lock context for exclusive reuse
-      context_reuse_possible = context_guard.try_lock();
-      
-      log_message(context_reuse_possible ? 
-                 "Context reuse is possible - model is cached with single user" : 
-                 "Context reuse not possible - model has multiple users", 
-                 request.dart_logger);
-    } else {
-      log_message("Model not cached, will load from file", request.dart_logger);
-    }
-    
-    // Create a new sampler for each request since samplers are lightweight
-    // and depend on request-specific parameters (temperature, top_p, seed)
-    smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
-    llama_sampler_chain_add(smpl, llama_sampler_init_min_p((1.0f - request.top_p), 1));
-    llama_sampler_chain_add(smpl, llama_sampler_init_temp(request.temperature));
-    llama_sampler_chain_add(smpl, llama_sampler_init_dist(random_seed));
-    
-    if (!model_handle.valid()) {
-      // Need to load the model from file
-      log_message("Loading model from file: " + model_path_str, request.dart_logger);
-      model = llama_model_load_from_file(request.model_path, model_params);
-      if (!model) {
-        callback("Error: Failed to load model from file", "", true);
-        cleanup();
-        return;
-      }
-      ctx = llama_init_from_model(model, ctx_params);
-      if (!ctx) {
-        callback("Error: Failed to create context", "", true);
-        llama_model_free(model);
-        cleanup();
-        return;
-      }
-      
-      // Register and acquire the model atomically
-      model_handle = global_inference_queue.register_and_acquire_model(model_path_str, model, ctx);
-      if (!model_handle.valid()) {
-        // Registration failed - another thread may have loaded it simultaneously
-        log_message("Failed to register model - checking if another thread loaded it", request.dart_logger);
-        // Clean up our loaded model
-        llama_free(ctx);
-        llama_model_free(model);
-        
-        // Try to get the model again
-        model_handle = global_inference_queue.get_model_handle(model_path_str);
-        if (!model_handle.valid()) {
-          callback("Error: Failed to register or retrieve model", "", true);
-          cleanup();
-          return;
-        }
-      }
-      
-      // Update our pointers from the handle
-      model = model_handle.model();
-      ctx = model_handle.ctx();
-      model_resources = model_handle.operator->();
-      // Update the context guard with the new handle
-      context_guard = std::move(ContextLockGuard(model_handle));
-      // Try to lock context - should succeed since we just loaded it
-      context_reuse_possible = context_guard.try_lock();
-      log_message("Successfully loaded and registered model", request.dart_logger);
-    } else {
-      log_message("Using cached model: " + model_path_str, request.dart_logger);
-    }
-    
-    if (model == NULL || ctx == NULL) {
-      log_message("[fllama] Unable to load model.", request.dart_logger);
-      callback(/* response */ "Error: Unable to load model.", /* json */ "",
-               /* done */ true);
-      cleanup();
-      return;
-    }
-
-    log_message("Initialized model.", request.dart_logger);
-    std::string final_request_input = request.input;
-
-    nlohmann::ordered_json body = NULL;
-
-    auto openai_json_string = request.openai_request_json_string;
-    auto common_chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
-    std::string jinja_template = "";
-    if (openai_json_string != NULL) {
-      log_message("Processing OpenAI-style API request via JSON",
-                  request.dart_logger);
-      try {
-        body = nlohmann::json::parse(openai_json_string);
-        if (body.contains("jinja_template") && body["jinja_template"].is_string()) {
-          jinja_template = body["jinja_template"].get<std::string>();
-          body.erase("jinja_template");
-          log_message("Using custom Jinja template: " + jinja_template,
-                      request.dart_logger);
-        }
-
-        auto chat_templates = common_chat_templates_init(model, jinja_template);
-        // Try to use model's built-in template, fallback to chatml
-        try {
-          // Third parameter is chat_template_kwargs - this is user configuration (e.g. via
-          // LLAMA_CHAT_TEMPLATE_KWARGS env var or CLI args), NOT something from the model.
-          // Empty map is correct here since we don't expose this configuration to users.
-          std::map<std::string, std::string> empty_template_kwargs;
-          common_chat_format_example(chat_templates.get(), true, empty_template_kwargs);
-        } catch (const std::exception &e) {
-          log_message(
-              "Model's chat template not supported, falling back to chatml",
-              request.dart_logger);
-          chat_templates = common_chat_templates_init(model, "chatml");
-        }
-
-        // Format messages using chat template
-        if (body.contains("messages") && body["messages"].is_array()) {
-          common_chat_templates_inputs tmpl_inputs;
-          tmpl_inputs.use_jinja = true;
-          tmpl_inputs.add_generation_prompt = true;
-          tmpl_inputs.messages =
-              common_chat_msgs_parse_oaicompat(body["messages"]);
-
-          // Handle tools if present
-          if (body.contains("tools")) {
-
-            log_message("DEBUG Tools JSON: " + body["tools"].dump(),
-                        request.dart_logger);
-            auto tools = json_value(body, "tools", nlohmann::json());
-            log_message("DEBUG Tools after json_value: " + tools.dump(),
-                        request.dart_logger);
-
-            // Check the actual type
-            log_message("DEBUG Tools type: " + std::string(tools.type_name()),
-                        request.dart_logger);
-
-            tmpl_inputs.tools = common_chat_tools_parse_oaicompat(tools);
-            tmpl_inputs.tool_choice =
-                body.contains("tool_choice")
-                    ? common_chat_tool_choice_parse_oaicompat(
-                          body["tool_choice"].template get<std::string>())
-                    : COMMON_CHAT_TOOL_CHOICE_AUTO;
-          }
-          
-          // Log tmpl_inputs before applying templates
-          log_message("DEBUG tmpl_inputs: {", request.dart_logger);
-          log_message("  use_jinja: " + std::to_string(tmpl_inputs.use_jinja), request.dart_logger);
-          log_message("  add_generation_prompt: " + std::to_string(tmpl_inputs.add_generation_prompt), request.dart_logger);
-          log_message("  messages count: " + std::to_string(tmpl_inputs.messages.size()), request.dart_logger);
-          
-          // Log message details (roles and brief content previews)
-          for (size_t i = 0; i < tmpl_inputs.messages.size(); i++) {
-            const auto& msg = tmpl_inputs.messages[i];
-            std::string content_preview = msg.content;
-            if (content_preview.length() > 50) {
-              content_preview = content_preview.substr(0, 47) + "...";
-            }
-            log_message("    message[" + std::to_string(i) + "]: role=" + msg.role + ", content_preview=\"" + content_preview + "\"", request.dart_logger);
-          }
-          
-          if (!tmpl_inputs.tools.empty()) {
-            log_message("  tools count: " + std::to_string(tmpl_inputs.tools.size()), request.dart_logger);
-            for (size_t i = 0; i < tmpl_inputs.tools.size(); i++) {
-              log_message("    tool[" + std::to_string(i) + "]: " + tmpl_inputs.tools[i].name, request.dart_logger);
-            }
-            
-            log_message("  tool_choice: " + std::to_string(static_cast<int>(tmpl_inputs.tool_choice)), request.dart_logger);
-          }
-          
-          log_message("}", request.dart_logger);
-          
-          auto result =
-              common_chat_templates_apply(chat_templates.get(), tmpl_inputs);
-          final_request_input = result.prompt;
-          common_chat_format = result.format;
-          log_message("Using formatted chat input with template",
-                      request.dart_logger);
-          log_message("Template format: " + std::string(common_chat_format_name(result.format)),
-                      request.dart_logger);
-          log_message("Formatted input: " + final_request_input,
-                      request.dart_logger);
-        } else {
-          std::string keys;
-          for (auto it = body.begin(); it != body.end(); ++it) {
-            keys += it.key() + ", ";
-          }
-          if (!keys.empty()) {
-            keys.pop_back(); // Remove last comma
-            keys.pop_back(); // Remove last space
-          }
-          log_message("No messages found in OpenAI chat format. JSON Keys "
-                      "ONLY, NO VALUES: " +
-                          keys,
-                      request.dart_logger);
-        }
-      } catch (const std::exception &e) {
-        log_message("Error processing OpenAI chat format: " +
-                        std::string(e.what()),
-                    request.dart_logger);
-        log_message("Falling back to raw input", request.dart_logger);
-      }
-    } else {
-      log_message("No OpenAI chat format provided, using raw input",
-                  request.dart_logger);
-    }
-
-    // Initialize mtmd multimodal context if an mmproj path is provided
-    // and the model resources don't already have one.
-    std::string mmproj_path_str =
-        request.model_mmproj_path ? request.model_mmproj_path : "";
-    if (!mmproj_path_str.empty() && model_resources &&
-        !model_resources->mtmd_ctx) {
-      log_message("[MTMD] Initializing multimodal context from: " +
-                      mmproj_path_str,
-                  request.dart_logger);
-      mtmd_context_params mtmd_params = mtmd_context_params_default();
-      mtmd_params.use_gpu = (request.num_gpu_layers > 0);
-      mtmd_params.n_threads = request.num_threads;
-      mtmd_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
-
-      model_resources->mtmd_ctx = mtmd_init_from_file(
-          request.model_mmproj_path, model, mtmd_params);
-      if (!model_resources->mtmd_ctx) {
-        log_message(
-            "[MTMD] Warning: failed to init mtmd context – proceeding "
-            "text-only",
-            request.dart_logger);
-      } else {
-        log_message("[MTMD] Multimodal context initialized.",
-                    request.dart_logger);
-      }
-    }
-
-    // Check whether the (possibly template-formatted) prompt has images and
-    // whether we have the multimodal context needed to handle them.
-    bool has_mtmd =
-        model_resources && model_resources->mtmd_ctx != nullptr;
-    bool prompt_has_images = fllama_prompt_contains_image(final_request_input);
-
-    // If there are images but no mmproj was provided, strip them to avoid
-    // tokenizing huge base64 strings.
-    if (prompt_has_images && !has_mtmd) {
-      log_message(
-          "[MTMD] Prompt contains images but no mmproj available – "
-          "stripping image tags.",
-          request.dart_logger);
-      // Crude strip: replace each <img ...> with empty string using the
-      // same extraction helper (just take the modified text, ignore bitmaps).
-      auto strip_result =
-          fllama_extract_bitmaps(nullptr, final_request_input);
-      // fllama_extract_bitmaps with nullptr ctx will produce 0 bitmaps but
-      // still replace tags – actually it will fail inside
-      // mtmd_helper_bitmap_init_from_buf. Let's just do a simple removal.
-      // We'll re-use the marker replacement and the bitmaps vector will be
-      // empty.
-      // Simpler: just blank out all <img ...> tags manually.
-      std::string cleaned = final_request_input;
-      while (true) {
-        auto pos1 = cleaned.find("<img src=\"data:image/");
-        if (pos1 == std::string::npos) break;
-        auto pos2 = cleaned.find("\">", pos1);
-        if (pos2 == std::string::npos) break;
-        cleaned.replace(pos1, pos2 + 2 - pos1, "");
-      }
-      final_request_input = cleaned;
-      prompt_has_images = false;
-    }
-
-    int64_t model_load_end = ggml_time_ms();
-    int64_t model_load_duration_ms = model_load_end - start;
-    log_message("Model loaded @ " + std::to_string(model_load_duration_ms) +
-                    " ms.",
-                request.dart_logger);
-
-    // Tokenize the prompt.  We will later use these tokens to decide whether
-    // we can reuse an existing cached llama_context or whether we need to
-    // replay the full prompt from scratch.
-    const int n_ctx = llama_n_ctx(ctx);
-    const llama_vocab *vocab = llama_model_get_vocab(model);
-
-    int n_prompt_tokens =
-        -llama_tokenize(vocab, final_request_input.c_str(),
-                        final_request_input.length(), NULL, 0, true, true);
-    std::vector<llama_token> tokens_list(n_prompt_tokens);
-    if (llama_tokenize(vocab, final_request_input.c_str(),
-                       final_request_input.length(), tokens_list.data(),
-                       tokens_list.size(), true, true) < 0) {
-      fprintf(stderr, "%s: tokenization failed\n", __func__);
-      callback("Error: Unable to tokenize input", "", true);
-      cleanup();
-      return;
-    }
-    log_message("Input token count: " + std::to_string(tokens_list.size()),
-                request.dart_logger);
-    log_message("Output token count: " + std::to_string(request.max_tokens),
-                request.dart_logger);
-    const int n_max_tokens = request.max_tokens;
-    log_message("Number of threads: " + std::to_string(ctx_params.n_threads),
-                request.dart_logger);
-
-    // 2. Load the prompt into the context.
-    int n_past = 0;
-
-    // -------------------------------------------------------------------
-    // Context & token-state reuse logic
-    // -------------------------------------------------------------------
-    // If we have a cached model and the new request's tokens have the
-    // previous token_state as a prefix, we can avoid replaying those tokens
-    // and simply continue the context from where we left off.
-    bool reused_context = false;
-    size_t prefix_len = 0;
-    if (model_resources) {
-      std::scoped_lock lk(model_resources->token_state_mutex);
-
-      if (context_reuse_possible) {
-        const std::vector<llama_token> &prev_tokens = model_resources->token_state;
-        if (!prev_tokens.empty() && tokens_list.size() >= prev_tokens.size()) {
-          bool is_prefix = true;
-          for (size_t i = 0; i < prev_tokens.size(); ++i) {
-            if (tokens_list[i] != prev_tokens[i]) {
-              is_prefix = false;
-              break;
-            }
-          }
-          int n_ctx_limit = llama_n_ctx(ctx);
-          if (is_prefix && static_cast<int>(tokens_list.size()) <= n_ctx_limit) {
-            reused_context = true;
-            prefix_len = prev_tokens.size();
-            n_past = static_cast<int>(prefix_len);
-            log_message("[CACHE] Reusing context. Prefix tokens: " + std::to_string(prefix_len), request.dart_logger);
-          } else if (is_prefix) {
-            log_message("[CACHE] Prefix matches but combined tokens exceed context window (" +
-                        std::to_string(tokens_list.size()) + "/" + std::to_string(n_ctx_limit) +
-                        "). Skipping reuse.", request.dart_logger);
-          }
-            // Helpful diagnostics to understand first mismatch
-            size_t first_mismatch = 0;
-            const size_t min_len = std::min(prev_tokens.size(), tokens_list.size());
-            while (first_mismatch < min_len && prev_tokens[first_mismatch] == tokens_list[first_mismatch]) first_mismatch++;
-            log_message("[CACHE] Strict prefix failed. prev_tokens.size=" + std::to_string(prev_tokens.size()) +
-                        ", new_tokens.size=" + std::to_string(tokens_list.size()) +
-                        ", common_prefix_len=" + std::to_string(first_mismatch), request.dart_logger);
-        } else {
-          log_message("[CACHE] No prefix match. Previous tokens: " +
-                      std::to_string(prev_tokens.size()) + ", current tokens: " +
-                      std::to_string(tokens_list.size()), request.dart_logger);
-        }
-      } else {
-        // We already logged the reason why context reuse isn't possible earlier
-      }
-    }
-
-    if (!reused_context) {
-      // Either no cached context or tokens diverged. Try smarter strategies before full reset.
-      if (ctx && model_resources) {
-        // Check for sliding window attention models
-        const auto n_swa = llama_model_n_swa(model);
-        if (n_swa > 0 && n_past > 0) {
-          // For SWA models, check if we have enough valid cache data
-          const auto pos_min = llama_memory_seq_pos_min(llama_get_memory(ctx), 0);
-          if (pos_min > std::max(0, n_past - n_swa)) {
-            log_message("[CACHE] SWA model detected with insufficient cache data. Forcing full reprocessing.", request.dart_logger);
-            log_message("[CACHE] n_swa=" + std::to_string(n_swa) + ", n_past=" + std::to_string(n_past) + 
-                        ", pos_min=" + std::to_string(pos_min), request.dart_logger);
-            // Force full reprocessing for SWA models when cache is insufficient
-            n_past = 0;
-            llama_memory_clear(llama_get_memory(ctx), true);
-            model_resources->token_state.clear();
-          }
-        }
-        
-        // Strategy 1: Try partial KV cache deletion if we have a partial match
-        size_t common_prefix_len = 0;
-        if (!model_resources->token_state.empty() && !tokens_list.empty()) {
-          // Find the common prefix between cached and new tokens
-          const size_t min_len = std::min(model_resources->token_state.size(), tokens_list.size());
-          for (size_t i = 0; i < min_len; ++i) {
-            if (model_resources->token_state[i] == tokens_list[i]) {
-              common_prefix_len++;
-            } else {
-              break;
-            }
-          }
-        }
-        
-        if (common_prefix_len > 0) {
-          // We have a partial match - try to keep the common prefix
-          log_message("[CACHE] Partial match found. Common prefix: " + std::to_string(common_prefix_len) + 
-                      " tokens. Attempting partial KV cache retention.", request.dart_logger);
-          
-          // Try to remove only the divergent part
-          if (llama_memory_seq_rm(llama_get_memory(ctx), 0, common_prefix_len, -1)) {
-            // Successfully removed divergent part, update state
-            model_resources->token_state.resize(common_prefix_len);
-            prefix_len = common_prefix_len;
-            n_past = static_cast<int>(common_prefix_len);
-            reused_context = true;  // Mark as partial reuse
-            log_message("[CACHE] Successfully retained " + std::to_string(common_prefix_len) + 
-                        " prefix tokens", request.dart_logger);
-          } else {
-            // Partial deletion failed, fall back to full clear
-            log_message("[CACHE] Partial deletion failed, clearing entire cache", request.dart_logger);
-            llama_memory_clear(llama_get_memory(ctx), true);
-            model_resources->token_state.clear();
-          }
-        } else {
-          // No common prefix, clear everything
-          log_message("[CACHE] No common prefix found, clearing entire cache", request.dart_logger);
-          llama_memory_clear(llama_get_memory(ctx), true);
-          model_resources->token_state.clear();
-        }
-      } else if (ctx) {
-        // No model resources, just clear
-        log_message(
-            "[CACHE] No model resources available, clearing context.",
-            request.dart_logger);
-        llama_memory_clear(llama_get_memory(ctx), true);
-      }
-    }
-    // ---------------------------------------------------------------
-    // Multimodal (mtmd) or text-only prompt processing
-    // ---------------------------------------------------------------
-    bool used_mtmd_path = false;
-
-    if (has_mtmd && prompt_has_images) {
-      // === MULTIMODAL PATH via mtmd ===
-      log_message("[MTMD] Extracting images and tokenizing with mtmd...",
-                  request.dart_logger);
-
-      // 1. Extract base64 images → mtmd_bitmaps, replace tags with marker
-      auto bitmap_result =
-          fllama_extract_bitmaps(model_resources->mtmd_ctx, final_request_input);
-
-      if (bitmap_result.bitmaps.empty()) {
-        log_message(
-            "[MTMD] Warning: could not decode any images from prompt. "
-            "Falling back to text-only.",
-            request.dart_logger);
-        // Strip image tags so we don't try to tokenize base64
-        final_request_input = bitmap_result.text_with_markers;
-        // Fall through to text-only path below
-      } else {
-        // 2. Clear KV cache for multimodal (mixed token types can't be
-        //    compared for prefix reuse)
-        llama_memory_clear(llama_get_memory(ctx), true);
-        if (model_resources) {
-          std::scoped_lock lk(model_resources->token_state_mutex);
-          model_resources->token_state.clear();
-        }
-        reused_context = false;
-
-        // 3. Tokenize with mtmd
-        mtmd_input_chunks * chunks_raw = mtmd_input_chunks_init();
-        mtmd_input_text input_text = {
-            bitmap_result.text_with_markers.c_str(),
-            /*add_special=*/true,
-            /*parse_special=*/true,
-        };
-
-        std::vector<const mtmd_bitmap *> bitmaps_ptrs;
-        bitmaps_ptrs.reserve(bitmap_result.bitmaps.size());
-        for (auto *b : bitmap_result.bitmaps) {
-          bitmaps_ptrs.push_back(b);
-        }
-
-        int32_t tok_res = mtmd_tokenize(
-            model_resources->mtmd_ctx, chunks_raw, &input_text,
-            bitmaps_ptrs.data(), bitmaps_ptrs.size());
-
-        if (tok_res != 0) {
-          log_message("[MTMD] mtmd_tokenize failed: " +
-                          std::to_string(tok_res),
-                      request.dart_logger);
-          for (auto *b : bitmap_result.bitmaps) mtmd_bitmap_free(b);
-          mtmd_input_chunks_free(chunks_raw);
-          callback("Error: mtmd_tokenize failed", "", true);
-          cleanup();
-          return;
-        }
-
-        // 4. Eval all chunks (text + images) in one call
-        llama_pos new_n_past = 0;
-        int32_t eval_res = mtmd_helper_eval_chunks(
-            model_resources->mtmd_ctx, ctx, chunks_raw,
-            /*n_past=*/0, /*seq_id=*/0, /*n_batch=*/n_batch,
-            /*logits_last=*/true, &new_n_past);
-
-        n_past = new_n_past;
-        n_prompt_tokens = (int)mtmd_helper_get_n_tokens(chunks_raw);
-        used_mtmd_path = true;
-
-        // 5. Cleanup bitmaps & chunks
-        for (auto *b : bitmap_result.bitmaps) mtmd_bitmap_free(b);
-        mtmd_input_chunks_free(chunks_raw);
-
-        if (eval_res != 0) {
-          log_message("[MTMD] mtmd_helper_eval_chunks failed: " +
-                          std::to_string(eval_res),
-                      request.dart_logger);
-          callback("Error: mtmd eval failed", "", true);
-          cleanup();
-          return;
-        }
-
-        log_message("[MTMD] Multimodal prompt processed. n_past=" +
-                        std::to_string(n_past) +
-                        ", n_prompt_tokens=" +
-                        std::to_string(n_prompt_tokens),
-                    request.dart_logger);
-      }
-    }
-
-    // === TEXT-ONLY PATH (also used as fallback if mtmd bitmap decode fails) ===
-    if (!used_mtmd_path) {
-      log_message("Adding input to context...length: " +
-                      std::to_string(final_request_input.length()),
-                  request.dart_logger);
-      log_message("Context size: " + std::to_string(n_ctx), request.dart_logger);
-      log_message("Input tokens: " + std::to_string(tokens_list.size()),
-                  request.dart_logger);
-      // Process tokens in batches for better performance with batch views
-      if (reused_context) {
-        // We have reused some context, only process new tokens
-        if (prefix_len < tokens_list.size()) {
-          std::vector<llama_token> suffix_tokens(
-              tokens_list.begin() + prefix_len, tokens_list.end());
-          log_message("[CACHE] Processing " +
-                          std::to_string(suffix_tokens.size()) +
-                          " new tokens after reused prefix",
-                      request.dart_logger);
-
-          if (!process_tokens_with_batch_view(ctx, suffix_tokens, n_batch,
-                                             &n_past, request.dart_logger)) {
-            callback("Error: Failed to process prompt", "", true);
-            cleanup();
-            return;
-          }
-        } else {
-          log_message(
-              "[CACHE] All tokens already in cache, no new tokens to process",
-              request.dart_logger);
-        }
-      } else {
-        log_message("[CACHE] Processing full prompt of " +
-                        std::to_string(tokens_list.size()) +
-                        " tokens with batch views",
-                    request.dart_logger);
-
-        if (!process_tokens_with_batch_view(ctx, tokens_list, n_batch, &n_past,
-                                           request.dart_logger)) {
-          callback("Error: Failed to process prompt", "", true);
-          cleanup();
-          return;
-        }
-      }
-      if (tokens_list.size() > n_ctx) {
-        log_message("Input tokens exceed context size.", request.dart_logger);
-        auto error_message =
-            "Error: Input exceeds context size. Input tokens: " +
-            std::to_string(tokens_list.size()) +
-            ", context size: " + std::to_string(n_ctx);
-        callback(error_message.c_str(), "", true);
-        cleanup();
-        return;
-      }
-    }  // end text-only path
-
-    log_message("Added input to context.", request.dart_logger);
-    const char *eos_token_chars =
-        request.eos_token != NULL ? request.eos_token
-                                  : fllama_get_eos_token(request.model_path);
-    const std::string eos_token_as_string = std::string(eos_token_chars);
-    free((void *)eos_token_chars);
-    const int64_t context_setup_complete = ggml_time_ms();
-    log_message("Context setup complete & input added to context. Took " +
-                    std::to_string(context_setup_complete - start) + " ms.",
-                request.dart_logger);
-
-    // 3. Generate tokens.
-    // Check for cancellation before starting the generation loop
-    int request_id = request.request_id;
-
-    if (global_inference_queue.is_cancelled(request_id)) {
-      log_message("Cancelled before starting generation loop. ID:" +
-                      std::to_string(request_id),
-                  request.dart_logger);
-      callback("", "", true);
-      cleanup();
-      return;
-    }
-
-    const auto estimated_total_size = n_max_tokens * 10;
-    std::string result;
-    result.reserve(estimated_total_size);
-    
-    // Use unique_ptr for automatic cleanup
-    auto c_result_holder = std::unique_ptr<char[], decltype(&free)>(
-        (char*)malloc(estimated_total_size), &free);
-    c_result = c_result_holder.get(); // Get raw pointer for compatibility
-
-    int n_gen = 0;
-    std::string buffer;   // Buffer to accumulate potential EOS token sequences
-    nlohmann::json last_valid_json; // Track last valid JSON response
-    std::string last_valid_json_string;
-    bool has_valid_json = false;
-
-    const auto model_eos_token = llama_token_eos(vocab);
-    const int64_t start_t = ggml_time_ms();
-    int64_t t_last = start_t;
-
-    std::vector<std::string> eos_tokens = {
-        eos_token_as_string, // The original EOS token
-        "<|end|>",           // Phi 3 24-04-30
-        "<|eot_id|>"         // Llama 3 24-04-30
-    };
-    /**
-     * Token Generation Loop
-     *
-     * Each iteration follows this sequence:
-     * 1. Decode current batch (updates KV cache/model state)
-     * 2. Sample next token (using updated state)
-     * 3. Convert token to text & add to output
-     * 4. Create new batch with sampled token (for next iteration)
-     *
-     * Batches represent "what needs to be processed to update the state
-     * before we can sample the next token". The model's state is maintained
-     * in its KV cache, which gets updated when we decode each batch.
-     *
-     * Example flow:
-     * Initial state -> [decode nothing] -> sample "The" ->
-     * [decode "The"] -> sample "cat" ->
-     * [decode "cat"] -> sample "sat" -> ...
-     */
-    log_message("[DEBUG] starting token generation loop", request.dart_logger);
-    std::vector<llama_token> generated_token_ids;
-    llama_token new_token_id = llama_sampler_sample(smpl, ctx, -1);
-    llama_batch batch = llama_batch_get_one(&new_token_id, 1);
-
-    while (true) {
-      // Check context space and apply context shifting if needed
-      int n_ctx = llama_n_ctx(ctx);
-      int n_ctx_used = 0;
-      auto* memory = llama_get_memory(ctx);
-      if (!memory) {
-        // If no memory module, we can't do context shifting
-        break;
-      } else {
-        llama_pos max_pos = llama_memory_seq_pos_max(memory, 0);
-        n_ctx_used = max_pos + 1;  // Convert 0-based position to count
-      }
-      
-      // Context shifting: When we're about to run out of context space,
-      // we shift the context window by removing older tokens from the KV cache
-      // This allows for infinite generation at the cost of forgetting earlier parts
-      if (n_ctx_used + batch.n_tokens > n_ctx) {
-        // Check if context shifting is available
-        if (!llama_memory_can_shift(llama_get_memory(ctx))) {
-          break;
-        }
-        
-        // Perform context shift
-        const int n_keep = 32;  // Keep first 32 tokens (usually includes system prompt)
-        const int n_left = n_ctx_used - n_keep;
-        const int n_discard = n_left / 2;  // Discard half of the available context
-        
-        log_message("[CONTEXT] Shifting context: keeping " + std::to_string(n_keep) + 
-                    " tokens, discarding " + std::to_string(n_discard) + " tokens", request.dart_logger);
-        
-        // Remove tokens from KV cache
-        if (!llama_memory_seq_rm(llama_get_memory(ctx), 0, n_keep, n_keep + n_discard)) {
-          log_message("[ERROR] Failed to remove tokens from KV cache during context shift", request.dart_logger);
-          break;
-        }
-        
-        // Shift remaining tokens
-        llama_memory_seq_add(llama_get_memory(ctx), 0, n_keep + n_discard, n_ctx_used, -n_discard);
-        
-        // Update n_past to reflect the shift
-        n_past -= n_discard;
-        
-        // Update cached tokens if model resources exist
-        if (model_resources) {
-          std::scoped_lock lk(model_resources->token_state_mutex);
-          if (model_resources->token_state.size() > static_cast<size_t>(n_keep + n_discard)) {
-            // Remove the discarded tokens from our cache
-            model_resources->token_state.erase(
-              model_resources->token_state.begin() + n_keep,
-              model_resources->token_state.begin() + n_keep + n_discard
-            );
-          }
-        }
-        
-        log_message("[CONTEXT] Context shift complete. New n_past: " + std::to_string(n_past), request.dart_logger);
-        
-        // Re-check if we now have space
-        memory = llama_get_memory(ctx);
-        if (!memory) {
-          break;
-        }
-        llama_pos new_max_pos = llama_memory_seq_pos_max(memory, 0);
-        n_ctx_used = new_max_pos + 1;  // Convert 0-based position to count
-        if (n_ctx_used + batch.n_tokens > n_ctx) {
-          break;
-        }
-      }
-
-      // Convert current token to text and output it
-      char token_text[256];
-      int token_len = llama_token_to_piece(vocab, new_token_id, token_text,
-                                           sizeof(token_text), 0, true);
-      if (token_len < 0) {
-        log_message("[DEBUG] failed to convert token to text",
-                    request.dart_logger);
-        break;
-      }
-
-      // Record generated token id for cache update later
-      generated_token_ids.push_back(new_token_id);
-
-      // Add to result and send partial update
-      std::string piece(token_text, token_len);
-      result += piece;
-      n_gen++;
-      if (callback != NULL) {
-        std::strcpy(c_result, result.c_str());
-        auto completion_response = to_json_oaicompat_chat(
-            result, request.model_path,
-            "cmpl-" + std::to_string(request.request_id), "", STOP_TYPE_NONE,
-            common_chat_format, n_gen, n_prompt_tokens);
-
-        // Only update last_valid_json and call callback if we got a valid
-        // response (i.e. if the response isn't just echoing back
-        // last_valid_json)
-        if (completion_response != NULL &&
-            (!has_valid_json || completion_response != last_valid_json)) {
-          std::string json_str = completion_response.dump();
-          if (is_valid_utf8(json_str)) {
-            last_valid_json = completion_response;
-            last_valid_json_string = json_str;
-            has_valid_json = true;
-            callback(c_result, last_valid_json_string.c_str(), false);
-          } else {
-            log_message("[DEBUG] invalid UTF-8 in JSON response",
-                        request.dart_logger);
-          }
-        } else {
-          log_message(
-              "[DEBUG] skipping callback. completion_response null? " +
-                  std::to_string(completion_response == NULL) +
-                  ", has_valid_json? " + std::to_string(has_valid_json) +
-                  ", response == last_valid_json? " +
-                  std::to_string(completion_response == last_valid_json),
-              request.dart_logger);
-        }
-      }
-
-      // Process current batch
-      if (llama_decode(ctx, batch)) {
-        log_message("[DEBUG] decode failed", request.dart_logger);
-        break;
-      }
-      // Sample next token
-      new_token_id = llama_sampler_sample(smpl, ctx, -1);
-
-      // Check for end conditions
-      if (llama_token_is_eog(vocab, new_token_id)) {
-        log_message("[DEBUG] end of generation detected", request.dart_logger);
-        break;
-      }
-      if (n_gen >= n_max_tokens) {
-        log_message("[DEBUG] reached max tokens: " +
-                        std::to_string(n_max_tokens),
-                    request.dart_logger);
-        break;
-      }
-      if (global_inference_queue.is_cancelled(request_id)) {
-        log_message("[DEBUG] generation cancelled", request.dart_logger);
-        break;
-      }
-
-      // Create new batch for next iteration
-      batch = llama_batch_get_one(&new_token_id, 1);
-      // auto add_to_context_end = std::chrono::high_resolution_clock::now();
-      // std::chrono::duration<double, std::milli> add_to_context_duration =
-      //     add_to_context_end - add_to_context_start;
-      // fllama_log("Add to context took " +
-      // std::to_string(add_to_context_duration.count()) +
-      //                " milliseconds.",
-      //            request.dart_logger);
-
-      // If greater than a second has passed since last log, log
-      // the speed of generation.
-      const auto t_now = ggml_time_ms();
-      if (t_now - t_last > 1000) {
-        fprintf(stderr,
-                "[fllama] generated %d tokens in %.2f s, speed: %.2f t/s\n",
-                n_gen, (t_now - start_t) / 1000.0,
-                n_gen / ((t_now - start_t) / 1000.0));
-        t_last = t_now;
-      }
-
-      // Check for EOS on model tokens
-      if (llama_token_is_eog(vocab, new_token_id)) {
-        fprintf(stderr, "%s: Finish. Model EOS token found.", __func__);
-        if (buffer.length() > 0) {
-          result += buffer;
-        }
-        break;
-      }
-      // auto other_end = std::chrono::high_resolution_clock::now();
-      // std::chrono::duration<double, std::milli> other_duration =
-      //     other_end - sample_end;
-      // fllama_log("Other took " + std::to_string(other_duration.count()) +
-      //                " milliseconds.",
-      //            request.dart_logger);
-    }
-    log_message("[DEBUG] token generation loop complete", request.dart_logger);
-    // If EOS token is found, above loop does not add it to buffer, and the
-    // loop stops immediately.
-    //
-    // That leaves the last tokens whos length sum < EOS token length in buffer.
-    //
-    // Add it to result.
-    //
-    // Oddly, this issue was only readily apparent when doing function
-    // calling with models < 7B.
-    // if (buffer.length() > 0) {
-    //   result += buffer;
-    // }
-
-    // Can't free this: the threading behavior is such that the Dart function
-    // will get the pointer at some point in the future. Infrequently, 1 / 20
-    // times, this will be _after_ this function returns. In that case, the
-    // final output is a bunch of null characters: they look like 6 vertical
-    // lines stacked.
-
-    std::strcpy(c_result, result.c_str());
-    if (callback != NULL) {
-      log_message("[DEBUG] Invoking final callback", request.dart_logger);
-
-      // Parse the result using common_chat_parse to extract tool calls
-      auto json_string = "";
-
-      if (!has_valid_json) {
-        log_message("[DEBUG] Never had valid JSON", request.dart_logger);
-        // If we never got valid JSON, return empty content
-        auto completion_response = to_json_oaicompat_chat(
-            "", request.model_path,
-            "cmpl-" + std::to_string(request.request_id), "" /* build info */,
-            STOP_TYPE_LIMIT, common_chat_format, n_gen, n_prompt_tokens);
-        json_string = completion_response == NULL
-                          ? NULL
-                          : completion_response.dump().c_str();
-        auto is_valid_string =
-            json_string == NULL ? false : is_valid_utf8(json_string);
-        if (is_valid_string) {
-          log_message("[DEBUG] Never had valid JSON, was able to produce valid "
-                      "JSON for an empty message",
-                      request.dart_logger);
-          // Never had valid JSON, was able to produce valid JSON for an empty
-          // message.
-          callback(c_result, json_string, true);
-        } else {
-          // Never had valid JSON, could not produce valid JSON for an empty
-          // message.
-          callback(c_result,
-                   "Never had valid JSON, could not produce valid JSON for an "
-                   "empty message.",
-                   true);
-        }
-      } else {
-        if (is_valid_utf8(last_valid_json_string)) {
-          log_message("[DEBUG] Final JSON  is valid UTF-8. Response length: " +
-                          std::to_string(last_valid_json_string.length()),
-                      request.dart_logger);
-          callback(c_result, last_valid_json_string.c_str(), true);
-        } else {
-          log_message("[DEBUG] Final JSON response is invalid UTF-8",
-                      request.dart_logger);
-          callback(c_result,
-                   "{\"error\": \"Invalid UTF-8 in final JSON response\"}",
-                   true);
-        }
-      }
-      log_message("[DEBUG] Final callback invoked", request.dart_logger);
-    } else {
-      log_message("WARNING: callback is NULL. Output: " + result,
-                  request.dart_logger);
-    }
-
-    log_message("About to write speed of generation", request.dart_logger);
-
-    const auto t_now = ggml_time_ms();
-
-    const auto speed_string =
-        "Generated " + std::to_string(n_gen) + " tokens in " +
-        std::to_string((t_now - start_t) / 1000.0) +
-        " s, speed: " + std::to_string(n_gen / ((t_now - start_t) / 1000.0)) +
-        " t/s.";
-
-    log_message(speed_string, request.dart_logger);
-
-    log_message("Wrote speed of generation.", request.dart_logger);
-
-    // -------------------------------------------------------------------
-    // Update cached token_state for future reuse
-    // -------------------------------------------------------------------
-    if (model_resources) {
-      std::scoped_lock lk(model_resources->token_state_mutex);
-
-      if (used_mtmd_path) {
-        // Multimodal requests produce a mix of text and image tokens.
-        // We can't meaningfully compare this with future text-only
-        // requests, so clear the cache to avoid stale prefix matches.
-        model_resources->token_state.clear();
-        log_message("[CACHE] Cleared token state (multimodal request)",
-                    request.dart_logger);
-      } else {
-        if (!reused_context) {
-          // We fed the full prompt, start fresh token state
-          model_resources->token_state = tokens_list;
-        } else {
-          // We only fed suffix tokens, token_state already has prefix
-          if (model_resources->token_state.size() != prefix_len) {
-            model_resources->token_state.resize(prefix_len);
-          }
-          for (size_t i = prefix_len; i < tokens_list.size(); ++i) {
-            model_resources->token_state.push_back(tokens_list[i]);
-          }
-        }
-
-        // Append generated tokens
-        model_resources->token_state.insert(
-            model_resources->token_state.end(),
-            generated_token_ids.begin(),
-            generated_token_ids.end());
-
-        log_message(
-            "Updated token state cache for future reuse. Total tokens: " +
-                std::to_string(model_resources->token_state.size()),
-            request.dart_logger);
-      }
-    }
-    // Instead of freeing everything immediately, we'll either cache the model
-    // or free it based on our caching logic
-    log_message("Managing model resources...", request.dart_logger);
-    
-    // Model registration and user count increment is now done immediately after loading
-    // to prevent race conditions where the model could be freed during inference
-    
-    // Log the reuse status for debugging
-    if (reused_context) {
-      log_message("Successfully reused context with " + std::to_string(prefix_len) + 
-                 " prefix tokens out of " + std::to_string(tokens_list.size()) + " total tokens", 
-                 request.dart_logger);
-    } else {
-      log_message("Did not reuse context - using fresh context", request.dart_logger);
-    }
-    
-    // Now call cleanup() which will decrement the active users counter
-    // and only free resources if they're not cached and no longer in use
-    cleanup();
-    log_message("Cleanup complete - model will be freed after " + 
-                std::to_string(global_inference_queue.MODEL_INACTIVITY_TIMEOUT_SEC) + 
-                " seconds of inactivity if no longer in use", request.dart_logger);
-  } catch (const std::exception &e) {
-    std::string error_msg = "Unhandled error: " + std::string(e.what());
-    if (callback != NULL) {
-      callback(error_msg.c_str(), error_msg.c_str(), true);
-    }
-    std::cerr << error_msg << std::endl;
-  } catch (...) {
-    std::string error_msg = "Unknown unhandled error occurred";
-    if (callback != NULL) {
-      callback(error_msg.c_str(), error_msg.c_str(), true);
-    }
-    std::cerr << error_msg << std::endl;
-  }
+  // Synchronous variant — blocks the calling thread.
+  run_inference(request, callback);
+}
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void
+fllama_inference_cancel(int request_id) {
+  g_mgr.cancel(request_id);
 }
 
 } // extern "C"

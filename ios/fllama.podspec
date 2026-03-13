@@ -19,7 +19,13 @@ A new Flutter FFI plugin project.
   s.source           = { :path => '.' }
   
   # Classes contains only the wrapper fllama.cpp that includes ../src/*.cpp files
-  s.source_files = 'Classes/**/*'
+  s.source_files = [
+    'Classes/**/*',
+    'llama.cpp/tools/server/server-task.cpp',
+    'llama.cpp/tools/server/server-queue.cpp',
+    'llama.cpp/tools/server/server-common.cpp',
+    'llama.cpp/tools/server/server-context.cpp',
+  ]
   
   # Required frameworks:
   # - Foundation, Metal, MetalKit: Core llama.cpp/ggml requirements
@@ -33,7 +39,7 @@ A new Flutter FFI plugin project.
     # - "llama.h" (in include/)
     # - "ggml.h" (in ggml/include/)  
     # - <nlohmann/json.hpp> (in vendor/)
-    'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/llama.cpp/include $(PODS_TARGET_SRCROOT)/llama.cpp/ggml/include $(PODS_TARGET_SRCROOT)/llama.cpp/vendor $(PODS_TARGET_SRCROOT)/llama.cpp/tools/mtmd',
+    'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/llama.cpp/include $(PODS_TARGET_SRCROOT)/llama.cpp/ggml/include $(PODS_TARGET_SRCROOT)/llama.cpp/vendor $(PODS_TARGET_SRCROOT)/llama.cpp/common $(PODS_TARGET_SRCROOT)/llama.cpp/tools/mtmd $(PODS_TARGET_SRCROOT)/llama.cpp/tools/server $(PODS_TARGET_SRCROOT)/llama.cpp',
     # C++17 required for std::scoped_lock, CTAD, and other modern features in vendor/minja/
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',

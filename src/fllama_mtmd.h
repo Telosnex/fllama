@@ -1,25 +1,24 @@
 #ifndef FLLAMA_MTMD_H
 #define FLLAMA_MTMD_H
 
-#include "mtmd.h"
-
+#include <cstdint>
 #include <string>
 #include <vector>
 
-struct fllama_mtmd_bitmap_result {
-    std::vector<mtmd_bitmap *> bitmaps;   // caller must free via mtmd_bitmap_free()
-    std::string text_with_markers;        // prompt with <img> tags replaced by media marker
+struct fllama_mtmd_result {
+    // Raw image file bytes (JPEG/PNG/etc.) decoded from base64.
+    // Each entry is one image, in the order they appeared in the prompt.
+    std::vector<std::vector<uint8_t>> file_bytes;
+
+    // Prompt text with <img> tags replaced by the mtmd media marker.
+    std::string text_with_markers;
 };
 
-// Returns true if the prompt contains base64-encoded image tags.
+// Returns true if the prompt contains base64-encoded <img> tags.
 bool fllama_prompt_contains_image(const std::string & prompt);
 
-// Extract base64 images from the prompt, decode them to mtmd_bitmap objects,
-// and replace the <img> tags with mtmd's media marker.
-// Returns empty bitmaps vector and unchanged text if no images found.
-// On error decoding an individual image, that image is skipped.
-fllama_mtmd_bitmap_result fllama_extract_bitmaps(
-    mtmd_context * mtmd_ctx,
-    const std::string & prompt);
+// Extract base64 images from the prompt and decode them to raw file bytes.
+// Replace <img> tags with mtmd's default media marker (<__media__>).
+fllama_mtmd_result fllama_extract_images(const std::string & prompt);
 
 #endif // FLLAMA_MTMD_H
