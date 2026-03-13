@@ -74,8 +74,11 @@ static void log_message(const std::string &m,
 
 // ── Globals ──────────────────────────────────────────────────────────────────
 
-static ServerManager g_mgr;
-static std::once_flag g_backend_init;
+// Intentionally leaked — avoids static destruction order crash on exit.
+// (ggml Metal statics may be destroyed before g_mgr's destructor runs,
+//  causing ggml_abort when server_context tries to free Metal resources.)
+static ServerManager &g_mgr = *new ServerManager();
+static std::once_flag  g_backend_init;
 
 // ── The actual inference logic (runs on per-request thread) ──────────────────
 
