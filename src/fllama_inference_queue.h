@@ -17,6 +17,9 @@
 #include "fllama.h"
 #include "llama.h"
 
+// Forward-declare mtmd types so we don't pull the full header into every TU.
+struct mtmd_context;
+
 
 // Forward declaration for ModelHandle
 class InferenceQueue;
@@ -31,6 +34,7 @@ enum class ModelState {
 struct ModelResources {
   llama_model* model;
   llama_context* ctx;
+  mtmd_context* mtmd_ctx;  // Multimodal context (nullptr when no mmproj loaded)
   std::string path;  // Store the model path for reference
   std::chrono::time_point<std::chrono::steady_clock> last_used;
   std::atomic<int> active_users;
@@ -38,7 +42,7 @@ struct ModelResources {
   std::atomic<bool> context_locked{false};  // For exclusive context access
   
   ModelResources(llama_model* m, llama_context* c, const std::string& p)
-      : model(m), ctx(c), path(p),
+      : model(m), ctx(c), mtmd_ctx(nullptr), path(p),
         last_used(std::chrono::steady_clock::now()),
         active_users(0),
         state(ModelState::IDLE) {}

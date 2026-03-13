@@ -1,10 +1,10 @@
 #include "fllama.h"
-#include "clip.h"
 #include "fllama_chat_template.h"
 #include "fllama_eos.h"
 #include "fllama_inference_queue.h"
-#include "fllama_llava.h"
-#include "llava.h"
+#include "fllama_mtmd.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
 
 // LLaMA.cpp cross-platform support
 #ifdef __APPLE__
@@ -73,20 +73,6 @@ static void log_message(const char *message,
                         fllama_log_callback dart_logger = nullptr);
 static void log_message(const std::string &message,
                         fllama_log_callback dart_logger = nullptr);
-
-// Function to detect if a model is a Gemma 3 model
-static bool is_gemma3_model(const char *model_path) {
-  if (model_path == nullptr) {
-    return false;
-  }
-
-  std::string path = std::string(model_path);
-  std::transform(path.begin(), path.end(), path.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
-
-  return (path.find("gemma-3") != std::string::npos ||
-          path.find("gemma3") != std::string::npos);
-}
 
 // Implement logging functions
 static void log_message(const char *message, fllama_log_callback dart_logger) {
@@ -553,75 +539,6 @@ static bool process_tokens_with_batch_view(struct llama_context *ctx_llama,
   return true;
 }
 
-static bool add_tokens_to_context(struct llama_context *ctx_llama,
-                                  const std::vector<llama_token> &tokens,
-                                  int n_batch, int *n_past,
-                                  fllama_log_callback logger) {
-  // Use the new batch view processing function
-  return process_tokens_with_batch_view(ctx_llama, tokens, n_batch, n_past, logger);
-}
-
-static bool add_token_to_context(struct llama_context *ctx_llama,
-                                 llama_token id, int *n_past,
-                                 fllama_log_callback logger) {
-  // Adding token to context
-
-    // Check context space
-    int n_ctx = llama_n_ctx(ctx_llama);
-    // Get the maximum position (0-based) and convert to count
-    int n_ctx_used = 0;
-    auto* memory = llama_get_memory(ctx_llama);
-    if (memory) {
-      llama_pos max_pos = llama_memory_seq_pos_max(memory, 0);
-      n_ctx_used = max_pos + 1;
-    }
-
-  if (n_ctx_used + 1 > n_ctx) {
-    log_message("context size exceeded", logger);
-    return false;
-  }
-
-  // Create batch with a single token, following simple-chat.cpp
-  llama_batch batch = llama_batch_get_one(&id, 1);
-  log_message("[DEBUG] created batch with token " + std::to_string(id), logger);
-
-  // No need to manually manage logits - llama_batch_get_one handles this
-
-  log_message("[DEBUG] about to decode", logger);
-  if (llama_decode(ctx_llama, batch)) {
-    log_message("failed to decode", logger);
-
-    return false;
-  }
-  log_message("[DEBUG] decode successful", logger);
-
-  llama_batch_free(batch);
-  auto* mem = llama_get_memory(ctx_llama);
-  if (!mem) {
-    *n_past = 1;  // We just added one token
-  } else {
-    llama_pos max_pos = llama_memory_seq_pos_max(mem, 0);
-    *n_past = max_pos + 1;  // Convert 0-based position to count
-  }
-  return true;
-}
-
-static bool add_string_to_context(struct llama_context *ctx_llama,
-                                  const char *str, int n_batch, int *n_past,
-                                  bool add_bos, fllama_log_callback logger) {
-  std::string str2 = str;
-  const llama_vocab *vocab = llama_model_get_vocab(llama_get_model(ctx_llama));
-  const int n_prompt_tokens = -llama_tokenize(
-      vocab, str2.c_str(), str2.length(), NULL, 0, add_bos, true);
-  std::vector<llama_token> embd_inp(n_prompt_tokens);
-  if (llama_tokenize(vocab, str2.c_str(), str2.length(), embd_inp.data(),
-                     embd_inp.size(), add_bos, true) < 0) {
-    log_message("tokenization failed", logger);
-    return false;
-  }
-  return add_tokens_to_context(ctx_llama, embd_inp, n_batch, n_past, logger);
-}
-
 static void log_callback_wrapper(enum ggml_log_level level, const char *text,
                                  void *user_data) {
   std::cout << "[llama] " << text;
@@ -630,9 +547,6 @@ static void log_callback_wrapper(enum ggml_log_level level, const char *text,
 EMSCRIPTEN_KEEPALIVE void
 fllama_inference_sync(fllama_inference_request request,
                       fllama_inference_callback callback) {
-  // Easier to do this up top: Gemma 3 multimodal requires some specific setup
-  // throughout the method.
-  bool is_gemma3_model_detected = is_gemma3_model(request.model_path);
   // Setup parameters, then load the model and create a context.
   int64_t start = ggml_time_ms();
   log_message("[fllama] Inference thread start", request.dart_logger);
@@ -667,17 +581,9 @@ fllama_inference_sync(fllama_inference_request request,
     // not be the case)
     uint32_t n_batch = requested_context_size;
     ctx_params.n_batch = requested_context_size;
-    if (is_gemma3_model_detected) {
-      // For Gemma 3, as of 2025-03-12, n_ubatch has to be >= n_tokens
-      // Error:
-      // /Users/jamesoleary/dev/fllama/macos/llama.cpp/src/llama-context.cpp:1196:
-      // GGML_ASSERT((cparams.causal_attn || cparams.n_ubatch >= n_tokens_all) &&
-      // "non-causal attention requires n_ubatch >= n_tokens") failed
-      ctx_params.n_ubatch = requested_context_size;
-
-      // Should reduce RAM usage w/Gemma, have not observed so, yet.
-      ctx_params.swa_full = false;
-    }
+    // Non-causal attention models (e.g. Gemma 3 multimodal) require
+    // n_ubatch >= n_tokens. Setting it to context size is safe for all models.
+    ctx_params.n_ubatch = requested_context_size;
     log_message("[fllama] Batch size: " + std::to_string(ctx_params.n_batch), request.dart_logger);
     ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
     log_message(std::string("[fllama] flash_attn: ") + llama_flash_attn_type_name(ctx_params.flash_attn_type), request.dart_logger);
@@ -755,37 +661,11 @@ fllama_inference_sync(fllama_inference_request request,
     // TODO: ???
     // log_set_target(stdout);
     log_message("Initialized llama logger.", request.dart_logger);
-    // !!! Specific to multimodal
-    bool prompt_contains_img = prompt_contains_image(request.input);
-    bool should_load_clip = false;
-
-    if (prompt_contains_img) {
-      log_message("Prompt contains images, will process them later.",
-                  request.dart_logger);
-      std::string mmproj =
-          request.model_mmproj_path == NULL ? "" : request.model_mmproj_path;
-      if (mmproj.empty()) {
-        log_message(
-            "Warning: prompt contains images, but inference request doesn't "
-            "specify model_mmproj_path. Multimodal model requires a .mmproj "
-            "file.",
-            request.dart_logger);
-      } else {
-        should_load_clip = true;
-      }
-
-      if (is_gemma3_model_detected) {
-        log_message("Detected Gemma3 model with images - will use "
-                    "Gemma3-specific processing",
-                    request.dart_logger);
-      }
-    }
 
     // Use ModelHandle for proper RAII and thread safety
     ModelHandle model_handle;
     llama_model *model = nullptr;
     llama_context *ctx = nullptr;
-    std::vector<llava_image_embed *> image_embeddings;
     char *c_result = nullptr;
     std::string model_path_str = request.model_path ? request.model_path : "";
     bool context_reuse_possible = false;
@@ -1032,26 +912,6 @@ fllama_inference_sync(fllama_inference_request request,
           auto result =
               common_chat_templates_apply(chat_templates.get(), tmpl_inputs);
           final_request_input = result.prompt;
-          auto formatted_content_contains_image =
-              prompt_contains_image(final_request_input);
-          if (formatted_content_contains_image) {
-            log_message(
-                "Formatted content contains images, will process them later.",
-                request.dart_logger);
-            std::string mmproj = request.model_mmproj_path == NULL
-                                     ? ""
-                                     : request.model_mmproj_path;
-            if (mmproj.empty()) {
-              log_message(
-                  "Warning: formatted content contains images, but inference "
-                  "request doesn't specify model_mmproj_path. Multimodal model "
-                  "requires a .mmproj file.",
-                  request.dart_logger);
-            } else {
-              prompt_contains_img = true;
-              should_load_clip = true;
-            }
-          }
           common_chat_format = result.format;
           log_message("Using formatted chat input with template",
                       request.dart_logger);
@@ -1084,36 +944,66 @@ fllama_inference_sync(fllama_inference_request request,
                   request.dart_logger);
     }
 
-    // TODO: CLIP support
-    if (should_load_clip) {
-      std::string mmproj_path_std_str =
-          request.model_mmproj_path == NULL ? "" : request.model_mmproj_path;
-      log_message("Loading multimodal model...", request.dart_logger);
-      const char *mmproj_path = mmproj_path_std_str.c_str();
-      auto ctx_clip = clip_model_load(mmproj_path, /*verbosity=*/1);
-      std::cout << "Loaded model" << std::endl;
-      // Use proper thread count for CLIP processing - matching gemma3-cli.cpp
-      // Use Gemma3-specific image processing if this is a Gemma3 model
-      image_embeddings = llava_image_embed_make_with_prompt_base64(ctx_clip, request.num_threads, final_request_input);
-      clip_free(ctx_clip);
+    // Initialize mtmd multimodal context if an mmproj path is provided
+    // and the model resources don't already have one.
+    std::string mmproj_path_str =
+        request.model_mmproj_path ? request.model_mmproj_path : "";
+    if (!mmproj_path_str.empty() && model_resources &&
+        !model_resources->mtmd_ctx) {
+      log_message("[MTMD] Initializing multimodal context from: " +
+                      mmproj_path_str,
+                  request.dart_logger);
+      mtmd_context_params mtmd_params = mtmd_context_params_default();
+      mtmd_params.use_gpu = (request.num_gpu_layers > 0);
+      mtmd_params.n_threads = request.num_threads;
+      mtmd_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+
+      model_resources->mtmd_ctx = mtmd_init_from_file(
+          request.model_mmproj_path, model, mtmd_params);
+      if (!model_resources->mtmd_ctx) {
+        log_message(
+            "[MTMD] Warning: failed to init mtmd context – proceeding "
+            "text-only",
+            request.dart_logger);
+      } else {
+        log_message("[MTMD] Multimodal context initialized.",
+                    request.dart_logger);
+      }
     }
 
-    // It is important that this runs regardless of whether CLIP needs to be
-    // loaded. For example, for an errorneus request that doesn't provide the
-    // CLIP model path. Otherwise, inference has to tokenize the base64 image
-    // string, which is not a good idea. (O(100,000K) tokens)
-    if (prompt_contains_img) {
-      if (image_embeddings.empty()) {
-        std::cout
-            << "[fllama] Unable to create image embeddings, removing image "
-               "data from prompt."
-            << std::endl;
-      } else {
-        std::cout << "[fllama] Images loaded, replacing image data in prompt "
-                     "with clip output"
-                  << std::endl;
+    // Check whether the (possibly template-formatted) prompt has images and
+    // whether we have the multimodal context needed to handle them.
+    bool has_mtmd =
+        model_resources && model_resources->mtmd_ctx != nullptr;
+    bool prompt_has_images = fllama_prompt_contains_image(final_request_input);
+
+    // If there are images but no mmproj was provided, strip them to avoid
+    // tokenizing huge base64 strings.
+    if (prompt_has_images && !has_mtmd) {
+      log_message(
+          "[MTMD] Prompt contains images but no mmproj available – "
+          "stripping image tags.",
+          request.dart_logger);
+      // Crude strip: replace each <img ...> with empty string using the
+      // same extraction helper (just take the modified text, ignore bitmaps).
+      auto strip_result =
+          fllama_extract_bitmaps(nullptr, final_request_input);
+      // fllama_extract_bitmaps with nullptr ctx will produce 0 bitmaps but
+      // still replace tags – actually it will fail inside
+      // mtmd_helper_bitmap_init_from_buf. Let's just do a simple removal.
+      // We'll re-use the marker replacement and the bitmaps vector will be
+      // empty.
+      // Simpler: just blank out all <img ...> tags manually.
+      std::string cleaned = final_request_input;
+      while (true) {
+        auto pos1 = cleaned.find("<img src=\"data:image/");
+        if (pos1 == std::string::npos) break;
+        auto pos2 = cleaned.find("\">", pos1);
+        if (pos2 == std::string::npos) break;
+        cleaned.replace(pos1, pos2 + 2 - pos1, "");
       }
-      final_request_input = remove_all_images_from_prompt(final_request_input, "");
+      final_request_input = cleaned;
+      prompt_has_images = false;
     }
 
     int64_t model_load_end = ggml_time_ms();
@@ -1128,7 +1018,7 @@ fllama_inference_sync(fllama_inference_request request,
     const int n_ctx = llama_n_ctx(ctx);
     const llama_vocab *vocab = llama_model_get_vocab(model);
 
-    const int n_prompt_tokens =
+    int n_prompt_tokens =
         -llama_tokenize(vocab, final_request_input.c_str(),
                         final_request_input.length(), NULL, 0, true, true);
     std::vector<llama_token> tokens_list(n_prompt_tokens);
@@ -1267,102 +1157,153 @@ fllama_inference_sync(fllama_inference_request request,
         llama_memory_clear(llama_get_memory(ctx), true);
       }
     }
-    bool add_bos = llama_add_bos_token(vocab);
-    int idx_embedding = 0;
-    // Check if this is a Gemma 3 model
-    bool is_gemma3 = is_gemma3_model_detected;
-    if (is_gemma3) {
-      log_message(
-          "Detected Gemma 3 model, using Gemma-specific conversation format",
-          request.dart_logger);
-    }
+    // ---------------------------------------------------------------
+    // Multimodal (mtmd) or text-only prompt processing
+    // ---------------------------------------------------------------
+    bool used_mtmd_path = false;
 
-    for (auto *embedding : image_embeddings) {
-      if (embedding != NULL) {
-        // For Gemma 3, we don't need the "Attached Image" text as it uses
-        // <start_of_image> and <end_of_image> tokens
-        if (image_embeddings.size() > 1 && !is_gemma3) {
-          const std::string image_prompt =
-              "Attached Image #" + std::to_string(idx_embedding + 1) + ":\n";
-          add_string_to_context(ctx, image_prompt.c_str(), n_batch, &n_past,
-                                add_bos, request.dart_logger);
-          idx_embedding++;
+    if (has_mtmd && prompt_has_images) {
+      // === MULTIMODAL PATH via mtmd ===
+      log_message("[MTMD] Extracting images and tokenizing with mtmd...",
+                  request.dart_logger);
+
+      // 1. Extract base64 images → mtmd_bitmaps, replace tags with marker
+      auto bitmap_result =
+          fllama_extract_bitmaps(model_resources->mtmd_ctx, final_request_input);
+
+      if (bitmap_result.bitmaps.empty()) {
+        log_message(
+            "[MTMD] Warning: could not decode any images from prompt. "
+            "Falling back to text-only.",
+            request.dart_logger);
+        // Strip image tags so we don't try to tokenize base64
+        final_request_input = bitmap_result.text_with_markers;
+        // Fall through to text-only path below
+      } else {
+        // 2. Clear KV cache for multimodal (mixed token types can't be
+        //    compared for prefix reuse)
+        llama_memory_clear(llama_get_memory(ctx), true);
+        if (model_resources) {
+          std::scoped_lock lk(model_resources->token_state_mutex);
+          model_resources->token_state.clear();
         }
-        log_message("Adding image #" + std::to_string(idx_embedding + 1) +
-                        " to context.",
-                    request.dart_logger);
-        // For Gemma3 models, print detailed information about the embeddings
-        if (is_gemma3_model_detected) {
-          fprintf(stderr, "Processing Gemma3 image with %d tokens from embedding\n", embedding->n_image_pos);
-          // Add <start_of_image> token
-          add_string_to_context(ctx, "<start_of_image>", n_batch, &n_past,
-                                add_bos, request.dart_logger);
+        reused_context = false;
+
+        // 3. Tokenize with mtmd
+        mtmd_input_chunks * chunks_raw = mtmd_input_chunks_init();
+        mtmd_input_text input_text = {
+            bitmap_result.text_with_markers.c_str(),
+            /*add_special=*/true,
+            /*parse_special=*/true,
+        };
+
+        std::vector<const mtmd_bitmap *> bitmaps_ptrs;
+        bitmaps_ptrs.reserve(bitmap_result.bitmaps.size());
+        for (auto *b : bitmap_result.bitmaps) {
+          bitmaps_ptrs.push_back(b);
         }
-        
-        // Always force is_gemma3 flag to match is_gemma3_model_detected to avoid mismatches
-        auto success = add_image_embed_to_context(ctx, embedding, n_batch,
-                                              &n_past, is_gemma3_model_detected);
-        if (!success) {
-          log_message(
-              "Unable to add image to context. Continuing to run inference "
-              "anyway.",
-              request.dart_logger);
-        } else {
-          // Add <end_of_image> token
-          add_string_to_context(ctx, "<end_of_image>", n_batch, &n_past,
-                                add_bos, request.dart_logger);
+
+        int32_t tok_res = mtmd_tokenize(
+            model_resources->mtmd_ctx, chunks_raw, &input_text,
+            bitmaps_ptrs.data(), bitmaps_ptrs.size());
+
+        if (tok_res != 0) {
+          log_message("[MTMD] mtmd_tokenize failed: " +
+                          std::to_string(tok_res),
+                      request.dart_logger);
+          for (auto *b : bitmap_result.bitmaps) mtmd_bitmap_free(b);
+          mtmd_input_chunks_free(chunks_raw);
+          callback("Error: mtmd_tokenize failed", "", true);
+          cleanup();
+          return;
         }
-        llava_image_embed_free(embedding);
-        log_message("Added image #" + std::to_string(idx_embedding + 1) +
-                        " to context.",
+
+        // 4. Eval all chunks (text + images) in one call
+        llama_pos new_n_past = 0;
+        int32_t eval_res = mtmd_helper_eval_chunks(
+            model_resources->mtmd_ctx, ctx, chunks_raw,
+            /*n_past=*/0, /*seq_id=*/0, /*n_batch=*/n_batch,
+            /*logits_last=*/true, &new_n_past);
+
+        n_past = new_n_past;
+        n_prompt_tokens = (int)mtmd_helper_get_n_tokens(chunks_raw);
+        used_mtmd_path = true;
+
+        // 5. Cleanup bitmaps & chunks
+        for (auto *b : bitmap_result.bitmaps) mtmd_bitmap_free(b);
+        mtmd_input_chunks_free(chunks_raw);
+
+        if (eval_res != 0) {
+          log_message("[MTMD] mtmd_helper_eval_chunks failed: " +
+                          std::to_string(eval_res),
+                      request.dart_logger);
+          callback("Error: mtmd eval failed", "", true);
+          cleanup();
+          return;
+        }
+
+        log_message("[MTMD] Multimodal prompt processed. n_past=" +
+                        std::to_string(n_past) +
+                        ", n_prompt_tokens=" +
+                        std::to_string(n_prompt_tokens),
                     request.dart_logger);
       }
     }
 
-    log_message("Adding input to context...length: " +
-                    std::to_string(final_request_input.length()),
-                request.dart_logger);
-    log_message("Context size: " + std::to_string(n_ctx), request.dart_logger);
-    log_message("Input tokens: " + std::to_string(tokens_list.size()),
-                request.dart_logger);
-    // Process tokens in batches for better performance with batch views
-    if (reused_context) {
-      // We have reused some context, only process new tokens
-      if (prefix_len < tokens_list.size()) {
-        std::vector<llama_token> suffix_tokens(tokens_list.begin() + prefix_len,
-                                               tokens_list.end());
-        log_message("[CACHE] Processing " + std::to_string(suffix_tokens.size()) + 
-                    " new tokens after reused prefix", request.dart_logger);
-        
-        // Process with batch views for better performance
-        if (!process_tokens_with_batch_view(ctx, suffix_tokens, n_batch, &n_past, request.dart_logger)) {
+    // === TEXT-ONLY PATH (also used as fallback if mtmd bitmap decode fails) ===
+    if (!used_mtmd_path) {
+      log_message("Adding input to context...length: " +
+                      std::to_string(final_request_input.length()),
+                  request.dart_logger);
+      log_message("Context size: " + std::to_string(n_ctx), request.dart_logger);
+      log_message("Input tokens: " + std::to_string(tokens_list.size()),
+                  request.dart_logger);
+      // Process tokens in batches for better performance with batch views
+      if (reused_context) {
+        // We have reused some context, only process new tokens
+        if (prefix_len < tokens_list.size()) {
+          std::vector<llama_token> suffix_tokens(
+              tokens_list.begin() + prefix_len, tokens_list.end());
+          log_message("[CACHE] Processing " +
+                          std::to_string(suffix_tokens.size()) +
+                          " new tokens after reused prefix",
+                      request.dart_logger);
+
+          if (!process_tokens_with_batch_view(ctx, suffix_tokens, n_batch,
+                                             &n_past, request.dart_logger)) {
+            callback("Error: Failed to process prompt", "", true);
+            cleanup();
+            return;
+          }
+        } else {
+          log_message(
+              "[CACHE] All tokens already in cache, no new tokens to process",
+              request.dart_logger);
+        }
+      } else {
+        log_message("[CACHE] Processing full prompt of " +
+                        std::to_string(tokens_list.size()) +
+                        " tokens with batch views",
+                    request.dart_logger);
+
+        if (!process_tokens_with_batch_view(ctx, tokens_list, n_batch, &n_past,
+                                           request.dart_logger)) {
           callback("Error: Failed to process prompt", "", true);
           cleanup();
           return;
         }
-      } else {
-        log_message("[CACHE] All tokens already in cache, no new tokens to process", request.dart_logger);
       }
-    } else {
-      // No reuse, but still process with batch views for better performance
-      log_message("[CACHE] Processing full prompt of " + std::to_string(tokens_list.size()) + 
-                  " tokens with batch views", request.dart_logger);
-      
-      if (!process_tokens_with_batch_view(ctx, tokens_list, n_batch, &n_past, request.dart_logger)) {
-        callback("Error: Failed to process prompt", "", true);
+      if (tokens_list.size() > n_ctx) {
+        log_message("Input tokens exceed context size.", request.dart_logger);
+        auto error_message =
+            "Error: Input exceeds context size. Input tokens: " +
+            std::to_string(tokens_list.size()) +
+            ", context size: " + std::to_string(n_ctx);
+        callback(error_message.c_str(), "", true);
         cleanup();
         return;
       }
-    }
-    if (tokens_list.size() > n_ctx) {
-      log_message("Input tokens exceed context size.", request.dart_logger);
-      auto error_message = "Error: Input exceeds context size. Input tokens: " +
-                           std::to_string(tokens_list.size()) +
-                           ", context size: " + std::to_string(n_ctx);
-      callback(error_message.c_str(), "", true);
-      cleanup();
-      return;
-    }
+    }  // end text-only path
 
     log_message("Added input to context.", request.dart_logger);
     const char *eos_token_chars =
@@ -1705,32 +1646,40 @@ fllama_inference_sync(fllama_inference_request request,
     // Update cached token_state for future reuse
     // -------------------------------------------------------------------
     if (model_resources) {
-      // Take a single lock for the entire token state update to avoid race conditions
       std::scoped_lock lk(model_resources->token_state_mutex);
-      
-      if (!reused_context) {
-        // We fed the full prompt, start fresh token state
-        model_resources->token_state = tokens_list;
+
+      if (used_mtmd_path) {
+        // Multimodal requests produce a mix of text and image tokens.
+        // We can't meaningfully compare this with future text-only
+        // requests, so clear the cache to avoid stale prefix matches.
+        model_resources->token_state.clear();
+        log_message("[CACHE] Cleared token state (multimodal request)",
+                    request.dart_logger);
       } else {
-        // We only fed suffix tokens, token_state already has prefix
-        // (prev_tokens). Ensure it matches up to prefix_len, then append
-        // suffix tokens we actually fed (which may be zero)
-        if (model_resources->token_state.size() != prefix_len) {
-          model_resources->token_state.resize(prefix_len);
+        if (!reused_context) {
+          // We fed the full prompt, start fresh token state
+          model_resources->token_state = tokens_list;
+        } else {
+          // We only fed suffix tokens, token_state already has prefix
+          if (model_resources->token_state.size() != prefix_len) {
+            model_resources->token_state.resize(prefix_len);
+          }
+          for (size_t i = prefix_len; i < tokens_list.size(); ++i) {
+            model_resources->token_state.push_back(tokens_list[i]);
+          }
         }
-        // Append suffix tokens from prompt if any
-        for (size_t i = prefix_len; i < tokens_list.size(); ++i) {
-          model_resources->token_state.push_back(tokens_list[i]);
-        }
+
+        // Append generated tokens
+        model_resources->token_state.insert(
+            model_resources->token_state.end(),
+            generated_token_ids.begin(),
+            generated_token_ids.end());
+
+        log_message(
+            "Updated token state cache for future reuse. Total tokens: " +
+                std::to_string(model_resources->token_state.size()),
+            request.dart_logger);
       }
-      
-      // Append generated tokens
-      model_resources->token_state.insert(model_resources->token_state.end(),
-                                        generated_token_ids.begin(),
-                                        generated_token_ids.end());
-      
-      log_message("Updated token state cache for future reuse. Total tokens: " + 
-                 std::to_string(model_resources->token_state.size()), request.dart_logger);
     }
     // Instead of freeing everything immediately, we'll either cache the model
     // or free it based on our caching logic

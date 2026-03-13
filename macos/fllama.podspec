@@ -32,12 +32,12 @@ A new Flutter FFI plugin project.
     # - "llama.h" (in include/)
     # - "ggml.h" (in ggml/include/)  
     # - <nlohmann/json.hpp> (in vendor/)
-    'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/llama.cpp/include $(PODS_TARGET_SRCROOT)/llama.cpp/ggml/include $(PODS_TARGET_SRCROOT)/llama.cpp/vendor',
+    'HEADER_SEARCH_PATHS' => '$(PODS_TARGET_SRCROOT)/llama.cpp/include $(PODS_TARGET_SRCROOT)/llama.cpp/ggml/include $(PODS_TARGET_SRCROOT)/llama.cpp/vendor $(PODS_TARGET_SRCROOT)/llama.cpp/tools/mtmd',
     # C++17 required for std::scoped_lock, CTAD, and other modern features in vendor/minja/
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
     # Link the libraries directly using full paths (they'll be built by script phase)
-    'OTHER_LDFLAGS' => '-L$(PODS_TARGET_SRCROOT)/libs -lllama -lggml -lggml-base -lggml-cpu -lggml-metal -lggml-blas -lcommon',
+    'OTHER_LDFLAGS' => '-L$(PODS_TARGET_SRCROOT)/libs -lllama -lggml -lggml-base -lggml-cpu -lggml-metal -lggml-blas -lcommon -lmtmd',
   }
   
   # Build llama.cpp during Xcode compilation (not during pod install!)

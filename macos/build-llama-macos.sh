@@ -30,6 +30,7 @@ should_skip_build() {
     nm -gU libs/libcommon.a 2>/dev/null | grep -q "common_chat_tools_parse_oaicompat" || return 1
     nm -gU libs/libcommon.a 2>/dev/null | grep -q "common_chat_parse" || return 1
     nm -gU libs/libllama.a  2>/dev/null | grep -q "llama_flash_attn_type_name" || return 1
+    nm -gU libs/libmtmd.a   2>/dev/null | grep -q "mtmd_init_from_file" || return 1
 
     return 0
 }
@@ -54,6 +55,7 @@ if [ ! -d "llama.cpp/build-macos" ]; then
         -DLLAMA_BUILD_SERVER=OFF \
         -DLLAMA_BUILD_TESTS=OFF \
         -DLLAMA_BUILD_EXAMPLES=OFF \
+        -DLLAMA_BUILD_TOOLS=ON \
         -S .
     
     echo "🏗️ Building libraries (this may take a few minutes)..."

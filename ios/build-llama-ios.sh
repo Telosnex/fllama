@@ -21,7 +21,7 @@ check_symbols() {
 check_target_libs() {
     local target="$1" # device|simulator
 
-    if [ ! -f "libs/$target/libllama.a" ] || [ ! -f "libs/$target/libggml.a" ] || [ ! -f "libs/$target/libcommon.a" ]; then
+    if [ ! -f "libs/$target/libllama.a" ] || [ ! -f "libs/$target/libggml.a" ] || [ ! -f "libs/$target/libcommon.a" ] || [ ! -f "libs/$target/libmtmd.a" ]; then
         return 1
     fi
 
@@ -96,7 +96,7 @@ fi
 
 # Check if we got the required libraries for both targets
 for target in device simulator; do
-    if [ ! -f "libs/$target/libllama.a" ] || [ ! -f "libs/$target/libggml.a" ] || [ ! -f "libs/$target/libcommon.a" ]; then
+    if [ ! -f "libs/$target/libllama.a" ] || [ ! -f "libs/$target/libggml.a" ] || [ ! -f "libs/$target/libcommon.a" ] || [ ! -f "libs/$target/libmtmd.a" ]; then
         echo "❌ Missing required libraries for $target!"
         echo "Found in libs/$target/:"
         ls -la libs/$target/

@@ -1,4 +1,5 @@
 #include "fllama_inference_queue.h"
+#include "mtmd.h"
 #include <atomic>
 #include <exception>
 #include <iostream>
@@ -52,6 +53,7 @@ InferenceQueue::~InferenceQueue() {
   
   // Free resources outside the lock
   for (auto& resources : remaining_models) {
+    if (resources->mtmd_ctx) { mtmd_free(resources->mtmd_ctx); resources->mtmd_ctx = nullptr; }
     if (resources->ctx) llama_free(resources->ctx);
     if (resources->model) llama_model_free(resources->model);
   }
@@ -415,6 +417,7 @@ void InferenceQueue::cleanup_inactive_models() {
     // Free the extracted models outside the lock to prevent deadlock
     for (auto& resources : models_to_free) {
       std::cout << "[InferenceQueue] Freeing model resources for: " << resources->path << std::endl;
+      if (resources->mtmd_ctx) { mtmd_free(resources->mtmd_ctx); resources->mtmd_ctx = nullptr; }
       if (resources->ctx) llama_free(resources->ctx);
       if (resources->model) llama_model_free(resources->model);
       // shared_ptr will handle deletion of ModelResources

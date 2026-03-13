@@ -60,16 +60,15 @@ endif()
 
 add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)
 add_subdirectory("llama.cpp/common" EXCLUDE_FROM_ALL)
+add_subdirectory("llama.cpp/tools/mtmd" EXCLUDE_FROM_ALL)
 
 add_library(fllama SHARED
   "fllama_chat_template.cpp"
   "fllama_eos.cpp"
   "fllama_inference_queue.cpp"
-  "fllama_llava.cpp"
+  "fllama_mtmd.cpp"
   "fllama_tokenize.cpp"
   "fllama.cpp"
-  "clip.cpp"
-  "llava.cpp"
 )
 
 set_target_properties(fllama PROPERTIES
@@ -86,7 +85,7 @@ endif()
 target_include_directories(fllama PUBLIC .)
 add_executable(fllama_wasm fllama_wasm_entry.cpp)
 target_link_libraries(fllama_wasm fllama) # Link against your library
-target_link_libraries(fllama PUBLIC llama common)
+target_link_libraries(fllama PUBLIC llama common mtmd)
 
 if(ANDROID)
     find_library(LOG_LIB log) # Find the log library

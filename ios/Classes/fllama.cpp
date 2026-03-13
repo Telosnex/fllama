@@ -4,7 +4,5 @@
 #include "../../src/fllama_chat_template.cpp"
 #include "../../src/fllama_eos.cpp"
 #include "../../src/fllama_inference_queue.cpp"
-#include "../../src/fllama_llava.cpp"
+#include "../../src/fllama_mtmd.cpp"
 #include "../../src/fllama_tokenize.cpp"
-#include "../../src/clip.cpp"
-#include "../../src/llava.cpp"
