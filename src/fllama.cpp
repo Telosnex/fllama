@@ -37,6 +37,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <iostream>
@@ -81,6 +82,37 @@ static void log_message(const std::string &m,
 static ServerManager &g_mgr = *new ServerManager();
 static std::once_flag  g_backend_init;
 
+static void fllama_backend_init_once() {
+  std::call_once(g_backend_init, [] {
+    ggml_backend_load_all();
+    llama_backend_init();
+  });
+}
+
+static std::vector<ggml_backend_dev_t> fllama_get_gpu_devices() {
+  fllama_backend_init_once();
+
+  std::vector<ggml_backend_dev_t> devices;
+  for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+    auto * dev = ggml_backend_dev_get(i);
+    if (dev == nullptr) {
+      continue;
+    }
+    if (ggml_backend_dev_type(dev) != GGML_BACKEND_DEVICE_TYPE_GPU) {
+      continue;
+    }
+    devices.push_back(dev);
+  }
+  return devices;
+}
+
+static void fllama_copy_cstr(char * dst, size_t cap, const char * src) {
+  if (dst == nullptr || cap == 0) {
+    return;
+  }
+  std::snprintf(dst, cap, "%s", src ? src : "");
+}
+
 // ── The actual inference logic (runs on per-request thread) ──────────────────
 
 static void run_inference(fllama_inference_request request,
@@ -90,10 +122,7 @@ static void run_inference(fllama_inference_request request,
     log_message("[fllama] Inference start", request.dart_logger);
 
     // One-time backend init.
-    std::call_once(g_backend_init, [] {
-      ggml_backend_load_all();
-      llama_backend_init();
-    });
+    fllama_backend_init_once();
 
     // ── 1. Build common_params ────────────────────────────────────────
 
@@ -332,6 +361,59 @@ static void run_inference(fllama_inference_request request,
 // ── FFI entry points ─────────────────────────────────────────────────────────
 
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_device_count(void) {
+  return static_cast<int>(fllama_get_gpu_devices().size());
+}
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_memory_info(
+    int gpu_index,
+    struct fllama_gpu_memory_info * out_info) {
+  if (out_info == nullptr) {
+    return 1;
+  }
+
+  std::memset(out_info, 0, sizeof(*out_info));
+
+  if (gpu_index < 0) {
+    return 2;
+  }
+
+  auto devices = fllama_get_gpu_devices();
+  if (static_cast<size_t>(gpu_index) >= devices.size()) {
+    return 3;
+  }
+
+  auto * dev = devices[static_cast<size_t>(gpu_index)];
+  ggml_backend_dev_props props{};
+  ggml_backend_dev_get_props(dev, &props);
+
+  size_t total = props.memory_total;
+  size_t free = props.memory_free;
+
+  // Metal reports free as recommendedMaxWorkingSetSize - currentAllocatedSize.
+  // If currentAllocatedSize exceeds the recommendation, the backend can
+  // underflow the unsigned subtraction. Clamp that to zero here.
+  if (total == 0) {
+    free = 0;
+  } else if (free > total) {
+    free = 0;
+  }
+
+  out_info->device_index = gpu_index;
+  out_info->total_bytes = static_cast<uint64_t>(total);
+  out_info->free_bytes = static_cast<uint64_t>(free);
+  fllama_copy_cstr(out_info->name, sizeof(out_info->name), props.name);
+  fllama_copy_cstr(
+      out_info->description,
+      sizeof(out_info->description),
+      props.description);
+  fllama_copy_cstr(
+      out_info->device_id,
+      sizeof(out_info->device_id),
+      props.device_id);
+  return 0;
+}
 
 EMSCRIPTEN_KEEPALIVE void fllama_inference(fllama_inference_request request,
                                            fllama_inference_callback callback) {

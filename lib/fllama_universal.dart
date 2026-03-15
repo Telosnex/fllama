@@ -7,7 +7,8 @@ import 'model/model_override.dart';
 /// Returns true if the given [output] indicates that the model failed to load.
 /// Output is the output from [fllamaInference] or [fllamaChat].
 bool fllamaOutputIndicatesLoadError(String output) {
-  return output.contains('Error: Unable to load model.') || output.contains('Error: Failed to create context');
+  return output.contains('Error: Unable to load model.') ||
+      output.contains('Error: Failed to create context');
 }
 
 /// [String]s to use in [OpenAiRequest.modelPath] on web when using MLC's web
@@ -38,8 +39,7 @@ class MlcModelId {
 /// sort of interface, i.e. an OpenAI-like API. It translates an OpenAI-like
 /// request into a inference request.
 class FllamaInferenceRequest {
-  int
-  contextSize; // llama.cpp handled 0 fine. StableLM Zephyr became default (4096).
+  int contextSize; // llama.cpp handled 0 fine. StableLM Zephyr became default (4096).
   String input;
   int maxTokens;
   String modelPath;
@@ -103,6 +103,26 @@ class FllamaTokenizeRequest {
   FllamaTokenizeRequest({required this.input, required this.modelPath});
 }
 
+class FllamaGpuMemoryInfo {
+  final int deviceIndex;
+  final int totalBytes;
+  final int freeBytes;
+  final String name;
+  final String description;
+  final String deviceId;
+
+  const FllamaGpuMemoryInfo({
+    required this.deviceIndex,
+    required this.totalBytes,
+    required this.freeBytes,
+    required this.name,
+    required this.description,
+    required this.deviceId,
+  });
+
+  bool get hasKnownBudget => totalBytes > 0;
+}
+
 /// Run the LLM using the standard LLM chat interface. This is the most common
 /// way to use FLLAMA.
 ///
@@ -135,8 +155,7 @@ Future<int> fllamaChat(
   //     ? chatMlBosToken
   //     : await fllamaBosTokenGet(request.modelPath);
 
-  text =
-      '' ??
+  text = '' ??
       fllamaApplyChatTemplate(
         chatTemplate: chatTemplate,
         bosToken: bosToken,

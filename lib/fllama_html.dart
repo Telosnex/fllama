@@ -11,6 +11,10 @@ external JSPromise<JSNumber> fllamaInferenceJs(
 typedef FllamaInferenceCallback = void Function(
     String response, String openaiResponseJsonString, bool done);
 
+Future<List<FllamaGpuMemoryInfo>> fllamaGpuMemoryInfoGetAll() async {
+  return const [];
+}
+
 // Keep in sync with fllama_inference_request.dart to pass correctly from Dart to JS
 extension type _JSFllamaInferenceRequest._(JSObject _) implements JSObject {
   external factory _JSFllamaInferenceRequest({

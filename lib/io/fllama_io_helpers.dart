@@ -25,3 +25,23 @@ String pointerCharToString(Pointer<Char> pointerChar) {
     return '';
   }
 }
+
+/// Convert a fixed-size native C char array to a Dart string.
+String charArrayToString(Array<Char> array, int maxLen) {
+  final bytes = <int>[];
+  for (var i = 0; i < maxLen; i++) {
+    final value = array[i];
+    if (value == 0) {
+      break;
+    }
+    bytes.add(value & 0xFF);
+  }
+  if (bytes.isEmpty) {
+    return '';
+  }
+  try {
+    return utf8.decode(bytes, allowMalformed: false);
+  } catch (_) {
+    return '';
+  }
+}

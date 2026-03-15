@@ -22,6 +22,15 @@ extern "C" {
 typedef void (*fllama_inference_callback)(const char *response, const char * openai_response_json_string, uint8_t done);
 typedef void (*fllama_log_callback)(const char *);
 
+struct fllama_gpu_memory_info {
+  int32_t device_index;
+  uint64_t total_bytes;
+  uint64_t free_bytes;
+  char name[128];
+  char description[256];
+  char device_id[128];
+};
+
 struct fllama_inference_request {
   int request_id; // Required: unique ID for the request. Used for cancellation.
   int context_size;        // Required: context size
@@ -58,6 +67,16 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_infer
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_sync(struct fllama_inference_request request,
                            fllama_inference_callback callback);
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(int request_id);
+
+// GPU device information.
+// Returns the number of GPU devices visible to ggml/llama.cpp.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_device_count(void);
+
+// Fills [out_info] for the GPU at [gpu_index].
+// Returns 0 on success, non-zero on failure.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_memory_info(
+    int gpu_index,
+    struct fllama_gpu_memory_info * out_info);
 #ifdef __cplusplus
 }
 #endif

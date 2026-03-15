@@ -75,6 +75,37 @@ class FllamaBindings {
   late final _fllama_inference_cancel =
       _fllama_inference_cancelPtr.asFunction<void Function(int)>();
 
+  /// GPU device information.
+  /// Returns the number of GPU devices visible to ggml/llama.cpp.
+  int fllama_get_gpu_device_count() {
+    return _fllama_get_gpu_device_count();
+  }
+
+  late final _fllama_get_gpu_device_countPtr =
+      _lookup<ffi.NativeFunction<ffi.Int Function()>>(
+          'fllama_get_gpu_device_count');
+  late final _fllama_get_gpu_device_count =
+      _fllama_get_gpu_device_countPtr.asFunction<int Function()>();
+
+  /// Fills [out_info] for the GPU at [gpu_index].
+  /// Returns 0 on success, non-zero on failure.
+  int fllama_get_gpu_memory_info(
+    int gpu_index,
+    ffi.Pointer<fllama_gpu_memory_info> out_info,
+  ) {
+    return _fllama_get_gpu_memory_info(
+      gpu_index,
+      out_info,
+    );
+  }
+
+  late final _fllama_get_gpu_memory_infoPtr = _lookup<
+          ffi.NativeFunction<
+              ffi.Int Function(ffi.Int, ffi.Pointer<fllama_gpu_memory_info>)>>(
+      'fllama_get_gpu_memory_info');
+  late final _fllama_get_gpu_memory_info = _fllama_get_gpu_memory_infoPtr
+      .asFunction<int Function(int, ffi.Pointer<fllama_gpu_memory_info>)>();
+
   ffi.Pointer<ffi.Char> fllama_get_chat_template(
     ffi.Pointer<ffi.Char> fname,
   ) {
@@ -133,6 +164,26 @@ class FllamaBindings {
           'fllama_tokenize');
   late final _fllama_tokenize =
       _fllama_tokenizePtr.asFunction<int Function(fllama_tokenize_request)>();
+}
+
+final class fllama_gpu_memory_info extends ffi.Struct {
+  @ffi.Int32()
+  external int device_index;
+
+  @ffi.Uint64()
+  external int total_bytes;
+
+  @ffi.Uint64()
+  external int free_bytes;
+
+  @ffi.Array.multi([128])
+  external ffi.Array<ffi.Char> name;
+
+  @ffi.Array.multi([256])
+  external ffi.Array<ffi.Char> description;
+
+  @ffi.Array.multi([128])
+  external ffi.Array<ffi.Char> device_id;
 }
 
 final class fllama_inference_request extends ffi.Struct {
