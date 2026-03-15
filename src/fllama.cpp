@@ -111,6 +111,12 @@ static void run_inference(fllama_inference_request request,
     params.cpuparams.n_threads     = request.num_threads;
     params.use_jinja = true;
 
+    // Default is 8192 MiB — way too much for mobile/embedded.
+    // 0 = disable host-memory prompt caching entirely.
+    // The KV cache in the llama_context still handles prompt reuse;
+    // this only controls the EXTRA host-RAM cache from PR #16391.
+    params.cache_ram_mib = 0;
+
 #if TARGET_IPHONE_SIMULATOR
     params.n_gpu_layers = 0;
 #else
