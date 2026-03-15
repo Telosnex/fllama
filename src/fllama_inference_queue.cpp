@@ -1,6 +1,18 @@
 #include "fllama_inference_queue.h"
 #include "server-context.h"
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
+#if TARGET_OS_IOS
+#include "../ios/llama.cpp/common/common.h"
+#elif TARGET_OS_OSX
+#include "../macos/llama.cpp/common/common.h"
+#else
+#include "llama.cpp/common/common.h"
+#endif
+
 #include <chrono>
 #include <iostream>
 
@@ -47,19 +59,50 @@ ServerManager::~ServerManager() {
 }
 
 // ---------------------------------------------------------------------------
+static bool params_match(const ServerResources &r,
+                         const common_params &params) {
+  return r.n_ctx        == params.n_ctx &&
+         r.n_gpu_layers == params.n_gpu_layers &&
+         r.mmproj_path  == params.mmproj.path;
+}
+
 ServerResources *
 ServerManager::get_or_create(const std::string &model_path,
                              const common_params &params,
                              fllama_log_callback logger) {
-  // Fast path.
+  // Fast path — server exists with matching params.
   {
     std::shared_lock<std::shared_mutex> lk(servers_lock);
     auto it = servers.find(model_path);
-    if (it != servers.end() && !it->second->shutting_down.load()) {
+    if (it != servers.end() && !it->second->shutting_down.load() &&
+        params_match(*it->second, params)) {
       auto *r = it->second.get();
       r->last_used = std::chrono::steady_clock::now();
       r->active_users.fetch_add(1);
       return r;
+    }
+  }
+
+  // Params changed or server doesn't exist — evict old one if present.
+  {
+    std::unique_lock<std::shared_mutex> lk(servers_lock);
+    auto it = servers.find(model_path);
+    if (it != servers.end()) {
+      if (it->second->active_users.load() > 0) {
+        std::cerr << "[ServerManager] Params changed but server is busy, "
+                     "using existing context for: " << model_path << "\n";
+        auto *r = it->second.get();
+        r->last_used = std::chrono::steady_clock::now();
+        r->active_users.fetch_add(1);
+        return r;
+      }
+      std::cout << "[ServerManager] Params changed, recreating: "
+                << model_path << "\n";
+      // Move out so destructor runs outside the lock.
+      auto old = std::move(it->second);
+      servers.erase(it);
+      lk.unlock();
+      old.reset(); // terminate + join
     }
   }
 
@@ -75,7 +118,10 @@ ServerManager::get_or_create(const std::string &model_path,
 
   auto *ctx_ptr = res->srv_ctx.get();
   res->loop_thread = std::thread([ctx_ptr] { ctx_ptr->start_loop(); });
-  res->last_used = std::chrono::steady_clock::now();
+  res->n_ctx        = params.n_ctx;
+  res->n_gpu_layers  = params.n_gpu_layers;
+  res->mmproj_path   = params.mmproj.path;
+  res->last_used     = std::chrono::steady_clock::now();
   res->active_users.store(1);
 
   std::unique_lock<std::shared_mutex> lk(servers_lock);

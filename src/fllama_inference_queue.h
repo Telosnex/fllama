@@ -30,6 +30,11 @@ struct ServerResources {
   std::atomic<int> active_users{0};
   std::atomic<bool> shutting_down{false};
 
+  // Params that require a fresh server_context if changed.
+  int n_ctx         = 0;
+  int n_gpu_layers  = -1;
+  std::string mmproj_path;
+
   ServerResources() = default;
   ~ServerResources(); // terminates loop, joins thread
 
