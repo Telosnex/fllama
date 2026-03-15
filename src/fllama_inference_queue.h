@@ -82,6 +82,10 @@ private:
   std::mutex cancel_lock;
   std::unordered_set<int> cancelled;
 
+  // Serialises all load_model() calls — ggml Metal init has global state
+  // that is not safe for concurrent model loads.
+  std::mutex model_load_mutex;
+
   std::mutex threads_lock;
   std::unordered_map<int, std::thread> request_threads;
   // Threads that finished but need joining.

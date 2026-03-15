@@ -106,7 +106,24 @@ ServerManager::get_or_create(const std::string &model_path,
     }
   }
 
-  // Slow path — create.
+  // Slow path — serialise all model loads.  ggml Metal initialisation uses
+  // global state that isn't safe for concurrent model loads (the crash that
+  // overwrites the return address with ASCII " using d" from a Metal log).
+  std::lock_guard<std::mutex> load_lk(model_load_mutex);
+
+  // Re-check: another thread may have loaded this model while we waited.
+  {
+    std::shared_lock<std::shared_mutex> lk(servers_lock);
+    auto it = servers.find(model_path);
+    if (it != servers.end() && !it->second->shutting_down.load() &&
+        params_match(*it->second, params)) {
+      auto *r = it->second.get();
+      r->last_used = std::chrono::steady_clock::now();
+      r->active_users.fetch_add(1);
+      return r;
+    }
+  }
+
   auto res = std::make_unique<ServerResources>();
   res->model_path = model_path;
   res->srv_ctx = std::make_unique<server_context>();
@@ -127,8 +144,9 @@ ServerManager::get_or_create(const std::string &model_path,
   std::unique_lock<std::shared_mutex> lk(servers_lock);
   auto [it, ok] = servers.emplace(model_path, std::move(res));
   if (!ok) {
-    // Another thread raced us.  Drop ours (dtor terminates it) and retry.
+    // Another thread raced us.  Drop ours (dtor terminates it) and use theirs.
     lk.unlock();
+    // Recursive call will hit the fast path now.
     return get_or_create(model_path, params, logger);
   }
   std::cout << "[ServerManager] Created server_context: " << model_path << "\n";
