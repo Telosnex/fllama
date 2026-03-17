@@ -59,7 +59,7 @@ if [ ! -d "build-macos" ]; then
         -DLLAMA_BUILD_SERVER=OFF \
         -DLLAMA_BUILD_TESTS=OFF \
         -DLLAMA_BUILD_EXAMPLES=OFF \
-        -DLLAMA_BUILD_TOOLS=OFF \
+        -DLLAMA_BUILD_TOOLS=ON \
         -S .
 else
     echo "✅ CMake build directory already exists, reconfiguring..."
@@ -67,7 +67,7 @@ else
 fi
 
 echo "🏗️ Building libraries (this may take a few minutes)..."
-cmake --build build-macos --config Release
+cmake --build build-macos --config Release --target llama --target ggml --target common --target mtmd || true
 cd ..
 
 # Copy libraries
