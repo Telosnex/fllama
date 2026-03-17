@@ -9,13 +9,17 @@ should_skip_build() {
         return 1
     fi
 
-    # If llama.cpp is a git checkout, use the commit hash to detect changes
+    # If llama.cpp is a git checkout, use commit hash + dirty state to detect changes
     if [ -d "llama.cpp/.git" ]; then
         local current_hash
         current_hash=$(git -C llama.cpp rev-parse HEAD 2>/dev/null || echo "")
+        # Also hash uncommitted changes so edits without commits trigger rebuilds
+        local dirty_hash
+        dirty_hash=$(git -C llama.cpp diff HEAD -- common/ tools/ 2>/dev/null | md5 2>/dev/null || echo "")
+        local full_hash="${current_hash}-${dirty_hash}"
         local cached_hash
         cached_hash=$(cat libs/.llama_cpp_build_hash 2>/dev/null || echo "")
-        if [ -n "$current_hash" ] && [ "$current_hash" = "$cached_hash" ]; then
+        if [ -n "$full_hash" ] && [ "$full_hash" = "$cached_hash" ]; then
             echo "✅ llama.cpp hash unchanged ($current_hash)"
         else
             echo "♻️  llama.cpp changed (or no cached hash); rebuilding"
@@ -40,10 +44,10 @@ if should_skip_build; then
     exit 0
 fi
 
-# Build using CMake if needed
-if [ ! -d "llama.cpp/build-macos" ]; then
+# Configure CMake if needed
+cd llama.cpp
+if [ ! -d "build-macos" ]; then
     echo "📦 Configuring CMake build..."
-    cd llama.cpp
     cmake -B build-macos -G Xcode \
         -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
         -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
@@ -55,15 +59,16 @@ if [ ! -d "llama.cpp/build-macos" ]; then
         -DLLAMA_BUILD_SERVER=OFF \
         -DLLAMA_BUILD_TESTS=OFF \
         -DLLAMA_BUILD_EXAMPLES=OFF \
-        -DLLAMA_BUILD_TOOLS=ON \
+        -DLLAMA_BUILD_TOOLS=OFF \
         -S .
-    
-    echo "🏗️ Building libraries (this may take a few minutes)..."
-    cmake --build build-macos --config Release
-    cd ..
 else
-    echo "✅ CMake build already exists"
+    echo "✅ CMake build directory already exists, reconfiguring..."
+    cmake build-macos
 fi
+
+echo "🏗️ Building libraries (this may take a few minutes)..."
+cmake --build build-macos --config Release
+cd ..
 
 # Copy libraries
 echo "📋 Copying static libraries..."
@@ -72,7 +77,9 @@ find llama.cpp/build-macos -name "*.a" -path "*/Release/*" ! -path "*/build/*" -
 
 # Cache the llama.cpp git hash (if available) so we can skip rebuilds safely.
 if [ -d "llama.cpp/.git" ]; then
-    git -C llama.cpp rev-parse HEAD > libs/.llama_cpp_build_hash 2>/dev/null || true
+    _hash=$(git -C llama.cpp rev-parse HEAD 2>/dev/null || echo "")
+    _dirty=$(git -C llama.cpp diff HEAD -- common/ tools/ 2>/dev/null | md5 2>/dev/null || echo "")
+    echo "${_hash}-${_dirty}" > libs/.llama_cpp_build_hash
 fi
 
 echo "✅ llama.cpp build complete!"
