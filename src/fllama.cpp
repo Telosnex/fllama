@@ -142,6 +142,8 @@ static void run_inference(fllama_inference_request request,
     params.sampling.penalty_repeat = request.penalty_repeat;
     params.cpuparams.n_threads     = request.num_threads;
     params.use_jinja = true;
+    params.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
+    params.enable_reasoning = 1;
 
     // Default is 8192 MiB — way too much for mobile/embedded.
     // 0 = disable host-memory prompt caching entirely.
@@ -213,6 +215,16 @@ static void run_inference(fllama_inference_request request,
           inputs.messages =
               common_chat_msgs_parse_oaicompat(body["messages"]);
 
+          // Default to automatic reasoning extraction for modern reasoning/
+          // channel-based templates (Qwen, GPT-OSS/Harmony, etc). Allow the
+          // request body to override explicitly.
+          inputs.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
+          inputs.enable_thinking = true;
+          if (body.contains("reasoning_format") && body["reasoning_format"].is_string()) {
+            inputs.reasoning_format = common_reasoning_format_from_name(
+                body["reasoning_format"].get<std::string>());
+          }
+
           if (body.contains("tools")) {
             inputs.tools =
                 common_chat_tools_parse_oaicompat(body["tools"]);
@@ -228,13 +240,23 @@ static void run_inference(fllama_inference_request request,
               common_chat_templates_apply(tmpls.get(), inputs);
           prompt = result.prompt;
           parser_params = common_chat_parser_params(result);
+          parser_params.reasoning_format = inputs.reasoning_format;
+          parser_params.reasoning_in_content =
+              (inputs.reasoning_format == COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY);
           if (!result.parser.empty()) {
             parser_params.parser.load(result.parser);
           }
 
+          log_message("[JPZ] fllama inputs.reasoning_format=" +
+                          std::string(common_reasoning_format_name(inputs.reasoning_format)),
+                      request.dart_logger);
           log_message("[fllama] Chat format: " +
                           std::string(common_chat_format_name(
                               result.format)),
+                      request.dart_logger);
+          log_message("[JPZ] PROMPT (" +
+                          std::to_string(prompt.size()) + " chars):\n" +
+                          prompt,
                       request.dart_logger);
         }
       } catch (const std::exception &e) {
@@ -297,7 +319,16 @@ static void run_inference(fllama_inference_request request,
     std::string last_json;
 
     while (reader.has_next()) {
-      auto res = reader.next(should_stop);
+      server_task_result_ptr res;
+      try {
+        res = reader.next(should_stop);
+      } catch (const std::exception &e) {
+        // Final parse can fail (e.g. doubled generated_text in update_chat_msg).
+        // Log and break — we still have the accumulated text + last good JSON.
+        log_message(std::string("[JPZ] reader.next() threw: ") + e.what(),
+                    request.dart_logger);
+        break;
+      }
       if (!res) break;
 
       if (res->is_error()) {
@@ -315,6 +346,10 @@ static void run_inference(fllama_inference_request request,
           dynamic_cast<server_task_result_cmpl_partial *>(res.get());
       if (partial) {
         full_content += partial->content;
+        log_message("[fllama] token: \"" + partial->content +
+                    "\"  cumulative(" + std::to_string(full_content.size()) +
+                    " chars)",
+                    request.dart_logger);
         auto j = res->to_json();
         if (!j.is_null()) {
           last_json = j.dump();
@@ -326,9 +361,26 @@ static void run_inference(fllama_inference_request request,
       auto *final_r =
           dynamic_cast<server_task_result_cmpl_final *>(res.get());
       if (final_r) {
-        full_content = final_r->content;
-        auto j = res->to_json();
-        last_json = j.is_null() ? "" : j.dump();
+        // Keep accumulated full_content — final_r->content can be
+        // empty or corrupted for tool-call / reasoning completions.
+        try {
+          auto j = res->to_json();
+          last_json = j.is_null() ? "" : j.dump();
+          log_message("[JPZ] final to_json() is_null=" +
+                          std::to_string(j.is_null()) +
+                          " type=" + std::to_string((int)j.type()) +
+                          " size=" + std::to_string(j.size()) +
+                          " dump=" + last_json.substr(0, 200),
+                      request.dart_logger);
+        } catch (const std::exception &e) {
+          log_message(std::string("[JPZ] final to_json() THREW: ") + e.what(),
+                      request.dart_logger);
+          last_json = "";
+        }
+        log_message("[JPZ] final_r->content(" +
+                        std::to_string(final_r->content.size()) +
+                        ")=\"" + final_r->content.substr(0, 100) + "\"",
+                    request.dart_logger);
         callback(full_content.c_str(), last_json.c_str(), true);
 
         log_message("[fllama] Done. " +
