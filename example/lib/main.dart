@@ -38,7 +38,7 @@ class _MyAppState extends State<MyApp> {
   final TextEditingController _controller = TextEditingController();
   var _temperature = 0.5;
   var _topP = 1.0;
-  int _maxTokens = 100;
+  int _maxTokens = 2000;
 
   String latestResultString = '';
   String latestResultJson = '';
@@ -48,6 +48,13 @@ class _MyAppState extends State<MyApp> {
   String latestBosToken = '';
   double _tokensPerSecond = 0;
   DateTime? _inferenceStartTime;
+
+  // Parsed streaming state
+  String _accReasoning = '';
+  String _accContent = '';
+  final List<Map<String, dynamic>> _accToolCalls = [];
+  String? _finishReason;
+  Map<String, dynamic>? _timings;
 
   int? _runningRequestId;
 
@@ -111,7 +118,7 @@ class _MyAppState extends State<MyApp> {
                               'Optional:\nModels that can also process images, multimodal models, also come with a mmproj.gguf file.',
                           child: Icon(Icons.info),
                         ),
-                        if (_mmprojPath != null)
+                        if (_mmprojPath != null) ...[
                           Padding(
                             padding: const EdgeInsets.only(left: 8.0),
                             child: SelectableText(
@@ -119,6 +126,17 @@ class _MyAppState extends State<MyApp> {
                               style: textStyle,
                             ),
                           ),
+                          IconButton(
+                            onPressed: () {
+                              setState(() {
+                                _mmprojPath = null;
+                                _imageBytes = null;
+                              });
+                              kSharedPrefs.remove(kMmprojPathKey);
+                            },
+                            icon: const Icon(Icons.close),
+                          ),
+                        ]
                       ],
                     ),
                   ],
@@ -390,10 +408,69 @@ class _MyAppState extends State<MyApp> {
                     Text('Output token count: $latestOutputTokenCount',
                         style: textStyle),
                   ],
-                  SelectableText(
-                    'String: $latestResultString\nJSON: $latestResultJson\n',
-                    style: textStyle,
-                  ),
+                  if (_finishReason != null || _timings != null) ...[
+                    spacerSmall,
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: SelectableText(
+                        [
+                          if (_finishReason != null) 'finish_reason: $_finishReason',
+                          if (_timings != null) ..._timings!.entries.map((e) {
+                            final v = e.value;
+                            if (v is double) {
+                              final s = v.toStringAsFixed(1);
+                              return '${e.key}: ${s.endsWith('.0') ? v.toInt().toString() : s}';
+                            }
+                            return '${e.key}: $v';
+                          }),
+                        ].join('\n'),
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                      ),
+                    ),
+                  ],
+                  if (_accReasoning.isNotEmpty) ...[
+                    spacerSmall,
+                    const Text('Reasoning:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: SelectableText(
+                        _accReasoning,
+                        style: textStyle,
+                      ),
+                    ),
+                  ],
+                  if (_accContent.isNotEmpty) ...[
+                    spacerSmall,
+                    const Text('Content:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    SelectableText(_accContent, style: textStyle),
+                  ],
+                  if (_accToolCalls.isNotEmpty) ...[
+                    spacerSmall,
+                    const Text('Tool Calls:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: SelectableText(
+                        _prettyToolCalls(),
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                      ),
+                    ),
+                  ],
+                  if (_accReasoning.isEmpty && _accContent.isEmpty && _accToolCalls.isEmpty && latestResultString.isNotEmpty) ...[
+                    spacerSmall,
+                    SelectableText('Raw: $latestResultString', style: textStyle),
+                  ],
                   if (latestChatTemplate.isNotEmpty) ...[
                     spacerSmall,
                     const Text('Chat template:', style: textStyle),
@@ -426,6 +503,71 @@ class _MyAppState extends State<MyApp> {
         }),
       ),
     );
+  }
+
+  String _prettyToolCalls() {
+    final out = <Map<String, dynamic>>[];
+    for (final tc in _accToolCalls) {
+      final pretty = <String, dynamic>{'name': tc['name']};
+      if (tc['id'] != null) pretty['id'] = tc['id'];
+      try {
+        pretty['arguments'] = jsonDecode(tc['arguments'] ?? '');
+      } catch (_) {
+        pretty['arguments'] = tc['arguments'];
+      }
+      out.add(pretty);
+    }
+    return const JsonEncoder.withIndent('  ').convert(out);
+  }
+
+  void _parseStreamChunk(String responseJson) {
+    if (responseJson.isEmpty) return;
+    try {
+      final decoded = jsonDecode(responseJson);
+      final List<dynamic> chunks = decoded is List ? decoded : [decoded];
+      for (final chunk in chunks) {
+        if (chunk is! Map<String, dynamic>) continue;
+        final choices = chunk['choices'] as List<dynamic>? ?? [];
+        if (choices.isEmpty) continue;
+        final choice = choices[0] as Map<String, dynamic>;
+        final delta = choice['delta'] as Map<String, dynamic>? ?? {};
+        final finishReason = choice['finish_reason'] as String?;
+        final timings = chunk['timings'] as Map<String, dynamic>?;
+
+        if (delta['reasoning_content'] is String) {
+          _accReasoning += delta['reasoning_content'] as String;
+        }
+        if (delta['content'] is String) {
+          _accContent += delta['content'] as String;
+        }
+        if (delta['tool_calls'] is List) {
+          for (final tc in delta['tool_calls'] as List) {
+            if (tc is! Map<String, dynamic>) continue;
+            final idx = tc['index'] as int? ?? 0;
+            while (_accToolCalls.length <= idx) {
+              _accToolCalls.add({'name': '', 'arguments': ''});
+            }
+            final fn = tc['function'] as Map<String, dynamic>? ?? {};
+            if (fn['name'] is String && (fn['name'] as String).isNotEmpty) {
+              _accToolCalls[idx]['name'] = fn['name'];
+            }
+            if (fn['arguments'] is String) {
+              _accToolCalls[idx]['arguments'] =
+                  (_accToolCalls[idx]['arguments'] ?? '') + fn['arguments'];
+            }
+            if (tc['id'] is String) {
+              _accToolCalls[idx]['id'] = tc['id'];
+            }
+          }
+        }
+        if (finishReason != null) {
+          _finishReason = finishReason;
+        }
+        if (timings != null) {
+          _timings = timings;
+        }
+      }
+    } catch (_) {}
   }
 
   void _runInferencePressed() async {
@@ -482,6 +624,7 @@ class _MyAppState extends State<MyApp> {
         if (_tool != null)
           Tool(
             name: _tool!.name,
+            description: _tool!.description,
             jsonSchema: _tool!.parametersAsString,
           ),
       ],
@@ -563,8 +706,16 @@ class _MyAppState extends State<MyApp> {
     });
 
     _inferenceStartTime = DateTime.now();
+    setState(() {
+      _accReasoning = '';
+      _accContent = '';
+      _accToolCalls.clear();
+      _finishReason = null;
+      _timings = null;
+    });
     List<String> allResponses = [];
     int requestId = await fllamaChat(request, (response, responseJson, done) {
+      _parseStreamChunk(responseJson);
       setState(() {
         allResponses.add(responseJson);
         latestResultString = response;
