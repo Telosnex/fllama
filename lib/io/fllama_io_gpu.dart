@@ -1,4 +1,5 @@
 import 'dart:ffi' as ffi;
+import 'dart:isolate';
 
 import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:fllama/fllama_io.dart';
@@ -10,7 +11,15 @@ import 'package:fllama/io/fllama_io_helpers.dart';
 ///
 /// On Metal, these numbers correspond to the backend's working-set budget and
 /// currently available budget for this process, not literal PC-style VRAM.
+///
+/// The first call may be slow (several seconds) because it triggers
+/// ggml/llama.cpp backend initialization.  This method runs the native
+/// call on a separate [Isolate] so it never blocks the UI thread.
 Future<List<FllamaGpuMemoryInfo>> fllamaGpuMemoryInfoGetAll() async {
+  return Isolate.run(_queryGpuDevicesSync);
+}
+
+List<FllamaGpuMemoryInfo> _queryGpuDevicesSync() {
   final count = fllamaBindings.fllama_get_gpu_device_count();
   if (count <= 0) {
     return const [];
