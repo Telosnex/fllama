@@ -50,6 +50,11 @@ void main(List<String> args) async {
       defines['LLAMA_VULKAN'] = 'ON';
     }
 
+    // --- Linux: static libs must be -fPIC to link into shared libfllama.so ---
+    if (targetOS == OS.linux) {
+      defines['CMAKE_POSITION_INDEPENDENT_CODE'] = 'ON';
+    }
+
     // --- Android: disable features that don't build with NDK ---
     if (targetOS == OS.android) {
       defines['GGML_LLAMAFILE'] = 'OFF';
