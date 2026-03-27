@@ -1,17 +1,7 @@
 #include "fllama_mtmd.h"
 #include "mtmd.h"   // for mtmd_default_marker()
 
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
-
-#if TARGET_OS_IOS
-#include "../ios/llama.cpp/common/base64.hpp"
-#elif TARGET_OS_OSX
-#include "../macos/llama.cpp/common/base64.hpp"
-#else
 #include "llama.cpp/common/base64.hpp"
-#endif
 
 #include <cstdio>
 #include <cstring>

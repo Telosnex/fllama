@@ -13,26 +13,10 @@
 #include "server-task.h"
 #include "server-common.h"
 
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
-
-#if TARGET_OS_IOS
-#include "../ios/llama.cpp/common/chat.h"
-#include "../ios/llama.cpp/common/common.h"
-#include "../ios/llama.cpp/ggml/include/ggml.h"
-#include "../ios/llama.cpp/include/llama.h"
-#elif TARGET_OS_OSX
-#include "../macos/llama.cpp/common/chat.h"
-#include "../macos/llama.cpp/common/common.h"
-#include "../macos/llama.cpp/ggml/include/ggml.h"
-#include "../macos/llama.cpp/include/llama.h"
-#else
 #include "llama.cpp/common/chat.h"
 #include "llama.cpp/common/common.h"
 #include "llama.cpp/ggml/include/ggml.h"
 #include "llama.cpp/include/llama.h"
-#endif
 
 #include <algorithm>
 #include <atomic>
@@ -143,7 +127,6 @@ static void run_inference(fllama_inference_request request,
     params.cpuparams.n_threads     = request.num_threads;
     params.use_jinja = true;
     params.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
-    params.enable_reasoning = 1;
 
     // Default is 8192 MiB — way too much for mobile/embedded.
     // 0 = disable host-memory prompt caching entirely.

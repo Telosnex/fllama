@@ -16,24 +16,14 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
 .vscode/
 
 # Flutter/Dart/Pub related
-# Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.
 /pubspec.lock
 **/doc/api/
 .dart_tool/
 build/
-example/android/app/.cxx/
-macos/libs/libcommon.a
-macos/libs/libggml-base.a
-macos/libs/libggml-blas.a
-macos/libs/libggml-cpu.a
-macos/libs/libggml-metal.a
-macos/libs/libggml.a
-macos/libs/libllama.a
-macos/libs/libmtmd.a
+
+# Example app caches
 example/.model_cache/
+example/android/app/.cxx/

@@ -111,7 +111,6 @@ endif()
 
 target_link_libraries(${TARGET} PRIVATE
     build_info
-    cpp-httplib
 )
 
 if (LLAMA_LLGUIDANCE)

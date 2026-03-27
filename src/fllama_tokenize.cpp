@@ -6,27 +6,11 @@
 #include <mutex>
 #include <unordered_map>
 
-#if TARGET_OS_IOS
-// iOS-specific includes
-#include "../ios/llama.cpp/common/base64.hpp"
-#include "../ios/llama.cpp/common/common.h"
-#include "../ios/llama.cpp/common/sampling.h"
-#include "../ios/llama.cpp/ggml/include/ggml.h"
-#include "../ios/llama.cpp/include/llama.h"
-#elif TARGET_OS_OSX
-// macOS-specific includes
-#include "../macos/llama.cpp/common/base64.hpp"
-#include "../macos/llama.cpp/common/common.h"
-#include "../macos/llama.cpp/common/sampling.h"
-#include "../macos/llama.cpp/ggml/include/ggml.h"
-#include "../macos/llama.cpp/include/llama.h"
-#else
-// Other platforms
 #include "llama.cpp/common/base64.hpp"
 #include "llama.cpp/common/common.h"
-#include "ggml.h"
-#include "llama.h"
-#endif
+#include "llama.cpp/common/sampling.h"
+#include "llama.cpp/ggml/include/ggml.h"
+#include "llama.cpp/include/llama.h"
 
 // Tokenizer model caching predeclarations
 std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path);

@@ -58,9 +58,22 @@ if(WIN32)
   message(STATUS "Windows detected, enabling LLAMA_VULKAN")
 endif()
 
-add_subdirectory("llama.cpp" EXCLUDE_FROM_ALL)
-add_subdirectory("llama.cpp/common" EXCLUDE_FROM_ALL)
-add_subdirectory("llama.cpp/tools/mtmd" EXCLUDE_FROM_ALL)
+if(APPLE)
+  # Metal GPU acceleration — previously set by podspec/shell scripts.
+  # Now handled here so the CMake build is self-contained.
+  set(GGML_METAL ON CACHE BOOL "Enable Metal" FORCE)
+  set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "Embed Metal shader library" FORCE)
+endif()
+
+# Provide a fallback version so mtmd's set_target_properties(VERSION ...)
+# doesn't fail when there is no git history (e.g. copied source tree).
+if(NOT DEFINED LLAMA_INSTALL_VERSION OR LLAMA_INSTALL_VERSION STREQUAL "")
+  set(LLAMA_INSTALL_VERSION "0.0.0")
+endif()
+
+add_subdirectory("llama.cpp")
+add_subdirectory("llama.cpp/common")
+add_subdirectory("llama.cpp/tools/mtmd")
 
 # Build the server-context library directly from source files.
 # We cannot use add_subdirectory(tools/server) because it also defines the
@@ -105,9 +118,22 @@ if (ANDROID)
   target_link_options(fllama PRIVATE "-Wl,-z,max-page-size=16384")
 endif()
 target_include_directories(fllama PUBLIC .)
-add_executable(fllama_wasm fllama_wasm_entry.cpp)
-target_link_libraries(fllama_wasm fllama) # Link against your library
 target_link_libraries(fllama PUBLIC llama common mtmd server-context)
+
+# Apple: link system frameworks for Metal, Accelerate, etc.
+# These are needed because we statically link ggml-metal into this shared lib.
+if(APPLE)
+  find_library(FOUNDATION_LIBRARY Foundation REQUIRED)
+  find_library(METAL_LIBRARY Metal REQUIRED)
+  find_library(METALKIT_LIBRARY MetalKit REQUIRED)
+  find_library(ACCELERATE_LIBRARY Accelerate REQUIRED)
+  target_link_libraries(fllama PUBLIC
+    ${FOUNDATION_LIBRARY}
+    ${METAL_LIBRARY}
+    ${METALKIT_LIBRARY}
+    ${ACCELERATE_LIBRARY}
+  )
+endif()
 
 if(ANDROID)
     find_library(LOG_LIB log) # Find the log library

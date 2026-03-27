@@ -1,17 +1,7 @@
 #include "fllama_inference_queue.h"
 #include "server-context.h"
 
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
-
-#if TARGET_OS_IOS
-#include "../ios/llama.cpp/common/common.h"
-#elif TARGET_OS_OSX
-#include "../macos/llama.cpp/common/common.h"
-#else
 #include "llama.cpp/common/common.h"
-#endif
 
 #include <chrono>
 #include <iostream>
