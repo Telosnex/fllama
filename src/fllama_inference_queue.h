@@ -14,6 +14,7 @@
 #include <unordered_set>
 
 #include "fllama.h"
+#include <vector>
 
 // Forward declarations.
 struct server_context;

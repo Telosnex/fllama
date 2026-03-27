@@ -266,9 +266,14 @@ workflows:
       - name: Install modern CMake
         script: |
           # VS 2017 BuildTools ships CMake 3.12 which lacks -S/-B flags (added 3.13).
-          # native_toolchain_cmake requires them, so install a modern CMake.
+          # native_toolchain_cmake finds cmake via 'where cmake' after running vcvars,
+          # which puts VS 2017's cmake first on PATH. Rename it so it can't be found.
+          $vs2017cmake = "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+          if (Test-Path $vs2017cmake) {
+            Rename-Item $vs2017cmake "cmake.exe.bak"
+            Write-Host "Disabled VS 2017 CMake 3.12"
+          }
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-          $env:PATH = "C:\Program Files\CMake\bin;$env:PATH"
           cmake --version
       - <<: *script_windows_install_nuget
       - <<: *script_pub_get
