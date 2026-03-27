@@ -259,6 +259,12 @@ workflows:
         DOTNET_PATH: $CM_BUILD_DIR\dotnet
         DOTNET: $CM_BUILD_DIR\dotnet\dotnet
     scripts:
+      - name: Install modern CMake
+        script: |
+          # VS 2017 BuildTools ships CMake 3.12 which lacks -S/-B flags (added 3.13).
+          # native_toolchain_cmake requires them, so install a modern CMake.
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          refreshenv
       - <<: *script_windows_install_nuget
       - <<: *script_pub_get
       - <<: *script_windows_build
