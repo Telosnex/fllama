@@ -30,10 +30,13 @@ void main(List<String> args) async {
       'LLAMA_BUILD_COMMIT': 'unknown',
     };
 
-    // --- Apple (macOS + iOS): Metal GPU acceleration ---
+    // --- Apple (macOS + iOS): Metal GPU acceleration, no OpenMP ---
     if (targetOS == OS.macOS || targetOS == OS.iOS) {
       defines['GGML_METAL'] = 'ON';
       defines['GGML_METAL_EMBED_LIBRARY'] = 'ON';
+      // Homebrew libomp is arm64-only; universal builds fail linking x86_64.
+      // llama.cpp falls back to pthreads, which is fine.
+      defines['GGML_OPENMP'] = 'OFF';
     }
     if (targetOS == OS.macOS) {
       defines['CMAKE_OSX_DEPLOYMENT_TARGET'] = '10.15';

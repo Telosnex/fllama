@@ -57,7 +57,7 @@ definitions:
       cd example && flutter build appbundle --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_android_setup: &script_android_setup
     name: Android setup
-    script: echo "flutter.sdk=$HOME/programs/flutter" > "$CM_BUILD_DIR/android/local.properties"
+    script: echo "flutter.sdk=$HOME/programs/flutter" > "$CM_BUILD_DIR/example/android/local.properties"
   script_ios_build: &script_ios_build
     name: Build IPA
     script: |
@@ -209,6 +209,10 @@ workflows:
     environment:
       <<: *env_versions
     scripts:
+      - name: Install lld linker
+        script: |
+          # Flutter native assets expects ld.lld in the LLVM bin dir.
+          sudo apt-get update && sudo apt-get install -y lld
       - <<: *script_pub_get
       - <<: *script_linux_build
     artifacts:
@@ -264,7 +268,8 @@ workflows:
           # VS 2017 BuildTools ships CMake 3.12 which lacks -S/-B flags (added 3.13).
           # native_toolchain_cmake requires them, so install a modern CMake.
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-          refreshenv
+          $env:PATH = "C:\Program Files\CMake\bin;$env:PATH"
+          cmake --version
       - <<: *script_windows_install_nuget
       - <<: *script_pub_get
       - <<: *script_windows_build
