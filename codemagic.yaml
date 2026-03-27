@@ -266,14 +266,14 @@ workflows:
       - name: Install modern CMake
         script: |
           # VS 2017 BuildTools ships CMake 3.12 which lacks -S/-B flags (added 3.13).
-          # native_toolchain_cmake runs vcvars internally which puts VS 2017's cmake
-          # first on PATH. Fix: install modern cmake, then copy it over VS 2017's
-          # cmake.exe so the vcvars PATH finds the modern version.
+          # native_toolchain_cmake runs vcvars internally which puts VS 2017's paths
+          # on PATH, shadowing any system cmake. Fix: delete VS 2017's cmake dir
+          # entirely so vcvars can't shadow the choco-installed modern cmake.
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-          $vs2017dir = "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
-          if (Test-Path $vs2017dir) {
-            Copy-Item "C:\Program Files\CMake\bin\cmake.exe" "$vs2017dir\cmake.exe" -Force
-            Write-Host "Replaced VS 2017 CMake 3.12 with modern cmake"
+          $vs2017cmake = "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake"
+          if (Test-Path $vs2017cmake) {
+            Remove-Item -Recurse -Force $vs2017cmake
+            Write-Host "Removed VS 2017 CMake 3.12 directory"
           }
           cmake --version
       - <<: *script_windows_install_nuget
