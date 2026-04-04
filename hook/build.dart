@@ -72,6 +72,22 @@ void main(List<String> args) async {
 
     await builder.run(input: input, output: output, logger: logger);
 
+    // Declare source dependencies so the hooks runner skips re-running
+    // when nothing changed. Without this, the hook runs on every
+    // flutter test / build_runner / build invocation.
+    final srcDir = Directory.fromUri(sourceDir);
+    await for (final entity in srcDir.list(recursive: true)) {
+      if (entity is File) {
+        final path = entity.path;
+        if (path.endsWith('.cpp') || path.endsWith('.h') ||
+            path.endsWith('.c') || path.endsWith('.m') ||
+            path.endsWith('.metal') || path.endsWith('.cmake') ||
+            path.endsWith('CMakeLists.txt')) {
+          output.addDependency(entity.uri);
+        }
+      }
+    }
+
     // Find the produced shared library and register it as a code asset.
     final outLibs = await output.findAndAddCodeAssets(
       input,
