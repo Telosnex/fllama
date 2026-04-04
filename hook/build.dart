@@ -61,6 +61,22 @@ void main(List<String> args) async {
       defines['GGML_OPENMP'] = 'OFF';
     }
 
+    // Handle CMake cache mismatch: the source path includes the git commit
+    // hash (e.g., fllama-<hash>/src/), so updating the package changes it.
+    // The build output dir is keyed on build config, not source path, so
+    // CMakeCache.txt can have a stale CMAKE_HOME_DIRECTORY. Wipe it.
+    final cmakeCache = File.fromUri(
+        input.outputDirectory.resolve('CMakeCache.txt'));
+    if (await cmakeCache.exists()) {
+      final content = await cmakeCache.readAsString();
+      final sourcePath = sourceDir.toFilePath();
+      // CMAKE_HOME_DIRECTORY is the -S path cmake was configured with.
+      if (!content.contains(sourcePath)) {
+        logger.info('Source dir changed, clearing stale CMake cache');
+        await cmakeCache.delete();
+      }
+    }
+
     final builder = CMakeBuilder.create(
       name: 'fllama',
       sourceDir: sourceDir,
