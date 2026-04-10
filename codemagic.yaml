@@ -270,6 +270,7 @@ workflows:
           # on PATH, shadowing any system cmake. Fix: delete VS 2017's cmake dir
           # entirely so vcvars can't shadow the choco-installed modern cmake.
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          $env:PATH = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;" + $env:PATH
           $vs2017cmake = "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake"
           if (Test-Path $vs2017cmake) {
             Remove-Item -Recurse -Force $vs2017cmake
