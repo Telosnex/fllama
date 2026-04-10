@@ -109,6 +109,7 @@ definitions:
       Write-Host "Environment Variables just before CMake call:"
       Get-ChildItem env:
       Write-Host "Building with Flutter..."
+      $env:PATH = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;" + $env:PATH
       cd example
       flutter build windows --verbose --no-tree-shake-icons *>&1 | Tee-Object -FilePath flutter_build_output.txt
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
