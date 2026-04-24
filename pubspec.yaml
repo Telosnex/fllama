@@ -21,6 +21,8 @@ dependencies:
   code_assets: any
   native_toolchain_cmake: ^0.2.4
   logging: any
+  crypto: any
+  path: any
 
 dev_dependencies:
   ffigen: ^9.0.0
