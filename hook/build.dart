@@ -182,6 +182,18 @@ void main(List<String> args) async {
           );
           return;
         }
+        if (await _normalizeBuiltLibraryIntoCache(
+          cacheDir: cacheDir,
+          cachedLib: cachedLib,
+          libFileName: libFileName,
+          logger: logger,
+        )) {
+          logger.info(
+            'Found built library in a CMake configuration subdirectory while '
+            'we waited for the lock',
+          );
+          return;
+        }
 
         // Handle stale CMakeCache.txt. The content-addressed cache dir
         // should make this rare (different source trees → different build
@@ -209,7 +221,12 @@ void main(List<String> args) async {
         );
         await builder.run(input: input, output: output, logger: logger);
 
-        if (!await cachedLib.exists()) {
+        if (!await _normalizeBuiltLibraryIntoCache(
+          cacheDir: cacheDir,
+          cachedLib: cachedLib,
+          libFileName: libFileName,
+          logger: logger,
+        )) {
           throw StateError(
             'CMake build reported success but ${cachedLib.path} '
             'is missing. Contents of cache dir:\n'
@@ -430,6 +447,58 @@ String _libraryFileName(OS targetOS) {
   if (targetOS == OS.windows) return 'fllama.dll';
   if (targetOS == OS.macOS || targetOS == OS.iOS) return 'libfllama.dylib';
   return 'libfllama.so'; // linux, android
+}
+
+/// Ensures [cachedLib] exists at the canonical cache root.
+///
+/// MSVC generators place DLLs in config subdirectories like `Release/`; copy
+/// that output back to the root so later cache hits and asset publishing agree.
+Future<bool> _normalizeBuiltLibraryIntoCache({
+  required Directory cacheDir,
+  required File cachedLib,
+  required String libFileName,
+  required Logger logger,
+}) async {
+  if (await cachedLib.exists()) return true;
+
+  final builtLib = await _findBuiltLibrary(cacheDir, libFileName);
+  if (builtLib == null) return false;
+
+  logger.info(
+    'Normalizing CMake output ${builtLib.path} → ${cachedLib.path}',
+  );
+  await cachedLib.parent.create(recursive: true);
+  await builtLib.copy(cachedLib.path);
+  return true;
+}
+
+Future<File?> _findBuiltLibrary(
+  Directory cacheDir,
+  String libFileName,
+) async {
+  final candidates = <File>[];
+  await for (final entity in cacheDir.list(recursive: true, followLinks: false)) {
+    if (entity is! File || p.basename(entity.path) != libFileName) continue;
+    candidates.add(entity);
+  }
+  if (candidates.isEmpty) return null;
+  candidates.sort((a, b) {
+    final score = _builtLibraryCandidateScore(a).compareTo(
+      _builtLibraryCandidateScore(b),
+    );
+    if (score != 0) return score;
+    return a.path.compareTo(b.path);
+  });
+  return candidates.first;
+}
+
+int _builtLibraryCandidateScore(File file) {
+  final parts = p.split(file.path).map((part) => part.toLowerCase()).toSet();
+  if (parts.contains('release')) return 0;
+  if (parts.contains('relwithdebinfo')) return 1;
+  if (parts.contains('minsizerel')) return 2;
+  if (parts.contains('debug')) return 3;
+  return 4;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
