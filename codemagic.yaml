@@ -77,7 +77,7 @@ definitions:
     name: Web build
     script: |
       set -eo pipefail
-      cd example && flutter build web --web-renderer canvaskit --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
+      cd example && flutter build web --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
   script_windows_build: &script_windows_build
     name: Windows build
     script: |
