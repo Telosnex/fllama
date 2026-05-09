@@ -11,10 +11,10 @@ import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
 import 'package:fllama/misc/openai.dart';
 
-typedef FllamaInferenceCallback = void Function(
-    String response, String openaiResponseJsonString, bool done);
-typedef FllamaMlcLoadCallback = void Function(
-    double downloadProgress, double loadProgress);
+typedef FllamaInferenceCallback =
+    void Function(String response, String openaiResponseJsonString, bool done);
+typedef FllamaWebLoadCallback =
+    void Function(double downloadProgress, double loadProgress);
 
 /// The dynamic library in which the symbols for [FllamaBindings] can be found.
 final DynamicLibrary fllamaDylib = () {
@@ -44,8 +44,9 @@ Future<String> fllamaChatTemplateGet(String modelPath) {
   // - Phi 2 has no template, either intended or in the model.
   // - Mistral 7B via OpenHermes has no template and intends ChatML.
   final filenamePointer = stringToPointerChar(modelPath);
-  final templatePointer =
-      fllamaBindings.fllama_get_chat_template(filenamePointer);
+  final templatePointer = fllamaBindings.fllama_get_chat_template(
+    filenamePointer,
+  );
   calloc.free(filenamePointer);
   if (templatePointer == nullptr) {
     return Future.value('');
@@ -84,32 +85,36 @@ Future<String> fllamaBosTokenGet(String modelPath) async {
   return pointerCharToString(eosTokenPointer);
 }
 
-/// Use MLC's web JS SDK to do chat inference.
-/// If not on web, this will fallback to using [fllamaChat].
-///
-/// llama.cpp converted to WASM is very slow compared to native inference on the
-/// same platform, because it does not use the GPU.
-///
-/// MLC uses WebGPU to achieve ~native inference speeds.
-Future<int> fllamaChatMlcWeb(
-    OpenAiRequest request,
-    FllamaMlcLoadCallback loadCallback,
-    FllamaInferenceCallback callback) async {
+/// Run chat inference. On native platforms this uses the native fllama backend.
+Future<int> fllamaChatWeb(
+  OpenAiRequest request,
+  FllamaWebLoadCallback loadCallback,
+  FllamaInferenceCallback callback,
+) async {
   // ignore: avoid_print
   print(
-      'WARNING: called fllamaChatMlcWeb on native platform. Using fllamaChat instead.');
+    'WARNING: called fllamaChatWeb on native platform. Using fllamaChat instead.',
+  );
   return fllamaChat(request, callback);
 }
 
-Future<void> fllamaMlcWebModelDelete(String modelId) async {
+Future<void> fllamaWebModelDelete(String modelPath) async {
   // ignore: avoid_print
-  print(
-      'WARNING: called fllamaMlcWebModelDelete on native platform. Ignoring.');
+  print('WARNING: called fllamaWebModelDelete on native platform. Ignoring.');
 }
 
-Future<bool> fllamaMlcIsWebModelDownloaded(String modelId) async {
+Future<bool> fllamaWebIsModelDownloaded(String modelPath) async {
   // ignore: avoid_print
   print(
-      'WARNING: called fllamaMlcIsWebModelDownloaded on native platform. Returning false.');
+    'WARNING: called fllamaWebIsModelDownloaded on native platform. Returning false.',
+  );
   return false;
+}
+
+Future<String?> fllamaWebPickModel() async {
+  // ignore: avoid_print
+  print(
+    'WARNING: called fllamaWebPickModel on native platform. Returning null.',
+  );
+  return null;
 }

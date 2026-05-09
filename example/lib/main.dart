@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 
@@ -15,6 +14,22 @@ late final SharedPreferences kSharedPrefs;
 const String kModelPathKey = 'modelPath';
 const String kMmprojPathKey = 'mmprojPath';
 
+const String kExampleQwenGgufUrl =
+    'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf';
+const String kExampleTinyLlamaGgufUrl =
+    'https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf';
+
+String _webModelLabel(String modelPath) {
+  if (modelPath == kExampleQwenGgufUrl) {
+    return 'Qwen2.5 0.5B Instruct Q4_K_M GGUF';
+  }
+  if (modelPath == kExampleTinyLlamaGgufUrl) {
+    return 'TinyLlama 1.1B Chat Q4_K_M GGUF';
+  }
+  if (modelPath.startsWith('fllama-local-file://')) return 'Local GGUF';
+  return modelPath;
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   kSharedPrefs = await SharedPreferences.getInstance();
@@ -29,7 +44,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  String _mlcModelId = MlcModelId.qwen05b;
+  String _webModelPath = kExampleQwenGgufUrl;
   String? _modelPath;
   // This is only required for multimodal models.
   // Multimodal models are rare.
@@ -58,8 +73,8 @@ class _MyAppState extends State<MyApp> {
 
   int? _runningRequestId;
 
-  double? _mlcDownloadProgress;
-  double? _mlcLoadProgress;
+  double? _webDownloadProgress;
+  double? _webLoadProgress;
 
   ToolFunction? _tool;
 
@@ -142,33 +157,28 @@ class _MyAppState extends State<MyApp> {
                   ],
                   if (kIsWeb) ...[
                     const Text(
-                      'Web version powered by MLC & WebGPU',
+                      'Web version powered by wllama & WebGPU/CPU',
                       style: textStyle,
                     ),
                     DropdownMenu(
-                      initialSelection: _mlcModelId,
+                      initialSelection: _webModelPath,
                       dropdownMenuEntries: [
                         ...[
                           null,
-                          MlcModelId.llama321bInstruct,
-                          MlcModelId.llama323bInstruct,
-                          MlcModelId.llama318bInstruct,
-                          MlcModelId.deepSeekR1Llama38b,
-                          MlcModelId.openHermesLlama38b,
-                          MlcModelId.openHermesMistral,
-                          MlcModelId.phi35mini,
-                          MlcModelId.qwen05b,
-                          MlcModelId.tinyLlama,
+                          kExampleQwenGgufUrl,
+                          kExampleTinyLlamaGgufUrl,
                         ].map(
                           (modelId) {
                             return DropdownMenuEntry(
                               value: modelId,
-                              label: modelId.toString(),
+                              label: modelId == null
+                                  ? 'Loading...'
+                                  : _webModelLabel(modelId),
                               leadingIcon: modelId == null
                                   ? const CircularProgressIndicator()
                                   : FutureBuilder(
-                                      future: fllamaMlcIsWebModelDownloaded(
-                                          modelId),
+                                      future:
+                                          fllamaWebIsModelDownloaded(modelId),
                                       builder: (context, snapshot) {
                                         final data = snapshot.data;
                                         if (data == null) {
@@ -184,8 +194,8 @@ class _MyAppState extends State<MyApp> {
                               trailingIcon: modelId == null
                                   ? const CircularProgressIndicator()
                                   : FutureBuilder(
-                                      future: fllamaMlcIsWebModelDownloaded(
-                                          modelId),
+                                      future:
+                                          fllamaWebIsModelDownloaded(modelId),
                                       builder: (context, snapshot) {
                                         final data = snapshot.data;
                                         if (data == null) {
@@ -193,7 +203,7 @@ class _MyAppState extends State<MyApp> {
                                         }
                                         return ElevatedButton(
                                           onPressed: () {
-                                            fllamaMlcWebModelDelete(modelId);
+                                            fllamaWebModelDelete(modelId);
                                           },
                                           child: const Text('Delete'),
                                         );
@@ -204,20 +214,39 @@ class _MyAppState extends State<MyApp> {
                       ],
                       onSelected: (value) {
                         setState(() {
-                          _mlcModelId = value ?? _mlcModelId;
+                          _webModelPath = value ?? _webModelPath;
                         });
                       },
-                    )
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            final token = await fllamaWebPickModel();
+                            if (token == null) return;
+                            setState(() {
+                              _webModelPath = token;
+                            });
+                          },
+                          icon: const Icon(Icons.folder_open),
+                          label: const Text('Pick local GGUF'),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: SelectableText(
+                            _webModelLabel(_webModelPath),
+                            style: textStyle,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                   spacerSmall,
                   const Text('Tools:', style: textStyle),
                   const Text(
                       'Forces the model to output in JSON format, specified by a JSON schema.',
                       style: textStyle),
-                  if (kIsWeb && _mlcModelId == MlcModelId.qwen05b)
-                    const Text(
-                        'Note: MLC often cannot produce JSON, or any output at all, when using Qwen.',
-                        style: textStyle),
                   DropdownMenu(
                     initialSelection: _tool,
                     dropdownMenuEntries: [
@@ -244,7 +273,7 @@ class _MyAppState extends State<MyApp> {
                     },
                   ),
                   spacerSmall,
-                  if (_modelPath != null || _mlcModelId.isNotEmpty)
+                  if (_modelPath != null || _webModelPath.isNotEmpty)
                     TextField(
                       decoration: const InputDecoration(
                         labelText: 'Prompt',
@@ -385,17 +414,17 @@ class _MyAppState extends State<MyApp> {
                         ? const Text('Cancel')
                         : const Text('Run'),
                   ),
-                  if (kIsWeb && _mlcDownloadProgress != null) ...[
+                  if (kIsWeb && _webDownloadProgress != null) ...[
                     const Text('Downloading model file...', style: textStyle),
                     LinearProgressIndicator(
-                      value: _mlcDownloadProgress,
+                      value: _webDownloadProgress,
                     ),
                     const SizedBox(height: 8),
                   ],
-                  if (kIsWeb && _mlcLoadProgress != null) ...[
+                  if (kIsWeb && _webLoadProgress != null) ...[
                     const Text('Loading model...', style: textStyle),
                     LinearProgressIndicator(
-                      value: _mlcLoadProgress,
+                      value: _webLoadProgress,
                     ),
                     const SizedBox(height: 8),
                   ],
@@ -418,23 +447,28 @@ class _MyAppState extends State<MyApp> {
                       ),
                       child: SelectableText(
                         [
-                          if (_finishReason != null) 'finish_reason: $_finishReason',
-                          if (_timings != null) ..._timings!.entries.map((e) {
-                            final v = e.value;
-                            if (v is double) {
-                              final s = v.toStringAsFixed(1);
-                              return '${e.key}: ${s.endsWith('.0') ? v.toInt().toString() : s}';
-                            }
-                            return '${e.key}: $v';
-                          }),
+                          if (_finishReason != null)
+                            'finish_reason: $_finishReason',
+                          if (_timings != null)
+                            ..._timings!.entries.map((e) {
+                              final v = e.value;
+                              if (v is double) {
+                                final s = v.toStringAsFixed(1);
+                                return '${e.key}: ${s.endsWith('.0') ? v.toInt().toString() : s}';
+                              }
+                              return '${e.key}: $v';
+                            }),
                         ].join('\n'),
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 12),
                       ),
                     ),
                   ],
                   if (_accReasoning.isNotEmpty) ...[
                     spacerSmall,
-                    const Text('Reasoning:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const Text('Reasoning:',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 14)),
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -449,12 +483,16 @@ class _MyAppState extends State<MyApp> {
                   ],
                   if (_accContent.isNotEmpty) ...[
                     spacerSmall,
-                    const Text('Content:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const Text('Content:',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 14)),
                     SelectableText(_accContent, style: textStyle),
                   ],
                   if (_accToolCalls.isNotEmpty) ...[
                     spacerSmall,
-                    const Text('Tool Calls:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const Text('Tool Calls:',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 14)),
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -463,13 +501,18 @@ class _MyAppState extends State<MyApp> {
                       ),
                       child: SelectableText(
                         _prettyToolCalls(),
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 12),
                       ),
                     ),
                   ],
-                  if (_accReasoning.isEmpty && _accContent.isEmpty && _accToolCalls.isEmpty && latestResultString.isNotEmpty) ...[
+                  if (_accReasoning.isEmpty &&
+                      _accContent.isEmpty &&
+                      _accToolCalls.isEmpty &&
+                      latestResultString.isNotEmpty) ...[
                     spacerSmall,
-                    SelectableText('Raw: $latestResultString', style: textStyle),
+                    SelectableText('Raw: $latestResultString',
+                        style: textStyle),
                   ],
                   if (latestChatTemplate.isNotEmpty) ...[
                     spacerSmall,
@@ -571,7 +614,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _runInferencePressed() async {
-    if (_modelPath == null && _mlcModelId.isEmpty) {
+    if (_modelPath == null && _webModelPath.isEmpty) {
       SnackBar snackBar = const SnackBar(
         content: Text('Please open a .gguf file.'),
       );
@@ -629,12 +672,13 @@ class _MyAppState extends State<MyApp> {
           ),
       ],
       maxTokens: _maxTokens.round(),
+      toolChoice: _tool == null ? null : ToolChoice.required,
       messages: [
         Message(Role.user, messageText),
       ],
       numGpuLayers: 99,
       /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
-      modelPath: kIsWeb ? _mlcModelId : _modelPath!,
+      modelPath: kIsWeb ? _webModelPath : _modelPath!,
       mmprojPath: _mmprojPath,
       frequencyPenalty: 0.0,
       // Don't use below 1.1, LLMs without a repeat penalty
@@ -664,23 +708,37 @@ class _MyAppState extends State<MyApp> {
       },
     );
 
+    _inferenceStartTime = DateTime.now();
+    setState(() {
+      _accReasoning = '';
+      _accContent = '';
+      _accToolCalls.clear();
+      _finishReason = null;
+      _timings = null;
+      latestResultString = '';
+      latestResultJson = '';
+    });
+
     if (kIsWeb) {
       final requestId =
-          await fllamaChatMlcWeb(request, (downloadProgress, loadProgress) {
+          await fllamaChatWeb(request, (downloadProgress, loadProgress) {
         setState(() {
-          _mlcDownloadProgress = downloadProgress;
-          _mlcLoadProgress = loadProgress;
+          _webDownloadProgress = downloadProgress;
+          _webLoadProgress = loadProgress;
           // ignore: avoid_print
           print(
               'Download progress: $downloadProgress, Load progress: $loadProgress');
         });
       }, (response, responseJson, done) {
+        _parseStreamChunk(responseJson);
         setState(() {
-          _mlcDownloadProgress = null;
-          _mlcLoadProgress = null;
+          _webDownloadProgress = null;
+          _webLoadProgress = null;
           latestResultString = response;
+          latestResultJson = responseJson;
           if (done) {
             _runningRequestId = null;
+            _inferenceStartTime = null;
           }
         });
       });
@@ -705,14 +763,6 @@ class _MyAppState extends State<MyApp> {
       latestBosToken = bosToken;
     });
 
-    _inferenceStartTime = DateTime.now();
-    setState(() {
-      _accReasoning = '';
-      _accContent = '';
-      _accToolCalls.clear();
-      _finishReason = null;
-      _timings = null;
-    });
     List<String> allResponses = [];
     int requestId = await fllamaChat(request, (response, responseJson, done) {
       _parseStreamChunk(responseJson);
@@ -780,11 +830,10 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _openImagePressed() async {
-    final filePath = await _pickImagePath();
-    if (filePath == null) {
+    final bytes = await _pickImageBytes();
+    if (bytes == null) {
       return;
     }
-    final bytes = await File(filePath).readAsBytes();
     setState(() {
       _imageBytes = bytes;
     });
@@ -814,11 +863,10 @@ Future<String?> _pickGgufPath() async {
   if (file == null) {
     return null;
   }
-  final filePath = file.path;
-  return filePath;
+  return file.path;
 }
 
-Future<String?> _pickImagePath() async {
+Future<Uint8List?> _pickImageBytes() async {
   final file = await openFile(acceptedTypeGroups: <XTypeGroup>[
     const XTypeGroup(
       label: '.jpeg',
@@ -839,6 +887,5 @@ Future<String?> _pickImagePath() async {
   if (file == null) {
     return null;
   }
-  final filePath = file.path;
-  return filePath;
+  return file.readAsBytes();
 }

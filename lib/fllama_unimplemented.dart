@@ -5,10 +5,10 @@ import 'package:fllama/fllama.dart';
 import 'package:fllama/fllama_io.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
 
-typedef FllamaInferenceCallback = void Function(
-    String response, String openaiResponseJsonString, bool done);
-typedef FllamaMlcLoadCallback = void Function(
-    double downloadProgress, double loadProgress);
+typedef FllamaInferenceCallback =
+    void Function(String response, String openaiResponseJsonString, bool done);
+typedef FllamaWebLoadCallback =
+    void Function(double downloadProgress, double loadProgress);
 
 Future<List<FllamaGpuMemoryInfo>> fllamaGpuMemoryInfoGetAll() async {
   return const [];
@@ -55,29 +55,29 @@ Future<String> fllamaEosTokenGet(String modelPath) {
 /// template and an EOS token. Use [fllamaChat] instead if you expect this
 /// sort of interface, i.e. an OpenAI-like API.
 Future<int> fllamaInference(
-    FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
+  FllamaInferenceRequest request,
+  FllamaInferenceCallback callback,
+) async {
   throw UnimplementedError();
 }
 
-/// Use MLC's web JS SDK to do chat inference.
-/// If not on web, this will fallback to using [fllamaChat].
-///
-/// llama.cpp converted to WASM is very slow compared to native inference on the
-/// same platform, because it does not use the GPU.
-///
-/// MLC uses WebGPU to achieve ~native inference speeds.
-Future<int> fllamaChatMlcWeb(
-    OpenAiRequest request,
-    FllamaMlcLoadCallback loadCallback,
-    FllamaInferenceCallback callback) async {
+Future<int> fllamaChatWeb(
+  OpenAiRequest request,
+  FllamaWebLoadCallback loadCallback,
+  FllamaInferenceCallback callback,
+) async {
   throw UnimplementedError();
 }
 
-Future<void> fllamaMlcWebModelDelete(String modelId) async {
+Future<void> fllamaWebModelDelete(String modelPath) async {
   throw UnimplementedError();
 }
 
-Future<bool> fllamaMlcIsWebModelDownloaded(String modelId) async {
+Future<bool> fllamaWebIsModelDownloaded(String modelPath) async {
+  throw UnimplementedError();
+}
+
+Future<String?> fllamaWebPickModel() async {
   throw UnimplementedError();
 }
 

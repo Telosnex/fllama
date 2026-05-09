@@ -165,6 +165,7 @@ static void run_inference(fllama_inference_request request,
 
     std::string prompt = request.input ? request.input : "";
     common_chat_parser_params parser_params;
+    common_chat_params chat_params;
     bool is_oai = false;
 
     if (request.openai_request_json_string) {
@@ -221,6 +222,7 @@ static void run_inference(fllama_inference_request request,
 
           auto result =
               common_chat_templates_apply(tmpls.get(), inputs);
+          chat_params = result;
           prompt = result.prompt;
           parser_params = common_chat_parser_params(result);
           parser_params.reasoning_format = inputs.reasoning_format;
@@ -280,6 +282,23 @@ static void run_inference(fllama_inference_request request,
     task.params.sampling.top_p          = request.top_p;
     task.params.sampling.penalty_freq   = request.penalty_freq;
     task.params.sampling.penalty_repeat = request.penalty_repeat;
+
+    if (is_oai) {
+      task.params.sampling.grammar = chat_params.grammar;
+      task.params.sampling.grammar_lazy = chat_params.grammar_lazy;
+      task.params.sampling.grammar_triggers = chat_params.grammar_triggers;
+      task.params.antiprompt = chat_params.additional_stops;
+
+      auto *lctx = srv->srv_ctx->get_llama_context();
+      auto *model = llama_get_model(lctx);
+      auto *vocab = llama_model_get_vocab(model);
+      for (const auto &preserved_token : chat_params.preserved_tokens) {
+        auto ids = common_tokenize(vocab, preserved_token, false, true);
+        if (ids.size() == 1) {
+          task.params.sampling.preserved_tokens.insert(ids[0]);
+        }
+      }
+    }
 
     std::random_device rd;
     task.params.sampling.seed = rd();

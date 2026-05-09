@@ -11,27 +11,6 @@ bool fllamaOutputIndicatesLoadError(String output) {
       output.contains('Error: Failed to create context');
 }
 
-/// [String]s to use in [OpenAiRequest.modelPath] on web when using MLC's web
-/// inference SDK.
-class MlcModelId {
-  const MlcModelId._();
-
-  static const String qwen05b = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
-  static const String llama321bInstruct = "Llama-3.2-1B-Instruct-q4f16_1-MLC";
-  static const String llama323bInstruct = "Llama-3.2-3B-Instruct-q4f16_1-MLC";
-  static const String llama38bInstruct = "Llama-3-8B-Instruct-q4f16_1-MLC";
-  static const String llama318bInstruct = "Llama-3.1-8B-Instruct-q4f16_1-MLC";
-  static const String tinyLlama = "TinyLlama-1.1B-Chat-v1.0-q4f16_1-MLC";
-  static const String phi3mini = "Phi-3-mini-4k-instruct-q4f16_1-MLC";
-  static const String phi35mini = "Phi-3.5-mini-instruct-q4f16_1-MLC";
-  static const String openHermesMistral =
-      "OpenHermes-2.5-Mistral-7B-q4f16_1-MLC";
-  static const String openHermesLlama38b =
-      "Hermes-2-Pro-Llama-3-8B-q4f16_1-MLC";
-  static const String deepSeekR1Llama38b =
-      "DeepSeek-R1-Distill-Llama-8B-q4f16_1-MLC";
-}
-
 /// Parameters needed to run standard LLM inference. Use with [fllamaInference].
 ///
 /// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
@@ -39,7 +18,8 @@ class MlcModelId {
 /// sort of interface, i.e. an OpenAI-like API. It translates an OpenAI-like
 /// request into a inference request.
 class FllamaInferenceRequest {
-  int contextSize; // llama.cpp handled 0 fine. StableLM Zephyr became default (4096).
+  int
+  contextSize; // llama.cpp handled 0 fine. StableLM Zephyr became default (4096).
   String input;
   int maxTokens;
   String modelPath;
@@ -155,7 +135,8 @@ Future<int> fllamaChat(
   //     ? chatMlBosToken
   //     : await fllamaBosTokenGet(request.modelPath);
 
-  text = '' ??
+  text =
+      '' ??
       fllamaApplyChatTemplate(
         chatTemplate: chatTemplate,
         bosToken: bosToken,

@@ -6,10 +6,12 @@ import 'package:fllama/fllama.dart';
 
 @JS('fllamaInferenceJs')
 external JSPromise<JSNumber> fllamaInferenceJs(
-    JSAny request, JSFunction callback);
+  JSAny request,
+  JSFunction callback,
+);
 
-typedef FllamaInferenceCallback = void Function(
-    String response, String openaiResponseJsonString, bool done);
+typedef FllamaInferenceCallback =
+    void Function(String response, String openaiResponseJsonString, bool done);
 
 Future<List<FllamaGpuMemoryInfo>> fllamaGpuMemoryInfoGetAll() async {
   return const [];
@@ -42,8 +44,10 @@ extension type _JSFllamaInferenceRequest._(JSObject _) implements JSObject {
 /// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
 /// template and an EOS token. Use [fllamaChat] instead if you expect this
 /// sort of interface, i.e. an OpenAI-like API.
-Future<int> fllamaInference(FllamaInferenceRequest dartRequest,
-    FllamaInferenceCallback callback) async {
+Future<int> fllamaInference(
+  FllamaInferenceRequest dartRequest,
+  FllamaInferenceCallback callback,
+) async {
   final jsRequest = _JSFllamaInferenceRequest(
     contextSize: dartRequest.contextSize,
     input: dartRequest.input,
@@ -72,26 +76,31 @@ Future<int> fllamaInference(FllamaInferenceRequest dartRequest,
 }
 
 // JSAny used to be void. JSVoid does not work.
-@JS('fllamaMlcWebModelDeleteJs')
-external JSPromise<JSAny> fllamaMlcWebModelDeleteJs(String modelId);
+@JS('fllamaWebModelDeleteJs')
+external JSPromise<JSAny> fllamaWebModelDeleteJs(String modelPath);
 
-@JS('fllamaMlcIsWebModelDownloadedJs')
-external JSPromise<JSBoolean> fllamaMlcIsWebModelDownloadedJs(String modelId);
+@JS('fllamaWebIsModelDownloadedJs')
+external JSPromise<JSBoolean> fllamaWebIsModelDownloadedJs(String modelPath);
 
-@JS('fllamaChatMlcWebJs')
-external JSPromise<JSNumber> fllamaChatMlcWebJs(
-    // ignore: library_private_types_in_public_api
-    _JSFllamaMlcInferenceRequest request,
-    JSFunction loadCallback,
-    JSFunction callback);
+@JS('fllamaWebPickModelJs')
+external JSPromise<JSString> fllamaWebPickModelJs();
 
-extension type _JSFllamaMlcInferenceRequest._(JSObject _) implements JSObject {
-  external _JSFllamaMlcInferenceRequest({
+@JS('fllamaChatWebJs')
+external JSPromise<JSNumber> fllamaChatWebJs(
+  // ignore: library_private_types_in_public_api
+  _JSFllamaWebInferenceRequest request,
+  JSFunction loadCallback,
+  JSFunction callback,
+);
+
+extension type _JSFllamaWebInferenceRequest._(JSObject _) implements JSObject {
+  external _JSFllamaWebInferenceRequest({
+    required String openAiRequestJsonString,
     required String messagesAsJsonString,
     required String toolsAsJsonString,
     required int maxTokens,
-    // Must match a model_id in [prebuiltAppConfig] in https://github.com/mlc-ai/web-llm/blob/main/src/config.ts
-    required String modelId,
+    required String modelPath,
+    required int contextSize,
     required double temperature,
     required double penaltyFrequency,
     required double penaltyRepeat,
@@ -99,47 +108,57 @@ extension type _JSFllamaMlcInferenceRequest._(JSObject _) implements JSObject {
   });
 }
 
-typedef FllamaMlcLoadCallback = void Function(
-    double downloadProgress, double loadProgress);
+typedef FllamaWebLoadCallback =
+    void Function(double downloadProgress, double loadProgress);
 
-Future<bool> fllamaMlcIsWebModelDownloaded(String modelId) async {
-  return fllamaMlcIsWebModelDownloadedJs(modelId).toDart.then((value) {
+Future<bool> fllamaWebIsModelDownloaded(String modelPath) async {
+  return fllamaWebIsModelDownloadedJs(modelPath).toDart.then((value) {
     return value.toDart;
   });
 }
 
-/// Use MLC's web JS SDK to do chat inference.
-/// If not on web, this will fallback to using [fllamaChat].
+/// Pick a local GGUF in the browser and return an opaque modelPath token.
 ///
-/// llama.cpp converted to WASM is very slow compared to native inference on the
-/// same platform, because it does not use the GPU.
+/// The selected File stays in JavaScript memory and is passed directly to
+/// wllama. This avoids copying multi-GB GGUF bytes through Dart.
+Future<String?> fllamaWebPickModel() async {
+  final token = await fllamaWebPickModelJs().toDart.then((value) {
+    return value.toDart;
+  });
+  return token.isEmpty ? null : token;
+}
+
+/// Run chat inference on web using wllama.
 ///
-/// MLC uses WebGPU to achieve ~native inference speeds.
-Future<int> fllamaChatMlcWeb(
-    OpenAiRequest request,
-    FllamaMlcLoadCallback loadCallback,
-    FllamaInferenceCallback callback) async {
+/// [OpenAiRequest.modelPath] should be a GGUF URL, a blob URL, or a token
+/// returned by [fllamaWebPickModel].
+Future<int> fllamaChatWeb(
+  OpenAiRequest request,
+  FllamaWebLoadCallback loadCallback,
+  FllamaInferenceCallback callback,
+) async {
   final messagesAsMaps = request.messages
-      .map((e) => {
-            'role': e.role.openAiName,
-            'content': e.text,
-          })
+      .map((e) => {'role': e.role.openAiName, 'content': e.text})
       .toList();
   final toolsAsMaps = request.tools
-      .map((e) => {
-            'type': 'function',
-            'function': {
-              'name': e.name,
-              'description': e.description,
-              'parameters': e.jsonSchema,
-            }
-          })
+      .map(
+        (e) => {
+          'type': 'function',
+          'function': {
+            'name': e.name,
+            'description': e.description,
+            'parameters': e.jsonSchema,
+          },
+        },
+      )
       .toList();
-  final jsRequest = _JSFllamaMlcInferenceRequest(
+  final jsRequest = _JSFllamaWebInferenceRequest(
+    openAiRequestJsonString: request.toJsonString(),
     toolsAsJsonString: jsonEncode(toolsAsMaps),
     messagesAsJsonString: jsonEncode(messagesAsMaps),
     maxTokens: request.maxTokens,
-    modelId: request.modelPath,
+    modelPath: request.modelPath,
+    contextSize: request.contextSize,
     temperature: request.temperature,
     penaltyFrequency: request.frequencyPenalty,
     penaltyRepeat: request.presencePenalty,
@@ -154,16 +173,18 @@ Future<int> fllamaChatMlcWeb(
     callback(response, responseJson, done);
   }
 
-  fllamaChatMlcWebJs(jsRequest, firstCallback.toJS, secondCallback.toJS)
-      .toDart
-      .then((value) {
+  fllamaChatWebJs(
+    jsRequest,
+    firstCallback.toJS,
+    secondCallback.toJS,
+  ).toDart.then((value) {
     completer.complete(value.toDartInt);
   });
   return completer.future;
 }
 
-Future<void> fllamaMlcWebModelDelete(String modelId) async {
-  await fllamaMlcWebModelDeleteJs(modelId).toDart;
+Future<void> fllamaWebModelDelete(String modelPath) async {
+  await fllamaWebModelDeleteJs(modelPath).toDart;
 }
 
 // Tokenize
