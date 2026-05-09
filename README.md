@@ -160,13 +160,23 @@ Commercial licenses are also available. Contact info@telosnex.com. Expect very f
 - Note: Drop usually requires restoring build-info.cpp for macOS and iOS. It's a stock set of values with ex. git commit. That should be updated. Other than that you can leave it alone.
 
 # Web development
-- When C++ changes, use ./build-wasm.sh to build updated WASM files.
-- Copy: fllama_wasm.js, fllama_wasm.wasm from wasm_build/build to example/web directory.
-- From example directory: flutter run -d web-server --web-hostname=localhost --web-port=1234
-- Open Chrome and go to http://localhost:1234.
-- Enable WASM via modheader extension, set:
-Cross-Origin-Embedder-Policy: require-corp
-Cross-Origin-Opener-Policy: same-origin
+- The web example uses wllama's server backend and requires cross-origin isolation for SharedArrayBuffer/pthreads.
+- From the example directory, run debug mode with:
+  ```sh
+  flutter run -d chrome --cross-origin-isolation
+  ```
+- Or run a release-style local build with the bundled header-setting server:
+  ```sh
+  flutter build web
+  node web/server.js
+  ```
+- `flutter run -d web` is not a valid Flutter device id; use `chrome` for an auto-launched browser or `web-server` if you want to open the URL yourself.
+- If your Flutter version does not support `--cross-origin-isolation`, pass the headers explicitly:
+  ```sh
+  flutter run -d chrome \
+    --web-header=Cross-Origin-Opener-Policy=same-origin \
+    --web-header=Cross-Origin-Embedder-Policy=require-corp
+  ```
 
 # FFI development
 - When changes are made to C++ bindings, run `flutter pub run ffigen --config ffigen.yaml` to make them available in Dart.

@@ -57,6 +57,13 @@ function openAiRequestFromFllamaRequest(request) {
 }
 
 async function loadServerModelIfNeeded(modelPath, request = {}, loadCallback = () => { }) {
+    if (!globalThis.crossOriginIsolated) {
+        throw new Error(
+            'fllama web requires cross-origin isolation so wllama can use SharedArrayBuffer/pthreads. ' +
+            'Run the example with `flutter run -d chrome --cross-origin-isolation`, or build and serve it with `node web/server.js`.'
+        );
+    }
+
     const key = modelKey(modelPath);
     if (serverWllama !== null && lastServerModelKey === key && serverWllama.isServerModelLoaded()) {
         loadCallback(1, 1);
