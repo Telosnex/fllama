@@ -65,13 +65,22 @@ if(APPLE)
   set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "Embed Metal shader library" FORCE)
 endif()
 
-# Provide a fallback version so mtmd's set_target_properties(VERSION ...)
-# doesn't fail when there is no git history (e.g. copied source tree).
+# Provide fallback build metadata so llama.cpp's generated build-info.cpp
+# remains valid when the vendored tree has no standalone git metadata.
 if(NOT DEFINED LLAMA_INSTALL_VERSION OR LLAMA_INSTALL_VERSION STREQUAL "")
   set(LLAMA_INSTALL_VERSION "0.0.0")
 endif()
+if(NOT DEFINED LLAMA_BUILD_NUMBER OR LLAMA_BUILD_NUMBER STREQUAL "")
+  set(LLAMA_BUILD_NUMBER "1")
+endif()
+if(NOT DEFINED LLAMA_BUILD_COMMIT OR LLAMA_BUILD_COMMIT STREQUAL "")
+  set(LLAMA_BUILD_COMMIT "f22c8021d")
+endif()
 
 add_subdirectory("llama.cpp")
+if(NOT TARGET cpp-httplib)
+  add_library(cpp-httplib INTERFACE)
+endif()
 add_subdirectory("llama.cpp/common")
 add_subdirectory("llama.cpp/tools/mtmd")
 
@@ -84,17 +93,21 @@ add_library(server-context STATIC
   ${SERVER_SRC_DIR}/server-task.cpp
   ${SERVER_SRC_DIR}/server-queue.cpp
   ${SERVER_SRC_DIR}/server-common.cpp
+  ${SERVER_SRC_DIR}/server-chat.cpp
   ${SERVER_SRC_DIR}/server-context.cpp
 )
 target_include_directories(server-context PUBLIC  ${SERVER_SRC_DIR})
 target_include_directories(server-context PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common
   ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/tools/mtmd
+  ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/vendor
   ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp
 )
+target_compile_features(server-context PRIVATE cxx_std_17)
 if (BUILD_SHARED_LIBS)
   set_target_properties(server-context PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
-target_link_libraries(server-context PUBLIC common mtmd ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(server-context PUBLIC llama-common mtmd ${CMAKE_THREAD_LIBS_INIT})
 
 add_library(fllama SHARED
   "fllama_chat_template.cpp"
@@ -112,13 +125,18 @@ set_target_properties(fllama PROPERTIES
 )
 
 target_compile_definitions(fllama PUBLIC DART_SHARED_LIB)
+target_compile_features(fllama PRIVATE cxx_std_17)
 
 if (ANDROID)
   # Support Android 15 16k page size.
   target_link_options(fllama PRIVATE "-Wl,-z,max-page-size=16384")
 endif()
 target_include_directories(fllama PUBLIC .)
-target_link_libraries(fllama PUBLIC llama common mtmd server-context)
+target_include_directories(fllama PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common
+  ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/vendor
+)
+target_link_libraries(fllama PUBLIC llama llama-common mtmd server-context)
 
 # Apple: link system frameworks for Metal, Accelerate, etc.
 # These are needed because we statically link ggml-metal into this shared lib.

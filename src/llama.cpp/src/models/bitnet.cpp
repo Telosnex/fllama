@@ -2,9 +2,9 @@
 
 
 llm_build_bitnet::llm_build_bitnet(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-    const int64_t n_embd_head = hparams.n_embd_head_v;
+    const int64_t n_embd_head = hparams.n_embd_head_v();
 
-    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     ggml_tensor * cur;
     ggml_tensor * inpL;
@@ -28,42 +28,8 @@ llm_build_bitnet::llm_build_bitnet(const llama_model & model, const llm_graph_pa
 
         // self-attention
         {
-            // compute Q and K and RoPE them
-            ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
-            if (model.layers[il].wq_scale) {
-                Qcur = ggml_mul(ctx0, Qcur, model.layers[il].wq_scale);
-            }
-            cb(Qcur, "Qcur", il);
-            if (model.layers[il].bq) {
-                Qcur = ggml_add(ctx0, Qcur, model.layers[il].bq);
-                cb(Qcur, "Qcur", il);
-            }
-
-            // B1.K
-            ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
-            if (model.layers[il].wk_scale) {
-                Kcur = ggml_mul(ctx0, Kcur, model.layers[il].wk_scale);
-            }
-            cb(Kcur, "Kcur", il);
-            if (model.layers[il].bk) {
-                Kcur = ggml_add(ctx0, Kcur, model.layers[il].bk);
-                cb(Kcur, "Kcur", il);
-            }
-
-            // B1.V
-            ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
-            if (model.layers[il].wv_scale) {
-                Vcur = ggml_mul(ctx0, Vcur, model.layers[il].wv_scale);
-            }
-            cb(Vcur, "Vcur", il);
-            if (model.layers[il].bv) {
-                Vcur = ggml_add(ctx0, Vcur, model.layers[il].bv);
-                cb(Vcur, "Vcur", il);
-            }
-
-            Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
-            Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
-            Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
+            auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
+                    n_embd_head, n_head, n_head_kv, il);
 
             Qcur = ggml_rope_ext(
                     ctx0, Qcur, inp_pos, nullptr,
@@ -82,7 +48,7 @@ llm_build_bitnet::llm_build_bitnet(const llama_model & model, const llm_graph_pa
             cb(Vcur, "Vcur", il);
 
             cur = build_attn(inp_attn,
-                    NULL, NULL,
+                    NULL, NULL, NULL,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
 
             cur = build_norm(cur,
@@ -90,12 +56,9 @@ llm_build_bitnet::llm_build_bitnet(const llama_model & model, const llm_graph_pa
                     LLM_NORM_RMS, il);
             cb(cur, "attn_sub_norm", il);
 
-            cur = build_lora_mm(model.layers[il].wo, cur);
-            if (model.layers[il].wo_scale) {
-                cur = ggml_mul(ctx0, cur, model.layers[il].wo_scale);
-            }
-            if (model.layers[il].bo) {
-                cur = ggml_add(ctx0, cur, model.layers[il].bo);
+            cur = build_lora_mm(model.layers[il].wo, cur, model.layers[il].wo_s);
+            if (model.layers[il].wo_b) {
+                cur = ggml_add(ctx0, cur, model.layers[il].wo_b);
             }
             cb(cur, "attn_out", il);
         }
@@ -115,8 +78,8 @@ llm_build_bitnet::llm_build_bitnet(const llama_model & model, const llm_graph_pa
         cb(cur, "ffn_norm", il);
 
         cur = build_ffn(cur,
-                model.layers[il].ffn_up,   NULL, model.layers[il].ffn_up_scale,
-                model.layers[il].ffn_gate, NULL, model.layers[il].ffn_gate_scale,
+                model.layers[il].ffn_up,   NULL, model.layers[il].ffn_up_s,
+                model.layers[il].ffn_gate, NULL, model.layers[il].ffn_gate_s,
                 NULL,                      NULL, NULL,
                 NULL,
                 LLM_FFN_SILU, LLM_FFN_PAR, il);
@@ -127,13 +90,13 @@ llm_build_bitnet::llm_build_bitnet(const llama_model & model, const llm_graph_pa
                 LLM_NORM_RMS, il);
         cb(cur, "ffn_sub_norm", il);
 
-        cur = build_lora_mm(model.layers[il].ffn_down, cur);
-        if (model.layers[il].ffn_down_scale) {
-            cur = ggml_mul(ctx0, cur, model.layers[il].ffn_down_scale);
-        }
+        cur = build_lora_mm(model.layers[il].ffn_down, cur, model.layers[il].ffn_down_s);
         cb(cur, "ffn_down", il);
 
         cur = ggml_add(ctx0, cur, ffn_inp);
+        cb(cur, "l_out", il);
+
+        cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
 
         // input for next layer

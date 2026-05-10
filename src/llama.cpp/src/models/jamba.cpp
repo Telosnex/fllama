@@ -1,7 +1,7 @@
 #include "models.h"
 
 llm_build_jamba::llm_build_jamba(const llama_model & model, const llm_graph_params & params) : llm_build_mamba_base(params) {
-    const int64_t n_embd_head = hparams.n_embd_head_v;
+    const int64_t n_embd_head = hparams.n_embd_head_v();
 
     ggml_tensor * cur;
     ggml_tensor * inpL;
@@ -24,25 +24,12 @@ llm_build_jamba::llm_build_jamba(const llama_model & model, const llm_graph_para
         } else {
             // Attention
 
-            struct ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
-            struct ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
-            struct ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
-
-            cb(Qcur, "Qcur", il);
-            cb(Kcur, "Kcur", il);
-            cb(Vcur, "Vcur", il);
-
-            Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
-            Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
-            Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
-
-            cb(Qcur, "Qcur", il);
-            cb(Kcur, "Kcur", il);
-            cb(Vcur, "Vcur", il);
+            auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur,
+                    n_embd_head, n_head, n_head_kv, il);
 
             // No RoPE :)
             cur = build_attn(inp_hybrid->get_attn(),
-                    model.layers[il].wo, NULL,
+                    model.layers[il].wo, NULL, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, NULL, NULL, NULL, 1.0f/sqrtf(float(n_embd_head)), il);
         }
         if (il == n_layer - 1 && inp_out_ids) {
@@ -76,7 +63,7 @@ llm_build_jamba::llm_build_jamba(const llama_model & model, const llm_graph_para
                     nullptr,
                     n_expert, n_expert_used,
                     LLM_FFN_SILU, false,
-                    false, 0.0,
+                    hparams.expert_weights_scale,
                     LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,
                     il);
             cb(cur, "ffn_moe_out", il);

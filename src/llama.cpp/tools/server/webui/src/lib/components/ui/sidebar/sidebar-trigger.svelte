@@ -3,6 +3,7 @@
 	import PanelLeftIcon from '@lucide/svelte/icons/panel-left';
 	import type { ComponentProps } from 'svelte';
 	import { useSidebar } from './context.svelte.js';
+	import { PanelLeftClose } from '@lucide/svelte';
 
 	let {
 		ref = $bindable(null),
@@ -20,8 +21,12 @@
 	data-sidebar="trigger"
 	data-slot="sidebar-trigger"
 	variant="ghost"
-	size="icon"
-	class="rounded-full backdrop-blur-lg {className} h-9! w-9!"
+	size="icon-lg"
+	class="rounded-full backdrop-blur-lg {className} {sidebar.open
+		? 'top-1.5'
+		: 'top-0'} md:left-[calc(var(--sidebar-width)-3.25rem)] {sidebar.isResizing
+		? '!duration-0'
+		: ''}"
 	type="button"
 	onclick={(e) => {
 		onclick?.(e);
@@ -29,6 +34,10 @@
 	}}
 	{...restProps}
 >
-	<PanelLeftIcon />
+	{#if sidebar.open}
+		<PanelLeftClose />
+	{:else}
+		<PanelLeftIcon />
+	{/if}
 	<span class="sr-only">Toggle Sidebar</span>
 </Button>

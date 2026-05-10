@@ -34,3 +34,11 @@ dev_dependencies:
 
 # Native code is built via hook/build.dart (native assets).
 # No flutter: plugin: section needed — the hook replaces ffiPlugin.
+
+flutter:
+  assets:
+    - assets/web/fllama_web_init.js
+    - assets/web/wllama/index.js
+    - assets/web/wllama/asyncify-multi-thread/
+    - assets/web/wllama/asyncify-single-thread/
+    - assets/web/wllama/jspi-single-thread/

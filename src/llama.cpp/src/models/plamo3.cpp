@@ -3,8 +3,8 @@
 template <bool iswa>
 llm_build_plamo3<iswa>::llm_build_plamo3(const llama_model & model, const llm_graph_params & params) :
     llm_graph_context(params) {
-    const int64_t head_dim_q = hparams.n_embd_head_k;
-    const int64_t head_dim_v = hparams.n_embd_head_v;
+    const int64_t head_dim_q = hparams.n_embd_head_k();
+    const int64_t head_dim_v = hparams.n_embd_head_v();
 
     ggml_tensor * cur;
     ggml_tensor * inpL = build_inp_embd(model.tok_embd);
@@ -73,7 +73,7 @@ llm_build_plamo3<iswa>::llm_build_plamo3(const llama_model & model, const llm_gr
         const float attn_scale = 1.0f / sqrtf(float(head_dim_q));
 
         cur = build_attn(inp_attn,
-                model.layers[il].wo, NULL,
+                model.layers[il].wo, NULL, model.layers[il].wo_s,
                 Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, attn_scale, il);
         cb(cur, "attn_out", il);
 
@@ -109,6 +109,8 @@ llm_build_plamo3<iswa>::llm_build_plamo3(const llama_model & model, const llm_gr
 
         cur = build_cvec(cur, il);
         cb(cur, "l_out", il);
+
+        // input for next layer
         inpL = cur;
     }
 

@@ -92,6 +92,9 @@ std::string random_string();
 std::string gen_chatcmplid();
 std::string gen_tool_call_id();
 
+// get a random marker; note: each time the server restarts, the marker will be different
+const char * get_media_marker();
+
 //
 // lora utils
 //
@@ -170,7 +173,7 @@ public:
     // the next position after n_tokens. if n_tokens < 0, return the next position after all tokens.
     llama_pos pos_next(int64_t n_tokens = -1) const;
 
-    // number of tokens with position <= max_pos
+    // number of tokens with position < max_pos
     size_t size_up_to_pos(llama_pos max_pos) const;
 
     const mtmd::input_chunk_ptr & find_chunk(size_t idx) const;
@@ -187,7 +190,9 @@ public:
     void insert(const llama_tokens & inp_tokens);
 
     // for compatibility with speculative decoding, ctx shift, slot save/load
-    const llama_tokens & get_text_tokens() const;
+    const llama_tokens & get_tokens() const;
+
+    llama_tokens get_text_tokens() const;
 
     // for compatibility with speculative decoding
     void set_token(llama_pos pos, llama_token id);
@@ -287,7 +292,10 @@ struct server_chat_params {
     bool allow_image;
     bool allow_audio;
     bool enable_thinking = true;
+    int  reasoning_budget = -1;
+    std::string reasoning_budget_message;
     std::string media_path;
+    bool force_pure_content = false;
 };
 
 // used by /completions endpoint
@@ -298,12 +306,6 @@ json oaicompat_chat_params_parse(
     json & body, /* openai api json semantics */
     const server_chat_params & opt,
     std::vector<raw_buffer> & out_files);
-
-// convert OpenAI Responses API format to OpenAI Chat Completions API format
-json convert_responses_to_chatcmpl(const json & body);
-
-// convert Anthropic Messages API format to OpenAI Chat Completions API format
-json convert_anthropic_to_oai(const json & body);
 
 // TODO: move it to server-task.cpp
 json format_embeddings_response_oaicompat(

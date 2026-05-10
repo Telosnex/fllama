@@ -1,81 +1,96 @@
 <script lang="ts">
-	import { Search, SquarePen, X } from '@lucide/svelte';
 	import { KeyboardShortcutInfo } from '$lib/components/app';
 	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
+	import type { Component } from 'svelte';
+	import { SearchInput } from '$lib/components/app';
+	import { page } from '$app/state';
+	import { SIDEBAR_ACTIONS_ITEMS } from '$lib/constants/ui';
 
 	interface Props {
 		handleMobileSidebarItemClick: () => void;
 		isSearchModeActive: boolean;
 		searchQuery: string;
+		isCancelAlwaysVisible?: boolean;
+		onSearchDeactivated?: () => void;
 	}
 
 	let {
 		handleMobileSidebarItemClick,
 		isSearchModeActive = $bindable(),
-		searchQuery = $bindable()
+		searchQuery = $bindable(),
+		isCancelAlwaysVisible = false,
+		onSearchDeactivated
 	}: Props = $props();
 
-	let searchInput: HTMLInputElement | null = $state(null);
+	let searchInputRef = $state<HTMLInputElement | null>(null);
 
 	function handleSearchModeDeactivate() {
 		isSearchModeActive = false;
 		searchQuery = '';
+		onSearchDeactivated?.();
 	}
 
-	$effect(() => {
-		if (isSearchModeActive) {
-			searchInput?.focus();
-		}
-	});
+	export function activateSearch() {
+		isSearchModeActive = true;
+		// Focus after Svelte renders the input
+		queueMicrotask(() => searchInputRef?.focus());
+	}
 </script>
 
-<div class="space-y-0.5">
+{#snippet itemIcon(Icon: Component)}
+	<Icon class="h-4 w-4" />
+{/snippet}
+
+<div class="my-1 space-y-1">
 	{#if isSearchModeActive}
-		<div class="relative">
-			<Search class="absolute top-2.5 left-2 h-4 w-4 text-muted-foreground" />
-
-			<Input
-				bind:ref={searchInput}
-				bind:value={searchQuery}
-				onkeydown={(e) => e.key === 'Escape' && handleSearchModeDeactivate()}
-				placeholder="Search conversations..."
-				class="pl-8"
-			/>
-
-			<X
-				class="cursor-pointertext-muted-foreground absolute top-2.5 right-2 h-4 w-4"
-				onclick={handleSearchModeDeactivate}
-			/>
-		</div>
+		<SearchInput
+			bind:value={searchQuery}
+			bind:ref={searchInputRef}
+			onClose={handleSearchModeDeactivate}
+			onKeyDown={(e) => e.key === 'Escape' && handleSearchModeDeactivate()}
+			placeholder="Search conversations..."
+			{isCancelAlwaysVisible}
+		/>
 	{:else}
-		<Button
-			class="w-full justify-between hover:[&>kbd]:opacity-100"
-			href="?new_chat=true#/"
-			onclick={handleMobileSidebarItemClick}
-			variant="ghost"
-		>
-			<div class="flex items-center gap-2">
-				<SquarePen class="h-4 w-4" />
-				New chat
-			</div>
+		{#each SIDEBAR_ACTIONS_ITEMS as item (item.route)}
+			{#if !item.route}
+				<Button
+					class="w-full justify-between px-2 backdrop-blur-none! hover:[&>kbd]:opacity-100"
+					onclick={activateSearch}
+					variant="ghost"
+				>
+					<div class="flex items-center gap-2">
+						{@render itemIcon(item.icon)}
 
-			<KeyboardShortcutInfo keys={['shift', 'cmd', 'o']} />
-		</Button>
+						{item.tooltip}
+					</div>
 
-		<Button
-			class="w-full justify-between hover:[&>kbd]:opacity-100"
-			onclick={() => {
-				isSearchModeActive = true;
-			}}
-			variant="ghost"
-		>
-			<div class="flex items-center gap-2">
-				<Search class="h-4 w-4" />
-				Search conversations
-			</div>
+					{#if item.keys}
+						<KeyboardShortcutInfo keys={item.keys} />
+					{/if}
+				</Button>
+			{:else}
+				<Button
+					class="w-full justify-between px-2 backdrop-blur-none! hover:[&>kbd]:opacity-100 {(item.activeRouteId &&
+						page.route.id === item.activeRouteId) ||
+					(item.activeRoutePrefix && page.route.id?.startsWith(item.activeRoutePrefix))
+						? 'bg-accent text-accent-foreground'
+						: ''}"
+					href={item.route}
+					onclick={handleMobileSidebarItemClick}
+					variant="ghost"
+				>
+					<div class="flex items-center gap-2">
+						{@render itemIcon(item.icon)}
 
-			<KeyboardShortcutInfo keys={['cmd', 'k']} />
-		</Button>
+						{item.tooltip}
+					</div>
+
+					{#if item.keys}
+						<KeyboardShortcutInfo keys={item.keys} />
+					{/if}
+				</Button>
+			{/if}
+		{/each}
 	{/if}
 </div>

@@ -1,6 +1,7 @@
 #include "server-common.h"
 #include "server-models.h"
 
+#include "build-info.h"
 #include "preset.h"
 #include "download.h"
 
@@ -17,6 +18,8 @@
 #include <chrono>
 #include <queue>
 #include <filesystem>
+#include <random>
+#include <sstream>
 #include <cstring>
 
 #ifdef _WIN32
@@ -39,7 +42,8 @@ extern char **environ;
 #define DEFAULT_STOP_TIMEOUT 10 // seconds
 
 #define CMD_ROUTER_TO_CHILD_EXIT  "cmd_router_to_child:exit"
-#define CMD_CHILD_TO_ROUTER_READY "cmd_child_to_router:ready"
+#define CMD_CHILD_TO_ROUTER_READY "cmd_child_to_router:ready" // also sent when waking up from sleep
+#define CMD_CHILD_TO_ROUTER_SLEEP "cmd_child_to_router:sleep"
 
 // address for child process, this is needed because router may run on 0.0.0.0
 // ref: https://github.com/ggml-org/llama.cpp/issues/17862
@@ -97,6 +101,7 @@ static void unset_reserved_args(common_preset & preset, bool unset_model_args) {
     if (unset_model_args) {
         preset.unset_option("LLAMA_ARG_MODEL");
         preset.unset_option("LLAMA_ARG_MMPROJ");
+        preset.unset_option("LLAMA_ARG_ALIAS");
         preset.unset_option("LLAMA_ARG_HF_REPO");
     }
 }
@@ -380,7 +385,7 @@ void server_models::update_meta(const std::string & name, const server_model_met
     if (it != mapping.end()) {
         it->second.meta = meta;
     }
-    cv.notify_all(); // notify wait_until_loaded
+    cv.notify_all(); // notify wait_until_loading_finished
 }
 
 bool server_models::has_model(const std::string & name) {
@@ -503,7 +508,7 @@ void server_models::unload_lru() {
     {
         std::unique_lock<std::mutex> lk(mutex);
         for (const auto & m : mapping) {
-            if (m.second.meta.is_active()) {
+            if (m.second.meta.is_running()) {
                 count_active++;
                 if (m.second.meta.last_used < lru_last_used) {
                     lru_model_name = m.first;
@@ -537,6 +542,22 @@ void server_models::load(const std::string & name) {
     if (meta.status != SERVER_MODEL_STATUS_UNLOADED) {
         SRV_INF("model %s is not ready\n", name.c_str());
         return;
+    }
+
+    // Re-check capacity under the lock to prevent concurrent loads from
+    // exceeding models_max. Without this, the window between unload_lru()
+    // releasing its lock and this lock_guard acquiring allows multiple
+    // threads to each observe capacity and all proceed to load.
+    if (base_params.models_max > 0) {
+        size_t count_active = 0;
+        for (const auto & m : mapping) {
+            if (m.second.meta.is_running()) {
+                count_active++;
+            }
+        }
+        if (count_active >= (size_t)base_params.models_max) {
+            throw std::runtime_error("model limit reached, try again later");
+        }
     }
 
     // prepare new instance info
@@ -589,15 +610,15 @@ void server_models::load(const std::string & name) {
         std::thread log_thread([&]() {
             // read stdout/stderr and forward to main server log
             // also handle status report from child process
-            bool state_received = false; // true if child state received
             if (stdout_file) {
                 char buffer[4096];
                 while (fgets(buffer, sizeof(buffer), stdout_file) != nullptr) {
                     LOG("[%5d] %s", port, buffer);
-                    if (!state_received && std::strstr(buffer, CMD_CHILD_TO_ROUTER_READY) != nullptr) {
-                        // child process is ready
+                    std::string str(buffer);
+                    if (string_starts_with(buffer, CMD_CHILD_TO_ROUTER_READY)) {
                         this->update_status(name, SERVER_MODEL_STATUS_LOADED, 0);
-                        state_received = true;
+                    } else if (string_starts_with(buffer, CMD_CHILD_TO_ROUTER_SLEEP)) {
+                        this->update_status(name, SERVER_MODEL_STATUS_SLEEPING, 0);
                     }
                 }
             } else {
@@ -606,13 +627,20 @@ void server_models::load(const std::string & name) {
         });
 
         std::thread stopping_thread([&]() {
-            // thread to monitor stopping signal
+            // thread to monitor stopping signal OR child crash
             auto is_stopping = [this, &name]() {
                 return this->stopping_models.find(name) != this->stopping_models.end();
             };
+            auto should_wake = [&]() {
+                return is_stopping() || !subprocess_alive(child_proc.get());
+            };
             {
                 std::unique_lock<std::mutex> lk(this->mutex);
-                this->cv_stop.wait(lk, is_stopping);
+                this->cv_stop.wait(lk, should_wake);
+            }
+            // child may have already exited (e.g. crashed) — skip shutdown sequence
+            if (!subprocess_alive(child_proc.get())) {
+                return;
             }
             SRV_INF("stopping model instance name=%s\n", name.c_str());
             // send interrupt to child process
@@ -683,13 +711,18 @@ void server_models::unload(const std::string & name) {
     std::lock_guard<std::mutex> lk(mutex);
     auto it = mapping.find(name);
     if (it != mapping.end()) {
-        if (it->second.meta.is_active()) {
-            SRV_INF("unloading model instance name=%s\n", name.c_str());
+        if (it->second.meta.is_running()) {
+            SRV_INF("stopping model instance name=%s\n", name.c_str());
             stopping_models.insert(name);
+            if (it->second.meta.status == SERVER_MODEL_STATUS_LOADING) {
+                // special case: if model is in loading state, unloading means force-killing it
+                SRV_WRN("model name=%s is still loading, force-killing\n", name.c_str());
+                subprocess_terminate(it->second.subproc.get());
+            }
             cv_stop.notify_all();
             // status change will be handled by the managing thread
         } else {
-            SRV_WRN("model instance name=%s is not loaded\n", name.c_str());
+            SRV_WRN("model instance name=%s is not running\n", name.c_str());
         }
     }
 }
@@ -699,8 +732,8 @@ void server_models::unload_all() {
     {
         std::lock_guard<std::mutex> lk(mutex);
         for (auto & [name, inst] : mapping) {
-            if (inst.meta.is_active()) {
-                SRV_INF("unloading model instance name=%s\n", name.c_str());
+            if (inst.meta.is_running()) {
+                SRV_INF("stopping model instance name=%s\n", name.c_str());
                 stopping_models.insert(name);
                 cv_stop.notify_all();
                 // status change will be handled by the managing thread
@@ -727,7 +760,7 @@ void server_models::update_status(const std::string & name, server_model_status 
     cv.notify_all();
 }
 
-void server_models::wait_until_loaded(const std::string & name) {
+void server_models::wait_until_loading_finished(const std::string & name) {
     std::unique_lock<std::mutex> lk(mutex);
     cv.wait(lk, [this, &name]() {
         auto it = mapping.find(name);
@@ -738,22 +771,25 @@ void server_models::wait_until_loaded(const std::string & name) {
     });
 }
 
-bool server_models::ensure_model_loaded(const std::string & name) {
+bool server_models::ensure_model_ready(const std::string & name) {
     auto meta = get_meta(name);
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
-    if (meta->status == SERVER_MODEL_STATUS_LOADED) {
-        return false; // already loaded
+    if (meta->is_ready()) {
+        return false; // ready for taking requests
+    }
+    if (meta->status == SERVER_MODEL_STATUS_SLEEPING) {
+        return false; // child is sleeping but still running; new request will wake it up
     }
     if (meta->status == SERVER_MODEL_STATUS_UNLOADED) {
         SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
         load(name);
     }
 
-    // for loading state
+    // wait for loading to complete
     SRV_INF("waiting until model name=%s is fully loaded...\n", name.c_str());
-    wait_until_loaded(name);
+    wait_until_loading_finished(name);
 
     // check final status
     meta = get_meta(name);
@@ -769,8 +805,8 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
-    if (meta->status != SERVER_MODEL_STATUS_LOADED) {
-        throw std::invalid_argument("model name=" + name + " is not loaded");
+    if (!meta->is_running()) {
+        throw std::invalid_argument("model name=" + name + " is not running");
     }
     if (update_last_used) {
         std::unique_lock<std::mutex> lk(mutex);
@@ -783,16 +819,23 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     }
     auto proxy = std::make_unique<server_http_proxy>(
             method,
+            "http",
             CHILD_ADDR,
             meta->port,
             proxy_path,
             req.headers,
             req.body,
+            req.files,
             req.should_stop,
             base_params.timeout_read,
             base_params.timeout_write
             );
     return proxy;
+}
+
+bool server_models::is_child_server() {
+    const char * router_port = std::getenv("LLAMA_SERVER_ROUTER_PORT");
+    return router_port != nullptr;
 }
 
 std::thread server_models::setup_child_server(const std::function<void(int)> & shutdown_handler) {
@@ -828,6 +871,13 @@ std::thread server_models::setup_child_server(const std::function<void(int)> & s
     });
 }
 
+void server_models::notify_router_sleeping_state(bool is_sleeping) {
+    common_log_pause(common_log_main());
+    fflush(stdout);
+    fprintf(stdout, "%s\n", is_sleeping ? CMD_CHILD_TO_ROUTER_SLEEP : CMD_CHILD_TO_ROUTER_READY);
+    fflush(stdout);
+    common_log_resume(common_log_main());
+}
 
 
 //
@@ -857,9 +907,9 @@ static bool router_validate_model(std::string & name, server_models & models, bo
     // resolve alias to canonical model name
     name = meta->name;
     if (models_autoload) {
-        models.ensure_model_loaded(name);
+        models.ensure_model_ready(name);
     } else {
-        if (meta->status != SERVER_MODEL_STATUS_LOADED) {
+        if (!meta->is_running()) {
             res_err(res, format_error_response("model is not loaded", ERROR_TYPE_INVALID_REQUEST));
             return false;
         }
@@ -885,7 +935,8 @@ void server_models_routes::init_routes() {
             res_ok(res, {
                 // TODO: add support for this on web UI
                 {"role",          "router"},
-                {"max_instances", 4}, // dummy value for testing
+                {"max_instances", params.models_max},
+                {"models_autoload", params.models_autoload},
                 // this is a dummy response to make sure webui doesn't break
                 {"model_alias", "llama-server"},
                 {"model_path",  "none"},
@@ -894,6 +945,7 @@ void server_models_routes::init_routes() {
                     {"n_ctx",  0},
                 }},
                 {"webui_settings", webui_settings},
+                {"build_info",     std::string(llama_build_info())},
             });
             return res;
         }
@@ -932,8 +984,8 @@ void server_models_routes::init_routes() {
             res_err(res, format_error_response("model is not found", ERROR_TYPE_NOT_FOUND));
             return res;
         }
-        if (meta->status == SERVER_MODEL_STATUS_LOADED) {
-            res_err(res, format_error_response("model is already loaded", ERROR_TYPE_INVALID_REQUEST));
+        if (meta->is_running()) {
+            res_err(res, format_error_response("model is already running", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
         models.load(meta->name);
@@ -991,8 +1043,8 @@ void server_models_routes::init_routes() {
             res_err(res, format_error_response("model is not found", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
-        if (!model->is_active()) {
-            res_err(res, format_error_response("model is not loaded", ERROR_TYPE_INVALID_REQUEST));
+        if (!model->is_running()) {
+            res_err(res, format_error_response("model is not running", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
         models.unload(model->name);
@@ -1077,23 +1129,105 @@ static bool should_strip_proxy_header(const std::string & header_name) {
     return false;
 }
 
+static std::string generate_multipart_boundary() {
+    thread_local std::mt19937 gen(std::random_device{}());
+    static const char chars[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    std::uniform_int_distribution<> dis(0, sizeof(chars) - 2);
+    std::string boundary = "----llama-cpp-proxy-";
+    for (int i = 0; i < 16; i++) {
+        boundary += chars[dis(gen)];
+    }
+    return boundary;
+}
+
+static std::string build_multipart_body(
+        const json & form_fields,
+        const std::map<std::string, uploaded_file> & files,
+        const std::string & boundary) {
+    static auto sanitize_field = [](const std::string & text) {
+        std::string result;
+        result.reserve(text.size());
+        for (char c : text) {
+            if (c != '\n' && c != '\r' && c != '"') {
+                result += c;
+            }
+        }
+        return result;
+    };
+
+    std::ostringstream body;
+
+    for (const auto & [key, value] : form_fields.items()) {
+        if (value.is_array()) {
+            for (const auto & item : value) {
+                body << "--" << boundary << "\r\n";
+                body << "Content-Disposition: form-data; name=\"" << sanitize_field(key) << "\"\r\n";
+                body << "\r\n";
+                if (!item.is_string()) {
+                    throw std::invalid_argument("expected string");
+                }
+                body << item.get<std::string>() << "\r\n";
+            }
+        } else {
+            body << "--" << boundary << "\r\n";
+            body << "Content-Disposition: form-data; name=\"" << sanitize_field(key) << "\"\r\n";
+            body << "\r\n";
+            if (!value.is_string()) {
+                throw std::invalid_argument("expected string");
+            }
+            body << value.get<std::string>() << "\r\n";
+        }
+    }
+
+    for (const auto & [key, file] : files) {
+        body << "--" << boundary << "\r\n";
+        body << "Content-Disposition: form-data; name=\"" << sanitize_field(key) << "\"";
+        if (!file.filename.empty()) {
+            body << "; filename=\"" << sanitize_field(file.filename) << "\"";
+        }
+        body << "\r\n";
+        if (!file.content_type.empty()) {
+            body << "Content-Type: " << sanitize_field(file.content_type) << "\r\n";
+        } else {
+            body << "Content-Type: application/octet-stream\r\n";
+        }
+        body << "\r\n";
+        body.write(reinterpret_cast<const char*>(file.data.data()), file.data.size());
+        body << "\r\n";
+    }
+
+    body << "--" << boundary << "--\r\n";
+    return body.str();
+}
+
 server_http_proxy::server_http_proxy(
         const std::string & method,
+        const std::string & scheme,
         const std::string & host,
         int port,
         const std::string & path,
         const std::map<std::string, std::string> & headers,
         const std::string & body,
+        const std::map<std::string, uploaded_file> & files,
         const std::function<bool()> should_stop,
         int32_t timeout_read,
         int32_t timeout_write
         ) {
     // shared between reader and writer threads
-    auto cli  = std::make_shared<httplib::Client>(host, port);
+    auto cli  = std::make_shared<httplib::ClientImpl>(host, port);
     auto pipe = std::make_shared<pipe_t<msg_t>>();
 
+    if (scheme == "https") {
+#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+        cli.reset(new httplib::SSLClient(host, port));
+#else
+        throw std::runtime_error("HTTPS requested but CPPHTTPLIB_OPENSSL_SUPPORT is not defined");
+#endif
+    }
+
     // setup Client
-    cli->set_connection_timeout(0, 200000); // 200 milliseconds
+    cli->set_follow_location(true);
+    cli->set_connection_timeout(timeout_read, 0); // use --timeout value instead of hardcoded 5 s
     cli->set_write_timeout(timeout_read, 0); // reversed for cli (client) vs srv (server)
     cli->set_read_timeout(timeout_write, 0);
     this->status = 500; // to be overwritten upon response
@@ -1136,15 +1270,65 @@ server_http_proxy::server_http_proxy(
         return pipe->write({{}, 0, std::string(data, data_length), ""});
     };
 
+    // when files are present, the body was converted from multipart form data to JSON
+    // we need to reconstruct the multipart body for the downstream server
+    std::string effective_body = body;
+    std::string override_content_type;
+    bool has_files = !files.empty();
+
+    if (has_files) {
+        json form_fields = json::parse(body, nullptr, false);
+        if (!form_fields.is_discarded()) {
+            auto boundary = generate_multipart_boundary();
+            effective_body = build_multipart_body(form_fields, files, boundary);
+            override_content_type = "multipart/form-data; boundary=" + boundary;
+        } else {
+            throw std::runtime_error("failed to parse multipart form fields JSON");
+        }
+    }
+
     // prepare the request to destination server
     httplib::Request req;
     {
         req.method = method;
         req.path = path;
         for (const auto & [key, value] : headers) {
-            req.set_header(key, value);
+            const auto lowered = to_lower_copy(key);
+            if (lowered == "accept-encoding") {
+                // disable Accept-Encoding to avoid compressed responses
+                continue;
+            }
+            if (lowered == "transfer-encoding") {
+                // the body is already decoded
+                continue;
+            }
+            if (lowered == "content-length") {
+                // let httplib calculate Content-Length from the actual body
+                continue;
+            }
+            if (lowered == "content-type") {
+                if (has_files) {
+                    // we set our own Content-Type with the new boundary
+                    continue;
+                }
+                // when no files but the original request was multipart,
+                // the body is now JSON, so correct the Content-Type
+                if (value.find("multipart/form-data") != std::string::npos) {
+                    override_content_type = "application/json; charset=utf-8";
+                    continue;
+                }
+            }
+            if (lowered == "host") {
+                bool is_default_port = (scheme == "https" && port == 443) || (scheme == "http" && port == 80);
+                req.set_header(key, is_default_port ? host : host + ":" + std::to_string(port));
+            } else {
+                req.set_header(key, value);
+            }
         }
-        req.body = body;
+        req.body = effective_body;
+        if (!override_content_type.empty()) {
+            req.set_header("Content-Type", override_content_type);
+        }
         req.response_handler = response_handler;
         req.content_receiver = content_receiver;
     }

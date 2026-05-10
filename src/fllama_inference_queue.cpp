@@ -118,7 +118,8 @@ ServerManager::get_or_create(const std::string &model_path,
   res->model_path = model_path;
   res->srv_ctx = std::make_unique<server_context>();
 
-  if (!res->srv_ctx->load_model(params)) {
+  auto load_params = params;
+  if (!res->srv_ctx->load_model(load_params)) {
     std::cerr << "[ServerManager] load_model failed: " << model_path << "\n";
     return nullptr;
   }

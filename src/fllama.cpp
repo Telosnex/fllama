@@ -284,9 +284,14 @@ static void run_inference(fllama_inference_request request,
     task.params.sampling.penalty_repeat = request.penalty_repeat;
 
     if (is_oai) {
-      task.params.sampling.grammar = chat_params.grammar;
+      if (!chat_params.grammar.empty()) {
+        task.params.sampling.grammar = common_grammar(
+            COMMON_GRAMMAR_TYPE_TOOL_CALLS,
+            chat_params.grammar);
+      }
       task.params.sampling.grammar_lazy = chat_params.grammar_lazy;
       task.params.sampling.grammar_triggers = chat_params.grammar_triggers;
+      task.params.sampling.generation_prompt = chat_params.generation_prompt;
       task.params.antiprompt = chat_params.additional_stops;
 
       auto *lctx = srv->srv_ctx->get_llama_context();

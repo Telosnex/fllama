@@ -1,8 +1,17 @@
-export { AttachmentType } from './attachment';
+export {
+	AttachmentType,
+	AttachmentMenuItemId,
+	AttachmentItemEnabledWhen,
+	AttachmentAction,
+	AttachmentItemVisibleWhen
+} from './attachment';
+
+export { AgenticSectionType, ToolCallType } from './agentic';
 
 export {
 	ChatMessageStatsView,
 	ContentPartType,
+	ConversationSelectionMode,
 	ErrorDialogType,
 	MessageRole,
 	MessageType,
@@ -25,8 +34,19 @@ export {
 	MimeTypeApplication,
 	MimeTypeAudio,
 	MimeTypeImage,
-	MimeTypeText
+	MimeTypeText,
+	SpecialFileType
 } from './files';
+
+export {
+	MCPConnectionPhase,
+	MCPLogLevel,
+	MCPTransportType,
+	HealthCheckStatus,
+	MCPContentType,
+	MCPRefType,
+	JsonSchemaType
+} from './mcp';
 
 export { ModelModality } from './model';
 
@@ -34,6 +54,8 @@ export { ServerRole, ServerModelStatus } from './server';
 
 export { ParameterSource, SyncableParameterType, SettingsFieldType } from './settings';
 
-export { ColorMode, UrlPrefix } from './ui';
+export { ColorMode, HtmlInputType, McpPromptVariant, TooltipSide, UrlProtocol } from './ui';
 
 export { KeyboardKey } from './keyboard';
+
+export { ToolSource, ToolPermissionDecision, ToolResponseField } from './tools';

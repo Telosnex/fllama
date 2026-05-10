@@ -7,6 +7,7 @@
 #include <limits.h>
 
 #include <algorithm>
+#include <clocale>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -538,15 +539,18 @@ static std::string format_input_text(const std::string & prompt, const std::stri
 }
 
 int main(int argc, char ** argv) {
+    std::setlocale(LC_NUMERIC, "C");
+
     ggml_time_init();
 
     common_params params;
+
+    common_init();
 
     if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_DIFFUSION)) {
         return 1;
     }
 
-    common_init();
     llama_backend_init();
 
     llama_model_params model_params = llama_model_default_params();
@@ -598,8 +602,8 @@ int main(int argc, char ** argv) {
 
     int n_input = input_tokens.size();
 
-    if (n_input >= params.n_ctx) {
-        LOG_ERR("error: input too long (%d tokens), max context is %d\n", n_input, params.n_ctx);
+    if (static_cast<uint32_t>(n_input) >= llama_n_ctx(ctx)) {
+        LOG_ERR("error: input too long (%d tokens), max context is %d\n", n_input, llama_n_ctx(ctx));
         llama_free(ctx);
         llama_model_free(model);
         return 1;

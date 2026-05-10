@@ -79,8 +79,18 @@ fllamaChat(request, (response, done) {
 ```
 ## Tips & Tricks
 ### Web
-  Web is __extremely__ slow, ex. on a MBP M2 Max with 64 VRAM, it does ~2 tokens/second with a 3B parameter model. It's best seen as validation for your users that you will strive to support free LLMs everywhere.
-  To install: copy the fllama_wasm* files from `example/web` to your app's `web` directory, then add the `<script>` tag in `example/web/index.html`.
+  Web uses the package-bundled wllama/WebGPU runtime. Apps should import the package asset bridge from `web/index.html`:
+  ```html
+  <script type="module">
+    import './assets/packages/fllama/assets/web/fllama_web_init.js';
+  </script>
+  ```
+  For best performance, serve the app with cross-origin isolation enabled so the multi-threaded WebAssembly backend can run.
+
+  Before publishing or after replacing the web runtime, run:
+  ```sh
+  scripts/check_web_assets.sh
+  ```
 ### Recommended models
   3 top-tier open models are in the [fllama HuggingFace repo](https://huggingface.co/telosnex/fllama/tree/main).
   - __Stable LM 3B__ is the first LLM model that can handle RAG, using documents such as web pages to answer a query, on *all* devices. 
@@ -153,9 +163,7 @@ Commercial licenses are also available. Contact info@telosnex.com. Expect very f
 11. When codemagic is green, copy src/llama.cpp to wasm_build/build/llama.cpp.
 12. Read note at top of build-wasm.sh. (TL;DR: need emscripten sdk in env).
 13. Run build-wasm.sh.
-14. Copy these files from wasm_build/build to example/web:
-- fllama_wasm.js
-- fllama_wasm.wasm
+14. Rebuild the bundled web runtime under `assets/web/wllama` and verify the marker check still shows the fast WebGPU backend.
 15. Test using instructions below, then commit and push.
 - Note: Drop usually requires restoring build-info.cpp for macOS and iOS. It's a stock set of values with ex. git commit. That should be updated. Other than that you can leave it alone.
 
