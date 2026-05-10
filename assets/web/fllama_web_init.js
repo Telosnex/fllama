@@ -139,8 +139,55 @@ function textDeltaFromChunk(chunk) {
     return delta.content || delta.reasoning_content || '';
 }
 
+function shouldLogFllamaRequestShape() {
+    try {
+        const params = new URL(globalThis.location?.href || '').searchParams;
+        if (params.get('debugFllamaRequestShape') === '1') return true;
+        return globalThis.localStorage?.getItem('debugFllamaRequestShape') === '1';
+    } catch (_) {
+        return false;
+    }
+}
+
+function base64EncodeUtf8(value) {
+    const bytes = new TextEncoder().encode(value);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 1) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+function logFllamaRequestShape(kind, request) {
+    if (!shouldLogFllamaRequestShape()) return;
+    try {
+        const copy = {};
+        for (const key of Object.keys(request || {})) {
+            const value = request[key];
+            if (typeof value === 'function') continue;
+            copy[key] = value;
+        }
+        const json = JSON.stringify(copy, null, 2);
+        const base64 = base64EncodeUtf8(json);
+        const chunkSize = 12000;
+        const totalChunks = Math.max(1, Math.ceil(base64.length / chunkSize));
+        console.log(`[FLLAMA_REQUEST_SHAPE_JSON_BEGIN ${kind}]`);
+        console.log(json);
+        console.log(`[FLLAMA_REQUEST_SHAPE_JSON_END ${kind}]`);
+        for (let i = 0; i < totalChunks; i += 1) {
+            console.log(
+                `[FLLAMA_REQUEST_SHAPE_BASE64_CHUNK ${kind} ${i + 1}/${totalChunks}] ` +
+                base64.slice(i * chunkSize, (i + 1) * chunkSize)
+            );
+        }
+    } catch (error) {
+        console.warn('[fllama_web_init.js] failed to log request shape', error);
+    }
+}
+
 function fllamaInferenceJs(request, callback) {
     request.requestId = nextRequestId++;
+    logFllamaRequestShape('fllamaInferenceJs', request);
     runCompletion(request, callback).catch((error) => {
         console.error('[fllama_web_init.js.fllamaInferenceJs] error:', error);
         callback(String(error?.message || error || 'Unknown fllama web error'), '', true);
@@ -177,6 +224,7 @@ async function runCompletion(request, callback) {
 
 function fllamaChatWebJs(request, loadCallback, inferenceCallback) {
     request.requestId = nextRequestId++;
+    logFllamaRequestShape('fllamaChatWebJs', request);
     runChat(request, loadCallback, inferenceCallback).catch((error) => {
         console.error('[fllama_web_init.js.fllamaChatWebJs] error:', error);
         inferenceCallback(String(error?.message || error || 'Unknown fllama web error'), '', true);
