@@ -154,6 +154,11 @@ function base64EncodeUtf8(value) {
     return btoa(binary);
 }
 
+function debugFllamaSnippet(value, maxLength = 600) {
+    const text = String(value ?? '');
+    return text.length <= maxLength ? text : text.slice(0, maxLength) + `…[+${text.length - maxLength} chars]`;
+}
+
 function logFllamaRequestShape(kind, request) {
     if (!shouldLogFllamaRequestShape()) return;
     try {
@@ -230,25 +235,64 @@ function fllamaChatWebJs(request, loadCallback, inferenceCallback) {
 window.fllamaChatWebJs = fllamaChatWebJs;
 
 async function runChat(request, loadCallback, inferenceCallback) {
+    console.log('[fllama_web_init.js.runChat] start', {
+        requestId: request.requestId,
+        modelPath: request.modelPath,
+        maxTokens: request.maxTokens,
+        contextSize: request.contextSize,
+    });
     const instance = await loadServerModelIfNeeded(request.modelPath, request, loadCallback);
     const abortController = new AbortController();
     abortControllers.set(request.requestId, abortController);
 
     let lastText = '';
+    let chunkCount = 0;
     try {
         const openAiRequest = openAiRequestFromFllamaRequest(request);
+        console.log('[fllama_web_init.js.runChat] stream request created', {
+            requestId: request.requestId,
+            messages: openAiRequest.messages?.length || 0,
+            tools: openAiRequest.tools?.length || 0,
+            toolChoice: openAiRequest.tool_choice,
+            hasJinjaTemplate: Boolean(openAiRequest.jinja_template),
+        });
         const stream = await instance.createServerChatCompletionStream(openAiRequest, {
             model: request.modelPath,
             jinjaTemplate: openAiRequest.jinja_template,
             nPredict: request.maxTokens,
             sampling: samplingFromRequest(request),
         });
+        console.log('[fllama_web_init.js.runChat] stream opened', { requestId: request.requestId });
 
         for await (const item of stream) {
-            if (abortController.signal.aborted) break;
-            lastText += textDeltaFromChunk(item.chunk);
+            if (abortController.signal.aborted) {
+                console.warn('[fllama_web_init.js.runChat] aborted before chunk callback', {
+                    requestId: request.requestId,
+                    chunkCount,
+                });
+                break;
+            }
+            chunkCount += 1;
+            const delta = textDeltaFromChunk(item.chunk);
+            lastText += delta;
+            if (chunkCount <= 5 || chunkCount % 25 === 0) {
+                console.log('[fllama_web_init.js.runChat] chunk', {
+                    requestId: request.requestId,
+                    chunkCount,
+                    delta: debugFllamaSnippet(delta, 120),
+                    lastTextLength: lastText.length,
+                    rawChunkLength: String(item.rawChunk || '').length,
+                    rawChunk: debugFllamaSnippet(item.rawChunk, 600),
+                });
+            }
             inferenceCallback(lastText, item.rawChunk, false);
         }
+        console.log('[fllama_web_init.js.runChat] done callback', {
+            requestId: request.requestId,
+            chunkCount,
+            lastTextLength: lastText.length,
+            aborted: abortController.signal.aborted,
+        });
         inferenceCallback(lastText, '', true);
     } finally {
         abortControllers.delete(request.requestId);
