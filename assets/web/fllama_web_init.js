@@ -140,13 +140,9 @@ function textDeltaFromChunk(chunk) {
 }
 
 function shouldLogFllamaRequestShape() {
-    try {
-        const params = new URL(globalThis.location?.href || '').searchParams;
-        if (params.get('debugFllamaRequestShape') === '1') return true;
-        return globalThis.localStorage?.getItem('debugFllamaRequestShape') === '1';
-    } catch (_) {
-        return false;
-    }
+    // Temporary crash triage: always emit the exact request shape so it is not
+    // lost when Telosnex routing drops query parameters during navigation.
+    return true;
 }
 
 function base64EncodeUtf8(value) {
