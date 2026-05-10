@@ -66,8 +66,15 @@ function openAiRequestFromFllamaRequest(request) {
 }
 
 async function loadServerModelIfNeeded(modelPath, request = {}, loadCallback = () => { }) {
+    if (!globalThis.crossOriginIsolated) {
+        throw new Error(
+            'fllama web requires cross-origin isolation so wllama can use SharedArrayBuffer/pthreads. ' +
+            'Run the example with `flutter run -d chrome --cross-origin-isolation`, or build and serve it with `node web/server.js`.'
+        );
+    }
+
     const key = modelKey(modelPath);
-    if (serverWllama !== null && lastServerModelKey === key && serverWllama.isModelLoaded()) {
+    if (serverWllama !== null && lastServerModelKey === key && serverWllama.isServerModelLoaded()) {
         loadCallback(1, 1);
         return serverWllama;
     }
@@ -97,17 +104,17 @@ async function loadServerModelIfNeeded(modelPath, request = {}, loadCallback = (
         const localFile = localModelFiles.get(modelPath);
         if (localFile) {
             loadCallback(1, 0);
-            await instance.loadModel([localFile], loadConfig);
+            await instance.loadServerModel([localFile], loadConfig);
         } else if (modelPath.startsWith('blob:')) {
             const blob = await fetch(modelPath).then((response) => response.blob());
             loadCallback(1, 0);
-            await instance.loadModel([blob], loadConfig);
+            await instance.loadServerModel([blob], loadConfig);
         } else {
-            await instance.loadModelFromUrl(modelPath, loadConfig);
+            await instance.loadServerModelFromUrl(modelPath, loadConfig);
         }
     }
 
-    console.log('[fllama_web_init.js.loadServerModelIfNeeded] loading model', modelPath);
+    console.log('[fllama_web_init.js.loadServerModelIfNeeded] loading server model', modelPath);
     try {
         await doLoad(serverWllama);
     } catch (error) {
@@ -122,7 +129,7 @@ async function loadServerModelIfNeeded(modelPath, request = {}, loadCallback = (
     }
 
     loadCallback(1, 1);
-    console.log('[fllama_web_init.js.loadServerModelIfNeeded] model loaded');
+    console.log('[fllama_web_init.js.loadServerModelIfNeeded] server model loaded');
     return serverWllama;
 }
 
@@ -149,16 +156,18 @@ async function runCompletion(request, callback) {
 
     let lastText = '';
     try {
-        const stream = await instance.createCompletion(request.input || '', {
-            stream: true,
+        const stream = await instance.createServerChatCompletionStream({
+            messages: [{ role: 'user', content: request.input || '' }],
+        }, {
+            model: request.modelPath,
             nPredict: request.maxTokens,
             sampling: samplingFromRequest(request),
         });
 
         for await (const item of stream) {
             if (abortController.signal.aborted) break;
-            lastText = item.currentText || lastText;
-            callback(lastText, JSON.stringify({ choices: [{ delta: { content: lastText } }] }), false);
+            lastText += textDeltaFromChunk(item.chunk);
+            callback(lastText, item.rawChunk, false);
         }
         callback(lastText, '', true);
     } finally {
@@ -184,16 +193,17 @@ async function runChat(request, loadCallback, inferenceCallback) {
     let lastText = '';
     try {
         const openAiRequest = openAiRequestFromFllamaRequest(request);
-        const stream = await instance.createChatCompletion(openAiRequest.messages || [], {
-            stream: true,
+        const stream = await instance.createServerChatCompletionStream(openAiRequest, {
+            model: request.modelPath,
+            jinjaTemplate: openAiRequest.jinja_template,
             nPredict: request.maxTokens,
             sampling: samplingFromRequest(request),
         });
 
         for await (const item of stream) {
             if (abortController.signal.aborted) break;
-            lastText = item.currentText || lastText;
-            inferenceCallback(lastText, JSON.stringify({ choices: [{ delta: { content: lastText } }] }), false);
+            lastText += textDeltaFromChunk(item.chunk);
+            inferenceCallback(lastText, item.rawChunk, false);
         }
         inferenceCallback(lastText, '', true);
     } finally {
