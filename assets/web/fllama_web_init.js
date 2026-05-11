@@ -165,6 +165,10 @@ function textDeltaFromChunk(chunk) {
     return delta.content || delta.reasoning_content || '';
 }
 
+function jsonPayloadFromParsedChunk(chunk) {
+    return JSON.stringify(chunk);
+}
+
 function shouldLogFllamaRequestShape() {
     // Temporary crash triage: always emit the exact request shape so it is not
     // lost when Telosnex routing drops query parameters during navigation.
@@ -250,7 +254,8 @@ async function runCompletion(request, callback, abortController) {
         for await (const item of stream) {
             if (abortController.signal.aborted) break;
             lastText += textDeltaFromChunk(item.chunk);
-            callback(lastText, item.rawChunk, false);
+            const jsonPayload = jsonPayloadFromParsedChunk(item.chunk);
+            callback(lastText, jsonPayload, false);
         }
         callback(lastText, '', true);
     } finally {
@@ -318,6 +323,7 @@ async function runChat(request, loadCallback, inferenceCallback, abortController
             }
             chunkCount += 1;
             const delta = textDeltaFromChunk(item.chunk);
+            const jsonPayload = jsonPayloadFromParsedChunk(item.chunk);
             lastText += delta;
             if (chunkCount <= 5 || chunkCount % 25 === 0) {
                 console.log('[fllama_web_init.js.runChat] chunk', {
@@ -325,11 +331,13 @@ async function runChat(request, loadCallback, inferenceCallback, abortController
                     chunkCount,
                     delta: debugFllamaSnippet(delta, 120),
                     lastTextLength: lastText.length,
+                    parsedChunkLength: jsonPayload.length,
+                    parsedChunk: debugFllamaSnippet(jsonPayload, 600),
                     rawChunkLength: String(item.rawChunk || '').length,
                     rawChunk: debugFllamaSnippet(item.rawChunk, 600),
                 });
             }
-            inferenceCallback(lastText, item.rawChunk, false);
+            inferenceCallback(lastText, jsonPayload, false);
         }
         console.log('[fllama_web_init.js.runChat] done callback', {
             requestId: request.requestId,
