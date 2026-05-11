@@ -17,8 +17,34 @@ const WLLAMA_PATHS = {
 let nextRequestId = 0;
 let serverWllama = null;
 let lastServerModelKey = '';
+let serverRequestQueue = Promise.resolve();
 const abortControllers = new Map();
 const localModelFiles = new Map();
+
+function enqueueServerRequest(kind, request, task) {
+    const queuedTask = serverRequestQueue.catch(() => { }).then(async () => {
+        console.log('[fllama_web_init.js.enqueueServerRequest] start', {
+            kind,
+            requestId: request.requestId,
+        });
+        try {
+            return await task();
+        } finally {
+            console.log('[fllama_web_init.js.enqueueServerRequest] finish', {
+                kind,
+                requestId: request.requestId,
+            });
+        }
+    });
+    serverRequestQueue = queuedTask.catch((error) => {
+        console.error('[fllama_web_init.js.enqueueServerRequest] queued request failed', {
+            kind,
+            requestId: request.requestId,
+            error,
+        });
+    });
+    return queuedTask;
+}
 
 function createWllama(backend = navigator.gpu ? 'webgpu' : 'cpu') {
     return new Wllama(WLLAMA_PATHS, {
@@ -188,8 +214,12 @@ function logFllamaRequestShape(kind, request) {
 
 function fllamaInferenceJs(request, callback) {
     request.requestId = nextRequestId++;
+    const abortController = new AbortController();
+    abortControllers.set(request.requestId, abortController);
     logFllamaRequestShape('fllamaInferenceJs', request);
-    runCompletion(request, callback).catch((error) => {
+    enqueueServerRequest('completion', request, () =>
+        runCompletion(request, callback, abortController)
+    ).catch((error) => {
         console.error('[fllama_web_init.js.fllamaInferenceJs] error:', error);
         callback(String(error?.message || error || 'Unknown fllama web error'), '', true);
     });
@@ -197,13 +227,18 @@ function fllamaInferenceJs(request, callback) {
 }
 window.fllamaInferenceJs = fllamaInferenceJs;
 
-async function runCompletion(request, callback) {
-    const instance = await loadServerModelIfNeeded(request.modelPath, request);
-    const abortController = new AbortController();
-    abortControllers.set(request.requestId, abortController);
-
+async function runCompletion(request, callback, abortController) {
     let lastText = '';
     try {
+        if (abortController.signal.aborted) {
+            callback(lastText, '', true);
+            return;
+        }
+        const instance = await loadServerModelIfNeeded(request.modelPath, request);
+        if (abortController.signal.aborted) {
+            callback(lastText, '', true);
+            return;
+        }
         const stream = await instance.createServerChatCompletionStream({
             messages: [{ role: 'user', content: request.input || '' }],
         }, {
@@ -225,8 +260,12 @@ async function runCompletion(request, callback) {
 
 function fllamaChatWebJs(request, loadCallback, inferenceCallback) {
     request.requestId = nextRequestId++;
+    const abortController = new AbortController();
+    abortControllers.set(request.requestId, abortController);
     logFllamaRequestShape('fllamaChatWebJs', request);
-    runChat(request, loadCallback, inferenceCallback).catch((error) => {
+    enqueueServerRequest('chat', request, () =>
+        runChat(request, loadCallback, inferenceCallback, abortController)
+    ).catch((error) => {
         console.error('[fllama_web_init.js.fllamaChatWebJs] error:', error);
         inferenceCallback(String(error?.message || error || 'Unknown fllama web error'), '', true);
     });
@@ -234,20 +273,25 @@ function fllamaChatWebJs(request, loadCallback, inferenceCallback) {
 }
 window.fllamaChatWebJs = fllamaChatWebJs;
 
-async function runChat(request, loadCallback, inferenceCallback) {
+async function runChat(request, loadCallback, inferenceCallback, abortController) {
     console.log('[fllama_web_init.js.runChat] start', {
         requestId: request.requestId,
         modelPath: request.modelPath,
         maxTokens: request.maxTokens,
         contextSize: request.contextSize,
     });
-    const instance = await loadServerModelIfNeeded(request.modelPath, request, loadCallback);
-    const abortController = new AbortController();
-    abortControllers.set(request.requestId, abortController);
-
     let lastText = '';
     let chunkCount = 0;
     try {
+        if (abortController.signal.aborted) {
+            inferenceCallback(lastText, '', true);
+            return;
+        }
+        const instance = await loadServerModelIfNeeded(request.modelPath, request, loadCallback);
+        if (abortController.signal.aborted) {
+            inferenceCallback(lastText, '', true);
+            return;
+        }
         const openAiRequest = openAiRequestFromFllamaRequest(request);
         console.log('[fllama_web_init.js.runChat] stream request created', {
             requestId: request.requestId,
