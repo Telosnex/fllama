@@ -198,7 +198,17 @@ Future<SendPort> _helperIsolateSendPort = () async {
     });
 
   // Start the helper isolate.
-  await Isolate.spawn(_fllamaInferenceIsolate, receivePort.sendPort);
+  //
+  // Fix: avoid hang on Flutter Windows standalone with native-assets.
+  //
+  // The Future<Isolate> returned by Isolate.spawn() never resolves on this
+  // configuration (the VM-level "isolate started" ACK is not delivered back
+  // to the spawner), even though the child isolate runs correctly and the
+  // SendPort handshake succeeds. Awaiting that Future therefore hangs
+  // forever. The Completer populated by the child's SendPort handshake is
+  // the real synchronization mechanism, so we don't need to await the
+  // spawn — unawaited() makes the intentional fire-and-forget explicit.
+  unawaited(Isolate.spawn(_fllamaInferenceIsolate, receivePort.sendPort));
 
   // Wait until the helper isolate has sent us back the SendPort on which we
   // can start sending requests.
