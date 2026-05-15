@@ -22,20 +22,7 @@ const abortControllers = new Map();
 const localModelFiles = new Map();
 
 function enqueueServerRequest(kind, request, task) {
-    const queuedTask = serverRequestQueue.catch(() => { }).then(async () => {
-        console.log('[fllama_web_init.js.enqueueServerRequest] start', {
-            kind,
-            requestId: request.requestId,
-        });
-        try {
-            return await task();
-        } finally {
-            console.log('[fllama_web_init.js.enqueueServerRequest] finish', {
-                kind,
-                requestId: request.requestId,
-            });
-        }
-    });
+    const queuedTask = serverRequestQueue.catch(() => { }).then(task);
     serverRequestQueue = queuedTask.catch((error) => {
         console.error('[fllama_web_init.js.enqueueServerRequest] queued request failed', {
             kind,
@@ -169,58 +156,10 @@ function jsonPayloadFromParsedChunk(chunk) {
     return JSON.stringify(chunk);
 }
 
-function shouldLogFllamaRequestShape() {
-    // Temporary crash triage: always emit the exact request shape so it is not
-    // lost when Telosnex routing drops query parameters during navigation.
-    return true;
-}
-
-function base64EncodeUtf8(value) {
-    const bytes = new TextEncoder().encode(value);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i += 1) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-}
-
-function debugFllamaSnippet(value, maxLength = 600) {
-    const text = String(value ?? '');
-    return text.length <= maxLength ? text : text.slice(0, maxLength) + `…[+${text.length - maxLength} chars]`;
-}
-
-function logFllamaRequestShape(kind, request) {
-    if (!shouldLogFllamaRequestShape()) return;
-    try {
-        const copy = {};
-        for (const key of Object.keys(request || {})) {
-            const value = request[key];
-            if (typeof value === 'function') continue;
-            copy[key] = value;
-        }
-        const json = JSON.stringify(copy, null, 2);
-        const base64 = base64EncodeUtf8(json);
-        const chunkSize = 12000;
-        const totalChunks = Math.max(1, Math.ceil(base64.length / chunkSize));
-        console.log(`[FLLAMA_REQUEST_SHAPE_JSON_BEGIN ${kind}]`);
-        console.log(json);
-        console.log(`[FLLAMA_REQUEST_SHAPE_JSON_END ${kind}]`);
-        for (let i = 0; i < totalChunks; i += 1) {
-            console.log(
-                `[FLLAMA_REQUEST_SHAPE_BASE64_CHUNK ${kind} ${i + 1}/${totalChunks}] ` +
-                base64.slice(i * chunkSize, (i + 1) * chunkSize)
-            );
-        }
-    } catch (error) {
-        console.warn('[fllama_web_init.js] failed to log request shape', error);
-    }
-}
-
 function fllamaInferenceJs(request, callback) {
     request.requestId = nextRequestId++;
     const abortController = new AbortController();
     abortControllers.set(request.requestId, abortController);
-    logFllamaRequestShape('fllamaInferenceJs', request);
     enqueueServerRequest('completion', request, () =>
         runCompletion(request, callback, abortController)
     ).catch((error) => {
@@ -267,7 +206,6 @@ function fllamaChatWebJs(request, loadCallback, inferenceCallback) {
     request.requestId = nextRequestId++;
     const abortController = new AbortController();
     abortControllers.set(request.requestId, abortController);
-    logFllamaRequestShape('fllamaChatWebJs', request);
     enqueueServerRequest('chat', request, () =>
         runChat(request, loadCallback, inferenceCallback, abortController)
     ).catch((error) => {
@@ -279,12 +217,6 @@ function fllamaChatWebJs(request, loadCallback, inferenceCallback) {
 window.fllamaChatWebJs = fllamaChatWebJs;
 
 async function runChat(request, loadCallback, inferenceCallback, abortController) {
-    console.log('[fllama_web_init.js.runChat] start', {
-        requestId: request.requestId,
-        modelPath: request.modelPath,
-        maxTokens: request.maxTokens,
-        contextSize: request.contextSize,
-    });
     let lastText = '';
     let chunkCount = 0;
     try {
@@ -298,20 +230,12 @@ async function runChat(request, loadCallback, inferenceCallback, abortController
             return;
         }
         const openAiRequest = openAiRequestFromFllamaRequest(request);
-        console.log('[fllama_web_init.js.runChat] stream request created', {
-            requestId: request.requestId,
-            messages: openAiRequest.messages?.length || 0,
-            tools: openAiRequest.tools?.length || 0,
-            toolChoice: openAiRequest.tool_choice,
-            hasJinjaTemplate: Boolean(openAiRequest.jinja_template),
-        });
         const stream = await instance.createServerChatCompletionStream(openAiRequest, {
             model: request.modelPath,
             jinjaTemplate: openAiRequest.jinja_template,
             nPredict: request.maxTokens,
             sampling: samplingFromRequest(request),
         });
-        console.log('[fllama_web_init.js.runChat] stream opened', { requestId: request.requestId });
 
         for await (const item of stream) {
             if (abortController.signal.aborted) {
@@ -325,26 +249,8 @@ async function runChat(request, loadCallback, inferenceCallback, abortController
             const delta = textDeltaFromChunk(item.chunk);
             const jsonPayload = jsonPayloadFromParsedChunk(item.chunk);
             lastText += delta;
-            if (chunkCount <= 5 || chunkCount % 25 === 0) {
-                console.log('[fllama_web_init.js.runChat] chunk', {
-                    requestId: request.requestId,
-                    chunkCount,
-                    delta: debugFllamaSnippet(delta, 120),
-                    lastTextLength: lastText.length,
-                    parsedChunkLength: jsonPayload.length,
-                    parsedChunk: debugFllamaSnippet(jsonPayload, 600),
-                    rawChunkLength: String(item.rawChunk || '').length,
-                    rawChunk: debugFllamaSnippet(item.rawChunk, 600),
-                });
-            }
             inferenceCallback(lastText, jsonPayload, false);
         }
-        console.log('[fllama_web_init.js.runChat] done callback', {
-            requestId: request.requestId,
-            chunkCount,
-            lastTextLength: lastText.length,
-            aborted: abortController.signal.aborted,
-        });
         inferenceCallback(lastText, '', true);
     } finally {
         abortControllers.delete(request.requestId);
