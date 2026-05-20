@@ -24,7 +24,24 @@ enum Role {
 
 class Message {
   final Role role;
+
+  /// Message text.
+  ///
+  /// For multimodal image input, include one or more data-URI image tags in
+  /// user message text and set [OpenAiRequest.mmprojPath]:
+  ///
+  /// ```dart
+  /// Message(
+  ///   Role.user,
+  ///   '<img src="data:image/jpeg;base64,...">\n\nWhat is this?',
+  /// )
+  /// ```
+  ///
+  /// Native llama.cpp consumes this image-tag form directly. On web, fllama
+  /// converts matching `<img src="data:image/...;base64,...">` tags into
+  /// wllama v3 image content parts before calling `createChatCompletion`.
   final String text;
+
   /// Optional name of tool in the message.
   final String? toolResponseName;
   final List<Map<String, dynamic>>? toolCalls;
@@ -75,17 +92,17 @@ class OpenAiRequest {
   String toJsonString() {
     final Map<String, dynamic> json = {
       'messages': messages
-          .map((m) => {
-                'role': m.role.openAiName,
-                // Avoid empty content, intent is when there's a tool call,
-                // but no text, in an assistant response, two messages are not
-                // created.
-                if (m.text.trim().isNotEmpty)
-                 'content': m.text,
-                if (m.toolResponseName != null) 'name': m.toolResponseName,
-                if (m.toolCalls?.isNotEmpty == true)
-                  'tool_calls': m.toolCalls
-              })
+          .map(
+            (m) => {
+              'role': m.role.openAiName,
+              // Avoid empty content, intent is when there's a tool call,
+              // but no text, in an assistant response, two messages are not
+              // created.
+              if (m.text.trim().isNotEmpty) 'content': m.text,
+              if (m.toolResponseName != null) 'name': m.toolResponseName,
+              if (m.toolCalls?.isNotEmpty == true) 'tool_calls': m.toolCalls,
+            },
+          )
           .toList(),
       'tools': tools.map((t) {
         return {

@@ -52,13 +52,69 @@ function createWllama() {
     });
 }
 
+function base64ToArrayBuffer(base64) {
+    const binary = atob(base64.replace(/\s+/g, ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+function contentPartsFromImageTags(text) {
+    const imageTagPattern = /<img\s+[^>]*src\s*=\s*(["'])(data:image\/[^;"']+;base64,([^"']+))\1[^>]*>/gi;
+    const parts = [];
+    let cursor = 0;
+    let match;
+
+    while ((match = imageTagPattern.exec(text)) !== null) {
+        const leadingText = text.slice(cursor, match.index);
+        if (leadingText.length > 0) {
+            parts.push({ type: 'text', text: leadingText });
+        }
+        parts.push({ type: 'image', data: base64ToArrayBuffer(match[3]) });
+        cursor = match.index + match[0].length;
+    }
+
+    if (parts.length === 0) {
+        return text;
+    }
+
+    const trailingText = text.slice(cursor);
+    if (trailingText.length > 0) {
+        parts.push({ type: 'text', text: trailingText });
+    }
+    return parts;
+}
+
+function normalizeMessageContentForWllama(message) {
+    const content = message.content;
+    if (typeof content !== 'string') {
+        return content;
+    }
+    return contentPartsFromImageTags(content);
+}
+
+function normalizeOpenAiRequestForWllama(openAiRequest) {
+    return {
+        ...openAiRequest,
+        messages: (openAiRequest.messages || []).map((message) => ({
+            ...message,
+            content: normalizeMessageContentForWllama(message),
+        })),
+    };
+}
+
 function openAiRequestFromFllamaRequest(request) {
+    if (request.openAiRequestObject) {
+        return normalizeOpenAiRequestForWllama(request.openAiRequestObject);
+    }
     if (request.openAiRequestJsonString) {
-        return JSON.parse(request.openAiRequestJsonString);
+        return normalizeOpenAiRequestForWllama(JSON.parse(request.openAiRequestJsonString));
     }
     const tools = JSON.parse(request.toolsAsJsonString || '[]');
     const messages = JSON.parse(request.messagesAsJsonString || '[]');
-    return {
+    return normalizeOpenAiRequestForWllama({
         messages: messages.map((message) => ({
             role: message.role || 'user',
             content: typeof message.content === 'string'
@@ -72,7 +128,7 @@ function openAiRequestFromFllamaRequest(request) {
         top_p: request.topP,
         frequency_penalty: request.penaltyFrequency,
         presence_penalty: request.penaltyRepeat,
-    };
+    });
 }
 
 function chatTemplateFromRequest(request) {
@@ -166,13 +222,20 @@ async function loadModelIfNeeded(modelPath, request = {}, loadCallback = () => {
         }));
 
         const localFile = localModelFiles.get(modelPath);
+        const localMmprojFile = localModelFiles.get(request.modelMmprojPath || '');
         if (localFile) {
             loadCallback(1, 0);
-            await instance.loadModel([localFile], config);
+            await instance.loadModel(
+                localMmprojFile ? [localFile, localMmprojFile] : [localFile],
+                config
+            );
         } else if (modelPath.startsWith('blob:')) {
             const blob = await fetch(modelPath).then((response) => response.blob());
+            const mmprojBlob = request.modelMmprojPath
+                ? await fetch(request.modelMmprojPath).then((response) => response.blob())
+                : null;
             loadCallback(1, 0);
-            await instance.loadModel([blob], config);
+            await instance.loadModel(mmprojBlob ? [blob, mmprojBlob] : [blob], config);
         } else {
             const source = request.modelMmprojPath
                 ? { url: modelPath, mmprojUrl: request.modelMmprojPath }
@@ -392,7 +455,7 @@ async function fllamaWebPickModelJs() {
         return '';
     }
 
-    const id = `fllama-local-file://${crypto.randomUUID()}`;
+    const id = `fllama-local-file://${crypto.randomUUID()}/${encodeURIComponent(file.name)}`;
     localModelFiles.set(id, file);
     return id;
 }

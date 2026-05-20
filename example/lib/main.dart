@@ -26,8 +26,17 @@ String _webModelLabel(String modelPath) {
   if (modelPath == kExampleTinyLlamaGgufUrl) {
     return 'TinyLlama 1.1B Chat Q4_K_M GGUF';
   }
-  if (modelPath.startsWith('fllama-local-file://')) return 'Local GGUF';
+  if (modelPath.startsWith('fllama-local-file://')) {
+    return 'Local GGUF: ${_webLocalFileName(modelPath) ?? modelPath}';
+  }
   return modelPath;
+}
+
+String? _webLocalFileName(String modelPath) {
+  final uri = Uri.tryParse(modelPath);
+  final segments = uri?.pathSegments;
+  if (segments == null || segments.isEmpty) return null;
+  return Uri.decodeComponent(segments.last);
 }
 
 void main() async {
@@ -81,8 +90,10 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-    _mmprojPath = kSharedPrefs.getString(kMmprojPathKey);
-    _modelPath = kSharedPrefs.getString(kModelPathKey);
+    if (!kIsWeb) {
+      _mmprojPath = kSharedPrefs.getString(kMmprojPathKey);
+      _modelPath = kSharedPrefs.getString(kModelPathKey);
+    }
   }
 
   @override
@@ -241,6 +252,46 @@ class _MyAppState extends State<MyApp> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            final token = await fllamaWebPickModel();
+                            if (token == null) return;
+                            setState(() {
+                              _mmprojPath = token;
+                            });
+                          },
+                          icon: const Icon(Icons.folder_open),
+                          label: const Text('Pick local mmproj GGUF'),
+                        ),
+                        const SizedBox(width: 8),
+                        const Tooltip(
+                          message:
+                              'Optional: multimodal models may require a companion mmproj GGUF.',
+                          child: Icon(Icons.info),
+                        ),
+                        if (_mmprojPath != null) ...[
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: SelectableText(
+                              _webModelLabel(_mmprojPath!),
+                              style: textStyle,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              setState(() {
+                                _mmprojPath = null;
+                                _imageBytes = null;
+                              });
+                            },
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                   spacerSmall,
                   const Text('Tools:', style: textStyle),
@@ -281,7 +332,7 @@ class _MyAppState extends State<MyApp> {
                       ),
                       controller: _controller,
                     ),
-                  if (_mmprojPath != null && !kIsWeb)
+                  if (_mmprojPath != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0),
                       child: Row(

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -9,10 +9,23 @@ import { chromium } from 'playwright';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
 const exampleDir = path.join(repoRoot, 'example');
-const defaultModel = path.join(
+const downloadsDir = path.join(
   process.env.HOME || process.env.USERPROFILE || '.',
-  'Downloads/qwens/Qwen3.5-0.8B-Q4_K_M.gguf',
+  'Downloads',
 );
+const defaultModel = path.join(
+  downloadsDir,
+  'qwens/Qwen3.5-0.8B-Q4_K_M.gguf',
+);
+const defaultMmproj = path.join(
+  downloadsDir,
+  'qwens/Qwen3.5-0.8B-mmproj-F16.gguf',
+);
+const defaultImage = path.join(repoRoot, 'fllama_header.png');
+const defaultMultiImages = [
+  path.join(repoRoot, 'test/assets/test_apple.png'),
+  path.join(repoRoot, 'test/assets/test_orange.png'),
+];
 
 function argValue(name, fallback) {
   const prefix = `${name}=`;
@@ -116,8 +129,26 @@ async function overlayLegacyReeseAssets(ref) {
 }
 
 const modelPath = path.resolve(argValue('--model', process.env.FLLAMA_SMOKE_MODEL || defaultModel));
+const mmprojArg = argValue('--mmproj', process.env.FLLAMA_SMOKE_MMPROJ || '');
+const mmprojPath = mmprojArg ? path.resolve(mmprojArg === 'default' ? defaultMmproj : mmprojArg) : '';
+const imageArg = argValue('--image', process.env.FLLAMA_SMOKE_IMAGE || '');
+const imagesArg = argValue('--images', process.env.FLLAMA_SMOKE_IMAGES || '');
+const imagePaths = (() => {
+  if (imagesArg === 'default') return defaultMultiImages;
+  if (imagesArg) {
+    return imagesArg
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+      .map((value) => path.resolve(value));
+  }
+  if (imageArg) return [path.resolve(imageArg === 'default' ? defaultImage : imageArg)];
+  return [];
+})();
 const prompt = argValue('--prompt', process.env.FLLAMA_SMOKE_PROMPT || 'Write a long poem.');
 const maxTokens = Number(argValue('--max-tokens', process.env.FLLAMA_SMOKE_MAX_TOKENS || '100'));
+const temperature = Number(argValue('--temperature', process.env.FLLAMA_SMOKE_TEMPERATURE || '0.1'));
+const expectRegex = argValue('--expect-regex', process.env.FLLAMA_SMOKE_EXPECT_REGEX || '');
 const contextSize = Number(argValue('--ctx', process.env.FLLAMA_SMOKE_CTX || '4096'));
 const url = argValue('--url', process.env.FLLAMA_SMOKE_URL || 'http://localhost:8080');
 const shouldBuild = hasFlag('--build') || process.env.FLLAMA_SMOKE_BUILD === '1';
@@ -131,6 +162,20 @@ if (!existsSync(modelPath)) {
   console.error(`Model does not exist: ${modelPath}`);
   process.exit(2);
 }
+if (mmprojPath && !existsSync(mmprojPath)) {
+  console.error(`mmproj does not exist: ${mmprojPath}`);
+  process.exit(2);
+}
+for (const imagePath of imagePaths) {
+  if (!existsSync(imagePath)) {
+    console.error(`Image does not exist: ${imagePath}`);
+    process.exit(2);
+  }
+}
+if (imagePaths.length > 0 && !mmprojPath) {
+  console.error('Image smoke requires --mmproj=/path/to/mmproj.gguf or --mmproj=default.');
+  process.exit(2);
+}
 
 if (shouldBuild) {
   await run('flutter', ['build', 'web', '--debug'], { cwd: exampleDir });
@@ -138,6 +183,27 @@ if (shouldBuild) {
   console.error('example/build/web/index.html not found. Run with --build first, or run flutter build web --debug in example/.');
   process.exit(2);
 }
+
+function mimeTypeForImage(filePath) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    case '.png':
+    default:
+      return 'image/png';
+  }
+}
+
+const images = await Promise.all(imagePaths.map(async (imagePath) => ({
+  base64: (await readFile(imagePath)).toString('base64'),
+  mimeType: mimeTypeForImage(imagePath),
+  path: imagePath,
+})));
 
 await mkdir(outputDir, { recursive: true });
 
@@ -212,51 +278,65 @@ try {
   await page.waitForFunction(() => typeof window.fllamaChatWebJs === 'function', null, { timeout: 60000 });
   await page.waitForFunction(() => typeof window.fllamaWebPickModelJs === 'function', null, { timeout: 60000 });
 
-  let modelToken = '';
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const chooserPromise = page.waitForEvent('filechooser', { timeout: 10000 });
-      const pickPromise = page
-        .evaluate(() => window.fllamaWebPickModelJs())
-        .catch((error) => ({ __fllamaSmokeError: String(error?.message || error) }));
-      const chooser = await chooserPromise;
-      await chooser.setFiles(modelPath);
-      const picked = await pickPromise;
-      if (picked && typeof picked === 'object' && picked.__fllamaSmokeError) {
-        throw new Error(picked.__fllamaSmokeError);
+  async function pickLocalModelFile(filePath, label) {
+    let token = '';
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const chooserPromise = page.waitForEvent('filechooser', { timeout: 10000 });
+        const pickPromise = page
+          .evaluate(() => window.fllamaWebPickModelJs())
+          .catch((error) => ({ __fllamaSmokeError: String(error?.message || error) }));
+        const chooser = await chooserPromise;
+        await chooser.setFiles(filePath);
+        const picked = await pickPromise;
+        if (picked && typeof picked === 'object' && picked.__fllamaSmokeError) {
+          throw new Error(picked.__fllamaSmokeError);
+        }
+        token = picked;
+        break;
+      } catch (error) {
+        if (attempt === 3) throw error;
+        console.warn(`${label} picker attempt ${attempt} failed; retrying: ${error.message}`);
+        await page.waitForLoadState('load', { timeout: 60000 }).catch(() => {});
+        await page.waitForTimeout(1000);
       }
-      modelToken = picked;
-      break;
-    } catch (error) {
-      if (attempt === 3) throw error;
-      console.warn(`Model picker attempt ${attempt} failed; retrying: ${error.message}`);
-      await page.waitForLoadState('load', { timeout: 60000 }).catch(() => {});
-      await page.waitForTimeout(1000);
     }
+    if (!token || !String(token).startsWith('fllama-local-file://')) {
+      throw new Error(`Unexpected ${label} token: ${token}`);
+    }
+    console.log(`Picked ${label} token: ${token}`);
+    return token;
   }
-  if (!modelToken || !String(modelToken).startsWith('fllama-local-file://')) {
-    throw new Error(`Unexpected model token: ${modelToken}`);
-  }
-  console.log(`Picked model token: ${modelToken}`);
 
-  const result = await page.evaluate(async ({ modelPath, prompt, maxTokens, contextSize }) => {
-    const messages = [{ role: 'user', content: prompt }];
+  const modelToken = await pickLocalModelFile(modelPath, 'model');
+  const mmprojToken = mmprojPath ? await pickLocalModelFile(mmprojPath, 'mmproj') : null;
+
+  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images }) => {
+    const imageTags = images
+      .map((image) => `<img src="data:${image.mimeType};base64,${image.base64}">`)
+      .join('\n');
+    const content = images.length > 0
+      ? `${imageTags}\n\n${prompt}`
+      : prompt;
+    const messages = [{ role: 'user', content }];
+    const openAiRequestObject = {
+      messages,
+      tools: [],
+      temperature,
+      max_tokens: maxTokens,
+      top_p: 1,
+      frequency_penalty: 0,
+      presence_penalty: 1.1,
+    };
     const request = {
-      openAiRequestJsonString: JSON.stringify({
-        messages,
-        tools: [],
-        temperature: 0.1,
-        max_tokens: maxTokens,
-        top_p: 1,
-        frequency_penalty: 0,
-        presence_penalty: 1.1,
-      }),
+      openAiRequestJsonString: JSON.stringify(openAiRequestObject),
       messagesAsJsonString: JSON.stringify(messages),
       toolsAsJsonString: '[]',
       maxTokens,
       modelPath,
+      modelMmprojPath: mmprojPath || null,
       contextSize,
-      temperature: 0.1,
+      temperature,
       penaltyFrequency: 0,
       penaltyRepeat: 1.1,
       topP: 1,
@@ -266,6 +346,8 @@ try {
 
     const chunks = [];
     let finalText = '';
+    let finalContent = '';
+    let finalReasoning = '';
     let finalTimings = null;
     const startedAt = performance.now();
     const requestId = await window.fllamaChatWebJs(
@@ -280,6 +362,9 @@ try {
             const parsed = JSON.parse(json);
             const chunks = Array.isArray(parsed) ? parsed : [parsed];
             for (const chunk of chunks) {
+              const delta = chunk?.choices?.[0]?.delta || {};
+              if (typeof delta.content === 'string') finalContent += delta.content;
+              if (typeof delta.reasoning_content === 'string') finalReasoning += delta.reasoning_content;
               if (chunk?.timings) finalTimings = chunk.timings;
             }
           } catch (error) {
@@ -302,8 +387,11 @@ try {
       done,
       durationMs: performance.now() - startedAt,
       chunkCount: chunks.filter((chunk) => chunk.type === 'inference' && chunk.json).length,
+      finalText,
       finalTextLength: finalText.length,
       finalTextPrefix: finalText.slice(0, 500),
+      finalContent,
+      finalReasoningPrefix: finalReasoning.slice(0, 500),
       finalTimings,
       chunks,
       support: {
@@ -312,7 +400,7 @@ try {
         hardwareConcurrency: navigator.hardwareConcurrency,
       },
     };
-  }, { modelPath: modelToken, prompt, maxTokens, contextSize });
+  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images });
 
   await writeFile(path.join(outputDir, 'console.log'), logs.join('\n') + '\n');
   await writeFile(path.join(outputDir, 'result.json'), JSON.stringify(result, null, 2));
@@ -324,15 +412,26 @@ try {
     durationMs: result.durationMs,
     chunkCount: result.chunkCount,
     finalTextLength: result.finalTextLength,
+    finalContent: result.finalContent,
     finalTimings: result.finalTimings,
     runtime,
     legacyRef: runtime === 'legacy' || runtime === 'reese' || runtime === 'reeselevine' ? legacyRef : undefined,
+    hasMmproj: Boolean(mmprojToken),
+    prompt,
+    imageCount: imagePaths.length,
     support: result.support,
     outputDir,
   }, null, 2));
 
   if (!result.done) throw new Error('Inference did not complete before timeout');
   if (!result.finalTextLength) throw new Error('Inference completed with empty output');
+  if (expectRegex) {
+    const regex = new RegExp(expectRegex, 'i');
+    const textToCheck = result.finalContent || result.finalText || '';
+    if (!regex.test(textToCheck)) {
+      throw new Error(`Expected ${JSON.stringify(textToCheck)} to match /${expectRegex}/i`);
+    }
+  }
   if (result.finalTimings?.predicted_per_second && result.finalTimings.predicted_per_second < 20) {
     throw new Error(`Very slow inference: ${result.finalTimings.predicted_per_second} tok/s`);
   }

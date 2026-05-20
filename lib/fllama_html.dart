@@ -100,6 +100,7 @@ extension type _JSFllamaWebInferenceRequest._(JSObject _) implements JSObject {
     required String toolsAsJsonString,
     required int maxTokens,
     required String modelPath,
+    String? modelMmprojPath,
     required int contextSize,
     required double temperature,
     required double penaltyFrequency,
@@ -120,7 +121,9 @@ Future<bool> fllamaWebIsModelDownloaded(String modelPath) async {
 /// Pick a local GGUF in the browser and return an opaque modelPath token.
 ///
 /// The selected File stays in JavaScript memory and is passed directly to
-/// wllama. This avoids copying multi-GB GGUF bytes through Dart.
+/// wllama. This avoids copying multi-GB GGUF bytes through Dart. Browsers do
+/// not expose the full local filesystem path; the token may include the file
+/// name for display only.
 Future<String?> fllamaWebPickModel() async {
   final token = await fllamaWebPickModelJs().toDart.then((value) {
     return value.toDart;
@@ -158,6 +161,7 @@ Future<int> fllamaChatWeb(
     messagesAsJsonString: jsonEncode(messagesAsMaps),
     maxTokens: request.maxTokens,
     modelPath: request.modelPath,
+    modelMmprojPath: request.mmprojPath,
     contextSize: request.contextSize,
     temperature: request.temperature,
     penaltyFrequency: request.frequencyPenalty,

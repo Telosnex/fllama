@@ -3,8 +3,13 @@
   "type": "module",
   "scripts": {
     "smoke": "node fllama_web_smoke.mjs",
+    "smoke:suite": "node run_suite.mjs",
     "smoke:current": "node fllama_web_smoke.mjs --runtime=current",
-    "smoke:legacy": "node fllama_web_smoke.mjs --runtime=legacy"
+    "smoke:legacy": "node fllama_web_smoke.mjs --runtime=legacy",
+    "smoke:bare-hi": "node fllama_web_smoke.mjs --runtime=current --prompt=hi --max-tokens=100 --out=../../tmp/web_smoke_bare_hi",
+    "smoke:mmproj-hi": "node fllama_web_smoke.mjs --runtime=current --prompt=hi --max-tokens=100 --mmproj=default --out=../../tmp/web_smoke_mmproj_hi",
+    "smoke:image-title": "node fllama_web_smoke.mjs --runtime=current --prompt=\"Do not think. Respond with one word only, the title in the image.\" --temperature=0 --max-tokens=128 --mmproj=default --image=default --expect-regex=fll+ama --out=../../tmp/web_smoke_image_title",
+    "smoke:multiimage-title": "node fllama_web_smoke.mjs --runtime=current --prompt=\"Two images are attached. Respond with exactly the two words shown, in order, separated by one space.\" --temperature=0 --max-tokens=128 --mmproj=default --images=default --expect-regex=\"apple orange\" --out=../../tmp/web_smoke_multiimage_title"
   },
   "devDependencies": {
     "playwright": "^1.52.0"

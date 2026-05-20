@@ -33,37 +33,33 @@ require_grep() {
 
 require_file assets/web/fllama_web_init.js
 require_file assets/web/wllama/index.js
-require_file assets/web/wllama/jspi-single-thread/wllama.js
-require_file assets/web/wllama/jspi-single-thread/wllama.wasm
-require_file assets/web/wllama/asyncify-single-thread/wllama.js
-require_file assets/web/wllama/asyncify-single-thread/wllama.wasm
-require_file assets/web/wllama/asyncify-multi-thread/wllama.js
-require_file assets/web/wllama/asyncify-multi-thread/wllama.wasm
+require_file assets/web/wllama/wasm/wllama.js
+require_file assets/web/wllama/wasm/wllama.wasm
 
 require_absent example/web/fllama_web_init.js
 require_absent example/web/wllama
+require_absent assets/web/wllama/jspi-single-thread
+require_absent assets/web/wllama/asyncify-single-thread
+require_absent assets/web/wllama/asyncify-multi-thread
 
 require_grep 'assets/web/fllama_web_init\.js' pubspec.yaml
-require_grep 'assets/web/wllama/asyncify-multi-thread/' pubspec.yaml
+require_grep 'assets/web/wllama/wasm/' pubspec.yaml
 require_grep "import './assets/packages/fllama/assets/web/fllama_web_init\.js';" example/web/index.html
-require_grep 'f22c8021d-fast-webgpu' assets/web/fllama_web_init.js
+require_grep 'ngxson-v3-webgpu' assets/web/fllama_web_init.js
+require_grep 'default:' assets/web/fllama_web_init.js
 
-for wasm in \
-  assets/web/wllama/jspi-single-thread/wllama.wasm \
-  assets/web/wllama/asyncify-single-thread/wllama.wasm \
-  assets/web/wllama/asyncify-multi-thread/wllama.wasm; do
-  old_markers="$(count_markers "$wasm" 'WaitAny returned|Failed to submit commands')"
-  fast_markers="$(count_markers "$wasm" 'ggml_webgpu_flash_attn_decisions|parameter arena exhausted|event_synchronize timed out')"
-  echo "$wasm"
-  echo "  old slow markers: $old_markers"
-  echo "  fast markers:     $fast_markers"
-  [[ "$old_markers" == "0" ]] || fail "$wasm contains old slow WebGPU markers"
-  [[ "$fast_markers" != "0" ]] || fail "$wasm is missing fast WebGPU markers"
-done
+wasm="assets/web/wllama/wasm/wllama.wasm"
+old_markers="$(count_markers "$wasm" 'WaitAny returned|Failed to submit commands')"
+fast_markers="$(count_markers "$wasm" 'ggml_webgpu_flash_attn_decisions|parameter arena exhausted|event_synchronize timed out')"
+server_markers="$(count_markers "$wasm" 'server_context|server_task|chat_completion|cmpl_req')"
 
-poc_markers="$(count_markers assets/web/wllama/asyncify-multi-thread/wllama.wasm 'server_context_poc|server_context|mtmd')"
-echo "assets/web/wllama/asyncify-multi-thread/wllama.wasm"
-echo "  server-context markers: $poc_markers"
-[[ "$poc_markers" != "0" ]] || fail "asyncify multi-thread wasm is missing server-context POC markers"
+echo "$wasm"
+echo "  old slow markers:     $old_markers"
+echo "  fast markers:         $fast_markers"
+echo "  server/chat markers:  $server_markers"
+
+[[ "$old_markers" == "0" ]] || fail "$wasm contains old slow WebGPU markers"
+[[ "$fast_markers" != "0" ]] || fail "$wasm is missing fast WebGPU markers"
+[[ "$server_markers" != "0" ]] || fail "$wasm is missing server/chat markers"
 
 echo "✅ fllama web package assets look good"

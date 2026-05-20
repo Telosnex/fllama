@@ -33,6 +33,48 @@ HEADLESS=1 npm run smoke:current -- --max-tokens=100 --ctx=4096
 
 This overlays the current `assets/web/fllama_web_init.js` and `assets/web/wllama` into `example/build/web/assets/packages/fllama/assets/web` before serving the app.
 
+## Run the basic suite
+
+Run all basic smoke cases sequentially:
+
+```bash
+cd dev/web_smoke
+HEADLESS=1 npm run smoke:suite
+```
+
+Run a subset by id:
+
+```bash
+HEADLESS=1 npm run smoke:suite -- --only=bare_hi,image_title
+```
+
+Run individual cases directly if needed:
+
+```bash
+HEADLESS=1 npm run smoke:bare-hi
+HEADLESS=1 npm run smoke:mmproj-hi
+HEADLESS=1 npm run smoke:image-title
+HEADLESS=1 npm run smoke:multiimage-title
+```
+
+Cases:
+
+1. bare model asked to respond to `hi`
+2. bare model + bare mmproj asked to respond to `hi`
+3. model + mmproj + `fllama_header.png` image, prompted: `Do not think. Respond with one word only, the title in the image.` at temperature `0`; expects an OCR-like `FLLAMA` / `FLLLAMA` match
+4. model + mmproj + `test/assets/test_apple.png` and `test/assets/test_orange.png`, prompted to read both words in order; expects `apple ... orange`
+
+The mmproj/image scripts use these defaults:
+
+```text
+$HOME/Downloads/qwens/Qwen3.5-0.8B-mmproj-F16.gguf
+fllama_header.png
+test/assets/test_apple.png
+test/assets/test_orange.png
+```
+
+Override with `FLLAMA_SMOKE_MMPROJ=/path/to/mmproj.gguf` or `--mmproj=/path/to/mmproj.gguf`. Passing `--mmproj=default` uses the default mmproj path above. Override single-image input with `FLLAMA_SMOKE_IMAGE=/path/to/image.png` or `--image=/path/to/image.png`; `--image=default` uses `fllama_header.png`. Override multi-image input with comma-separated `FLLAMA_SMOKE_IMAGES=/path/a.png,/path/b.png` or `--images=/path/a.png,/path/b.png`; `--images=default` uses the apple/orange test assets.
+
 ## Compare against legacy packaged runtime
 
 ```bash
@@ -53,10 +95,15 @@ By default, outputs are written under:
 tmp/web_smoke_<runtime>/
 ```
 
-Files:
+Per-case files:
 
 - `console.log` — browser console/native llama.cpp logs
 - `result.json` — request result, timing chunks, support flags, and final text prefix
+
+Suite files:
+
+- `tmp/web_smoke_suite/summary.json` — full per-case results
+- `tmp/web_smoke_suite/summary.compact.json` — compact pass/timing summary
 
 Useful result fields:
 
