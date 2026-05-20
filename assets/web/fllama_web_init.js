@@ -1,6 +1,6 @@
-import { Wllama } from "./wllama/index.js?v=f22c8021d-fast-webgpu";
+import { Wllama } from "./wllama/index.js?v=ngxson-v3-webgpu";
 
-const WLLAMA_ASSET_VERSION = 'f22c8021d-fast-webgpu';
+const WLLAMA_ASSET_VERSION = 'ngxson-v3-webgpu';
 
 function versionedAsset(path) {
     const url = new URL(path, import.meta.url);
@@ -9,9 +9,7 @@ function versionedAsset(path) {
 }
 
 const WLLAMA_PATHS = {
-    'jspi/single-thread/wllama.wasm': versionedAsset('./wllama/jspi-single-thread/wllama.wasm'),
-    'asyncify/single-thread/wllama.wasm': versionedAsset('./wllama/asyncify-single-thread/wllama.wasm'),
-    'asyncify/multi-thread/wllama.wasm': versionedAsset('./wllama/asyncify-multi-thread/wllama.wasm'),
+    default: versionedAsset('./wllama/wasm/wllama.wasm'),
 };
 
 let nextRequestId = 0;
@@ -33,19 +31,70 @@ function enqueueServerRequest(kind, request, task) {
     return queuedTask;
 }
 
-function createWllama(backend = navigator.gpu ? 'webgpu' : 'cpu') {
+const fllamaWllamaLogger = {
+    debug: (...args) => console.debug(...args),
+    log: (...args) => console.log(...args),
+    // Upstream wllama forwards native stderr through warn(), which makes Chrome
+    // attach a huge stack trace to every llama.cpp line. Keep the lines visible
+    // but route them through info() so WebGPU/offload diagnostics are readable.
+    warn: (...args) => console.info(...args),
+    error: (...args) => console.error(...args),
+};
+
+function createWllama() {
     return new Wllama(WLLAMA_PATHS, {
-        backend,
         allowOffline: true,
-        suppressNativeLog: true,
+        // Keep llama.cpp/wllama load logs visible. They are the easiest way to
+        // confirm whether the browser runtime is using WebGPU, threads, and
+        // layer offload without dumping request payloads or per-token chunks.
+        suppressNativeLog: false,
+        logger: fllamaWllamaLogger,
     });
 }
 
-function modelKey(modelPath) {
-    return modelPath;
+function openAiRequestFromFllamaRequest(request) {
+    if (request.openAiRequestJsonString) {
+        return JSON.parse(request.openAiRequestJsonString);
+    }
+    const tools = JSON.parse(request.toolsAsJsonString || '[]');
+    const messages = JSON.parse(request.messagesAsJsonString || '[]');
+    return {
+        messages: messages.map((message) => ({
+            role: message.role || 'user',
+            content: typeof message.content === 'string'
+                ? message.content
+                : JSON.stringify(message.content),
+        })),
+        tools,
+        ...(tools.length > 0 ? { tool_choice: 'required' } : {}),
+        max_tokens: request.maxTokens,
+        temperature: request.temperature,
+        top_p: request.topP,
+        frequency_penalty: request.penaltyFrequency,
+        presence_penalty: request.penaltyRepeat,
+    };
 }
 
-function samplingFromRequest(request) {
+function chatTemplateFromRequest(request) {
+    try {
+        return openAiRequestFromFllamaRequest(request).jinja_template || undefined;
+    } catch (_) {
+        return undefined;
+    }
+}
+
+function modelKey(modelPath, request = {}) {
+    return JSON.stringify({
+        modelPath,
+        mmprojPath: request.modelMmprojPath || '',
+        chatTemplate: chatTemplateFromRequest(request) || '',
+        contextSize: request.contextSize || 4096,
+        numThreads: request.numThreads || 0,
+        numGpuLayers: requestGpuLayers(request),
+    });
+}
+
+function samplingFieldsFromRequest(request) {
     return {
         temp: request.temperature,
         top_p: request.topP,
@@ -54,40 +103,17 @@ function samplingFromRequest(request) {
     };
 }
 
-function messagesFromRequest(request) {
-    const rawMessages = JSON.parse(request.messagesAsJsonString || '[]');
-    return rawMessages.map((message) => ({
-        role: message.role || 'user',
-        content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
-    }));
-}
-
-function toolsFromRequest(request) {
-    return JSON.parse(request.toolsAsJsonString || '[]');
-}
-
-function openAiRequestFromFllamaRequest(request) {
-    if (request.openAiRequestJsonString) {
-        return JSON.parse(request.openAiRequestJsonString);
+function requestGpuLayers(request) {
+    if (!navigator.gpu) return 0;
+    if (typeof request.numGpuLayers === 'number' && request.numGpuLayers > 0) {
+        return request.numGpuLayers;
     }
-    const tools = toolsFromRequest(request);
-    return {
-        messages: messagesFromRequest(request),
-        tools,
-        ...(tools.length > 0 ? { tool_choice: 'required' } : {}),
-    };
+    return 99999;
 }
 
-async function loadServerModelIfNeeded(modelPath, request = {}, loadCallback = () => { }) {
-    if (!globalThis.crossOriginIsolated) {
-        throw new Error(
-            'fllama web requires cross-origin isolation so wllama can use SharedArrayBuffer/pthreads. ' +
-            'Run the example with `flutter run -d chrome --cross-origin-isolation`, or build and serve it with `node web/server.js`.'
-        );
-    }
-
-    const key = modelKey(modelPath);
-    if (serverWllama !== null && lastServerModelKey === key && serverWllama.isServerModelLoaded()) {
+async function loadModelIfNeeded(modelPath, request = {}, loadCallback = () => { }) {
+    const key = modelKey(modelPath, request);
+    if (serverWllama !== null && lastServerModelKey === key && serverWllama.isModelLoaded()) {
         loadCallback(1, 1);
         return serverWllama;
     }
@@ -96,7 +122,7 @@ async function loadServerModelIfNeeded(modelPath, request = {}, loadCallback = (
         try {
             await serverWllama.exit();
         } catch (error) {
-            console.warn('[fllama_web_init.js.loadServerModelIfNeeded] error unloading previous model:', error);
+            console.warn('[fllama_web_init.js.loadModelIfNeeded] error unloading previous model:', error);
         }
     }
 
@@ -104,45 +130,87 @@ async function loadServerModelIfNeeded(modelPath, request = {}, loadCallback = (
     serverWllama = createWllama();
 
     const loadConfig = {
+        // Upstream ngxson/wllama's src/types/types.ts defines
+        // `LogLevel.DEBUG = 1`. Keep DEBUG while validating the migration so
+        // llama.cpp prints WebGPU/layer-offload diagnostics.
+        log_level: 1,
         n_ctx: request.contextSize || 4096,
         n_threads: request.numThreads || Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4)),
+        n_gpu_layers: requestGpuLayers(request),
+        n_batch: 512,
+        offload_kqv: true,
+        flash_attn: true,
         useCache: true,
+        chat_template: chatTemplateFromRequest(request),
+        jinja: true,
         progressCallback: ({ loaded, total }) => {
             const progress = total > 0 ? loaded / total : 0;
             loadCallback(progress, 0);
         },
     };
 
-    async function doLoad(instance) {
+    async function doLoad(instance, config) {
+        console.info('[fllama_web_init.js] loading model ' + JSON.stringify({
+            modelPath,
+            hasMmproj: Boolean(request.modelMmprojPath),
+            hasWebGpu: Boolean(navigator.gpu),
+            crossOriginIsolated: Boolean(globalThis.crossOriginIsolated),
+            nCtx: config.n_ctx,
+            nThreads: config.n_threads,
+            nGpuLayers: config.n_gpu_layers,
+            nBatch: config.n_batch,
+            offloadKqv: config.offload_kqv,
+            flashAttn: config.flash_attn,
+            useCache: config.useCache,
+            hasChatTemplate: Boolean(config.chat_template),
+        }));
+
         const localFile = localModelFiles.get(modelPath);
         if (localFile) {
             loadCallback(1, 0);
-            await instance.loadServerModel([localFile], loadConfig);
+            await instance.loadModel([localFile], config);
         } else if (modelPath.startsWith('blob:')) {
             const blob = await fetch(modelPath).then((response) => response.blob());
             loadCallback(1, 0);
-            await instance.loadServerModel([blob], loadConfig);
+            await instance.loadModel([blob], config);
         } else {
-            await instance.loadServerModelFromUrl(modelPath, loadConfig);
+            const source = request.modelMmprojPath
+                ? { url: modelPath, mmprojUrl: request.modelMmprojPath }
+                : modelPath;
+            await instance.loadModelFromUrl(source, config);
         }
     }
 
-    console.log('[fllama_web_init.js.loadServerModelIfNeeded] loading server model', modelPath);
     try {
-        await doLoad(serverWllama);
+        await doLoad(serverWllama, loadConfig);
     } catch (error) {
-        if (navigator.gpu) {
-            console.warn('[fllama_web_init.js.loadServerModelIfNeeded] WebGPU load failed, retrying CPU:', error);
+        if (navigator.gpu && loadConfig.n_gpu_layers !== 0) {
+            console.warn('[fllama_web_init.js.loadModelIfNeeded] WebGPU load failed, retrying CPU:', error);
             try { await serverWllama.exit(); } catch (_) { }
-            serverWllama = createWllama('cpu');
-            await doLoad(serverWllama);
+            serverWllama = createWllama();
+            await doLoad(serverWllama, { ...loadConfig, n_gpu_layers: 0 });
         } else {
             throw error;
         }
     }
 
+    try {
+        const metadata = serverWllama.getModelMetadata?.();
+        console.info('[fllama_web_init.js] model loaded ' + JSON.stringify({
+            modelPath,
+            isSupportWebGPU: serverWllama.isSupportWebGPU?.(),
+            isMultithread: serverWllama.isMultithread?.(),
+            numThreads: serverWllama.getNumThreads?.(),
+            nLayer: metadata?.hparams?.n_layer,
+            nCtxTrain: metadata?.hparams?.n_ctx_train,
+            modelType: metadata?.metadata?.['general.type'],
+            architecture: metadata?.metadata?.['general.architecture'],
+        }));
+    } catch (error) {
+        console.warn('[fllama_web_init.js] unable to read loaded model info', error);
+    }
+
     loadCallback(1, 1);
-    console.log('[fllama_web_init.js.loadServerModelIfNeeded] server model loaded');
     return serverWllama;
 }
 
@@ -150,6 +218,11 @@ function textDeltaFromChunk(chunk) {
     const choice = chunk?.choices?.[0];
     const delta = choice?.delta || {};
     return delta.content || delta.reasoning_content || '';
+}
+
+function rawTextDeltaFromChunk(chunk) {
+    const choice = chunk?.choices?.[0];
+    return choice?.text || '';
 }
 
 function jsonPayloadFromParsedChunk(chunk) {
@@ -177,24 +250,31 @@ async function runCompletion(request, callback, abortController) {
             callback(lastText, '', true);
             return;
         }
-        const instance = await loadServerModelIfNeeded(request.modelPath, request);
+        const instance = await loadModelIfNeeded(request.modelPath, request);
         if (abortController.signal.aborted) {
             callback(lastText, '', true);
             return;
         }
-        const stream = await instance.createServerChatCompletionStream({
+        const stream = await instance.createChatCompletion({
             messages: [{ role: 'user', content: request.input || '' }],
-        }, {
+            stream: true,
             model: request.modelPath,
-            nPredict: request.maxTokens,
-            sampling: samplingFromRequest(request),
+            max_tokens: request.maxTokens,
+            temperature: request.temperature,
+            top_p: request.topP,
+            frequency_penalty: request.penaltyFrequency,
+            presence_penalty: request.penaltyRepeat,
+            ...samplingFieldsFromRequest(request),
+            abortSignal: abortController.signal,
         });
 
-        for await (const item of stream) {
+        for await (const chunk of stream) {
             if (abortController.signal.aborted) break;
-            lastText += textDeltaFromChunk(item.chunk);
-            const jsonPayload = jsonPayloadFromParsedChunk(item.chunk);
-            callback(lastText, jsonPayload, false);
+            lastText += textDeltaFromChunk(chunk) || rawTextDeltaFromChunk(chunk);
+            if (chunk?.timings) {
+                console.info('[fllama_web_init.js] completion timings ' + JSON.stringify(chunk.timings));
+            }
+            callback(lastText, jsonPayloadFromParsedChunk(chunk), false);
         }
         callback(lastText, '', true);
     } finally {
@@ -218,38 +298,37 @@ window.fllamaChatWebJs = fllamaChatWebJs;
 
 async function runChat(request, loadCallback, inferenceCallback, abortController) {
     let lastText = '';
-    let chunkCount = 0;
     try {
         if (abortController.signal.aborted) {
             inferenceCallback(lastText, '', true);
             return;
         }
-        const instance = await loadServerModelIfNeeded(request.modelPath, request, loadCallback);
+        const instance = await loadModelIfNeeded(request.modelPath, request, loadCallback);
         if (abortController.signal.aborted) {
             inferenceCallback(lastText, '', true);
             return;
         }
         const openAiRequest = openAiRequestFromFllamaRequest(request);
-        const stream = await instance.createServerChatCompletionStream(openAiRequest, {
+        const stream = await instance.createChatCompletion({
+            ...openAiRequest,
+            stream: true,
             model: request.modelPath,
-            jinjaTemplate: openAiRequest.jinja_template,
-            nPredict: request.maxTokens,
-            sampling: samplingFromRequest(request),
+            max_tokens: request.maxTokens ?? openAiRequest.max_tokens,
+            temperature: request.temperature ?? openAiRequest.temperature,
+            top_p: request.topP ?? openAiRequest.top_p,
+            frequency_penalty: request.penaltyFrequency ?? openAiRequest.frequency_penalty,
+            presence_penalty: request.penaltyRepeat ?? openAiRequest.presence_penalty,
+            ...samplingFieldsFromRequest(request),
+            abortSignal: abortController.signal,
         });
 
-        for await (const item of stream) {
-            if (abortController.signal.aborted) {
-                console.warn('[fllama_web_init.js.runChat] aborted before chunk callback', {
-                    requestId: request.requestId,
-                    chunkCount,
-                });
-                break;
+        for await (const chunk of stream) {
+            if (abortController.signal.aborted) break;
+            lastText += textDeltaFromChunk(chunk);
+            if (chunk?.timings) {
+                console.info('[fllama_web_init.js] chat timings ' + JSON.stringify(chunk.timings));
             }
-            chunkCount += 1;
-            const delta = textDeltaFromChunk(item.chunk);
-            const jsonPayload = jsonPayloadFromParsedChunk(item.chunk);
-            lastText += delta;
-            inferenceCallback(lastText, jsonPayload, false);
+            inferenceCallback(lastText, jsonPayloadFromParsedChunk(chunk), false);
         }
         inferenceCallback(lastText, '', true);
     } finally {
@@ -258,9 +337,8 @@ async function runChat(request, loadCallback, inferenceCallback, abortController
 }
 
 async function fllamaWebModelDeleteJs(modelPath) {
-    console.log('[fllama_web_init.js.fllamaWebModelDeleteJs] deleting model', modelPath);
     localModelFiles.delete(modelPath);
-    if (lastServerModelKey === modelKey(modelPath) && serverWllama !== null) {
+    if (lastServerModelKey.includes(modelPath) && serverWllama !== null) {
         try {
             await serverWllama.exit();
         } catch (error) {
@@ -321,8 +399,6 @@ async function fllamaWebPickModelJs() {
 window.fllamaWebPickModelJs = fllamaWebPickModelJs;
 
 async function fllamaTokenizeJs(_modelPath, input) {
-    // The web example's chat path uses llama.cpp server_context as the model owner.
-    // Tokenization is only used by the native example UI for throughput display.
     return Math.ceil((input || '').length / 4);
 }
 window.fllamaTokenizeJs = fllamaTokenizeJs;
@@ -343,7 +419,6 @@ async function fllamaEosTokenGetJs(_modelPath) {
 window.fllamaEosTokenGetJs = fllamaEosTokenGetJs;
 
 function fllamaCancelInferenceJs(requestId) {
-    console.log('[fllama_web_init.js.fllamaCancelInferenceJs] cancel inference called for request ID', requestId);
     const abortController = abortControllers.get(requestId);
     if (abortController) {
         abortController.abort();
