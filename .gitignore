@@ -27,3 +27,9 @@ build/
 # Example app caches
 example/.model_cache/
 example/android/app/.cxx/
+
+# Local smoke-test outputs/dependencies
+/dev/web_smoke/node_modules/
+/tmp/
+ios/Flutter/ephemeral/**
+macos/Flutter/ephemeral/**
