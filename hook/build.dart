@@ -113,6 +113,8 @@ void main(List<String> args) async {
     // analyze, or a platform that doesn't support code assets).
     if (!input.config.buildCodeAssets) return;
 
+    final hookStopwatch = Stopwatch()..start();
+
     final logger = Logger('')
       ..level = Level.ALL
       ..onRecord.listen((record) => stderr.writeln(record.message));
@@ -154,6 +156,7 @@ void main(List<String> args) async {
 
     // ── Fast path: cache hit ───────────────────────────────────────────
     if (await cachedLib.exists()) {
+      final cacheHitStopwatch = Stopwatch()..start();
       await _publishFromCache(
         cachedLib: cachedLib,
         outputDirectory: input.outputDirectory,
@@ -166,11 +169,17 @@ void main(List<String> args) async {
         libFileName: libFileName,
         logger: logger,
       );
+      logger.info(
+        'fllama hook completed from cache in '
+        '${_formatDuration(hookStopwatch.elapsed)} '
+        '(publish/register ${_formatDuration(cacheHitStopwatch.elapsed)})',
+      );
       return;
     }
 
     // ── Slow path: build under flock ───────────────────────────────────
     await cacheDir.create(recursive: true);
+    final lockAndBuildStopwatch = Stopwatch()..start();
     await _withExclusiveLock(
       File(p.join(cacheDir.path, '.build.lock')),
       () async {
@@ -206,6 +215,7 @@ void main(List<String> args) async {
           logger: logger,
         );
 
+        final cmakeStopwatch = Stopwatch()..start();
         final builder = CMakeBuilder.create(
           name: 'fllama',
           sourceDir: sourceDir,
@@ -220,6 +230,9 @@ void main(List<String> args) async {
           logger: logger,
         );
         await builder.run(input: input, output: output, logger: logger);
+        logger.info(
+          'CMake build finished in ${_formatDuration(cmakeStopwatch.elapsed)}',
+        );
 
         if (!await _normalizeBuiltLibraryIntoCache(
           cacheDir: cacheDir,
@@ -237,6 +250,12 @@ void main(List<String> args) async {
       logger: logger,
     );
 
+    logger.info(
+      'fllama cache miss resolved in '
+      '${_formatDuration(lockAndBuildStopwatch.elapsed)}',
+    );
+
+    final publishStopwatch = Stopwatch()..start();
     await _publishFromCache(
       cachedLib: cachedLib,
       outputDirectory: input.outputDirectory,
@@ -249,7 +268,29 @@ void main(List<String> args) async {
       libFileName: libFileName,
       logger: logger,
     );
+    logger.info(
+      'fllama hook completed after build in '
+      '${_formatDuration(hookStopwatch.elapsed)} '
+      '(publish/register ${_formatDuration(publishStopwatch.elapsed)})',
+    );
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//   duration formatting
+// ─────────────────────────────────────────────────────────────────────────
+
+String _formatDuration(Duration duration) {
+  final millis = duration.inMilliseconds;
+  if (millis < 1000) return '${millis}ms';
+  final seconds = duration.inSeconds;
+  final remainderMillis = millis - seconds * 1000;
+  if (seconds < 60) {
+    return '$seconds.${(remainderMillis ~/ 100).toString()}s';
+  }
+  final minutes = seconds ~/ 60;
+  final remainderSeconds = seconds % 60;
+  return '${minutes}m ${remainderSeconds}s';
 }
 
 // ─────────────────────────────────────────────────────────────────────────
