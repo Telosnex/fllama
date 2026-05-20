@@ -160,11 +160,8 @@ Commercial licenses are also available. Contact info@telosnex.com. Expect very f
 8. Commit. DO NOT PUSH.
 9. Copy checked out llama.cpp to src/llama.cpp. 
 10. Commit. Push. Watch codemagic, particularly for errors on Android/Windows/Linux.
-11. When codemagic is green, copy src/llama.cpp to wasm_build/build/llama.cpp.
-12. Read note at top of build-wasm.sh. (TL;DR: need emscripten sdk in env).
-13. Run build-wasm.sh.
-14. Rebuild the bundled web runtime under `assets/web/wllama` and verify the marker check still shows the fast WebGPU backend.
-15. Test using instructions below, then commit and push.
+11. Rebuild the bundled web runtime under `assets/web/wllama` using the wllama process documented in `docs/RUNBOOK_WEB_RUNTIME.md`.
+12. Test using instructions below, then commit and push.
 - Note: Drop usually requires restoring build-info.cpp for macOS and iOS. It's a stock set of values with ex. git commit. That should be updated. Other than that you can leave it alone.
 
 # Web development
