@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node fllama_web_smoke.mjs",
+    "smoke:current": "node fllama_web_smoke.mjs --runtime=current",
+    "smoke:legacy": "node fllama_web_smoke.mjs --runtime=legacy"
+  },
+  "devDependencies": {
+    "playwright": "^1.52.0"
+  }
+}
