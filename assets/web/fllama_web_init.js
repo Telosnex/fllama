@@ -16,10 +16,26 @@ let nextRequestId = 0;
 let serverWllama = null;
 let lastServerModelKey = '';
 let serverRequestQueue = Promise.resolve();
+let serverModelLoadQueue = Promise.resolve();
+let serverModelLoadPromise = null;
+let serverModelLoadKey = '';
 const abortControllers = new Map();
 const localModelFiles = new Map();
 
+// 26-05-20: Temporarily bypass the JS-side request Promise queue. Upstream
+// wllama/llama.cpp server code may now handle multiple in-flight requests via
+// continuous batching, so test direct concurrent createChatCompletion calls.
+const DISABLE_SERVER_REQUEST_QUEUE = true;
+
 function enqueueServerRequest(kind, request, task) {
+    if (DISABLE_SERVER_REQUEST_QUEUE) {
+        console.info('[fllama_web_init.js.enqueueServerRequest] queue disabled; starting request immediately', {
+            kind,
+            requestId: request.requestId,
+        });
+        return task();
+    }
+
     const queuedTask = serverRequestQueue.catch(() => { }).then(task);
     serverRequestQueue = queuedTask.catch((error) => {
         console.error('[fllama_web_init.js.enqueueServerRequest] queued request failed', {
@@ -174,6 +190,56 @@ async function loadModelIfNeeded(modelPath, request = {}, loadCallback = () => {
         return serverWllama;
     }
 
+    if (serverModelLoadPromise !== null && serverModelLoadKey === key) {
+        console.info('[fllama_web_init.js.loadModelIfNeeded] waiting for in-flight model load ' + JSON.stringify({
+            modelPath,
+            requestId: request.requestId,
+        }));
+        const instance = await serverModelLoadPromise;
+        loadCallback(1, 1);
+        return instance;
+    }
+
+    const loadTask = async () => {
+        const currentKey = modelKey(modelPath, request);
+        if (serverWllama !== null && lastServerModelKey === currentKey && serverWllama.isModelLoaded()) {
+            loadCallback(1, 1);
+            return serverWllama;
+        }
+        console.info('[fllama_web_init.js.loadModelIfNeeded] starting serialized model load ' + JSON.stringify({
+            modelPath,
+            requestId: request.requestId,
+        }));
+        return loadModelIfNeededUnlocked(modelPath, request, loadCallback);
+    };
+
+    serverModelLoadKey = key;
+    serverModelLoadPromise = serverModelLoadQueue.catch(() => { }).then(loadTask);
+    serverModelLoadQueue = serverModelLoadPromise.catch((error) => {
+        console.error('[fllama_web_init.js.loadModelIfNeeded] serialized model load failed', {
+            modelPath,
+            requestId: request.requestId,
+            error,
+        });
+    });
+
+    try {
+        return await serverModelLoadPromise;
+    } finally {
+        if (serverModelLoadPromise !== null && serverModelLoadKey === key) {
+            serverModelLoadPromise = null;
+            serverModelLoadKey = '';
+        }
+    }
+}
+
+async function loadModelIfNeededUnlocked(modelPath, request = {}, loadCallback = () => { }) {
+    const key = modelKey(modelPath, request);
+    if (serverWllama !== null && lastServerModelKey === key && serverWllama.isModelLoaded()) {
+        loadCallback(1, 1);
+        return serverWllama;
+    }
+
     if (serverWllama !== null) {
         try {
             await serverWllama.exit();
@@ -194,6 +260,7 @@ async function loadModelIfNeeded(modelPath, request = {}, loadCallback = () => {
         n_threads: request.numThreads || Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4)),
         n_gpu_layers: requestGpuLayers(request),
         n_batch: 512,
+        n_parallel: request.nParallel || 1,
         offload_kqv: true,
         flash_attn: true,
         useCache: true,
@@ -215,6 +282,7 @@ async function loadModelIfNeeded(modelPath, request = {}, loadCallback = () => {
             nThreads: config.n_threads,
             nGpuLayers: config.n_gpu_layers,
             nBatch: config.n_batch,
+            nParallel: config.n_parallel,
             offloadKqv: config.offload_kqv,
             flashAttn: config.flash_attn,
             useCache: config.useCache,

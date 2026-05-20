@@ -84,6 +84,15 @@ const tests = [
     args: ['--prompt=hi', '--max-tokens=100'],
   },
   {
+    id: 'concurrent_hi',
+    description: 'two simultaneous bare-model requests; result records delta interleaving',
+    args: [
+      '--prompt=Respond with a short friendly greeting.',
+      '--max-tokens=100',
+      '--concurrent=2',
+    ],
+  },
+  {
     id: 'mmproj_hi',
     description: 'bare model + mmproj asked to respond to hi',
     args: ['--prompt=hi', '--max-tokens=100', '--mmproj=default'],

@@ -150,6 +150,7 @@ const maxTokens = Number(argValue('--max-tokens', process.env.FLLAMA_SMOKE_MAX_T
 const temperature = Number(argValue('--temperature', process.env.FLLAMA_SMOKE_TEMPERATURE || '0.1'));
 const expectRegex = argValue('--expect-regex', process.env.FLLAMA_SMOKE_EXPECT_REGEX || '');
 const contextSize = Number(argValue('--ctx', process.env.FLLAMA_SMOKE_CTX || '4096'));
+const concurrentRequests = Number(argValue('--concurrent', process.env.FLLAMA_SMOKE_CONCURRENT || '1'));
 const url = argValue('--url', process.env.FLLAMA_SMOKE_URL || 'http://localhost:8080');
 const shouldBuild = hasFlag('--build') || process.env.FLLAMA_SMOKE_BUILD === '1';
 const headless = process.env.HEADLESS !== '0';
@@ -174,6 +175,10 @@ for (const imagePath of imagePaths) {
 }
 if (imagePaths.length > 0 && !mmprojPath) {
   console.error('Image smoke requires --mmproj=/path/to/mmproj.gguf or --mmproj=default.');
+  process.exit(2);
+}
+if (!Number.isInteger(concurrentRequests) || concurrentRequests < 1) {
+  console.error(`--concurrent must be a positive integer, got: ${concurrentRequests}`);
   process.exit(2);
 }
 
@@ -311,7 +316,7 @@ try {
   const modelToken = await pickLocalModelFile(modelPath, 'model');
   const mmprojToken = mmprojPath ? await pickLocalModelFile(mmprojPath, 'mmproj') : null;
 
-  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images }) => {
+  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images, concurrentRequests }) => {
     const imageTags = images
       .map((image) => `<img src="data:${image.mimeType};base64,${image.base64}">`)
       .join('\n');
@@ -342,6 +347,7 @@ try {
       topP: 1,
       numThreads: Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4)),
       numGpuLayers: 99999,
+      nParallel: concurrentRequests,
     };
 
     const chunks = [];
@@ -350,6 +356,112 @@ try {
     let finalReasoning = '';
     let finalTimings = null;
     const startedAt = performance.now();
+    if (concurrentRequests > 1) {
+      const events = [];
+      const runOne = async (index) => {
+        const localStartedAt = performance.now();
+        const localRequest = {
+          ...request,
+          openAiRequestJsonString: JSON.stringify({
+            ...openAiRequestObject,
+            messages: [{ role: 'user', content: `${content}\n\nRequest index: ${index}.` }],
+          }),
+          messagesAsJsonString: JSON.stringify([{ role: 'user', content: `${content}\n\nRequest index: ${index}.` }]),
+        };
+        const localChunks = [];
+        let localFinalText = '';
+        let localFinalContent = '';
+        let localFinalTimings = null;
+        const requestId = await window.fllamaChatWebJs(
+          localRequest,
+          (downloadProgress, loadProgress) => {
+            const event = { requestIndex: index, type: 'load', downloadProgress, loadProgress, atMs: performance.now() - startedAt };
+            localChunks.push(event);
+            events.push(event);
+          },
+          (text, json, done) => {
+            localFinalText = text || localFinalText;
+            if (json) {
+              try {
+                const parsed = JSON.parse(json);
+                const parsedChunks = Array.isArray(parsed) ? parsed : [parsed];
+                for (const chunk of parsedChunks) {
+                  const delta = chunk?.choices?.[0]?.delta || {};
+                  if (typeof delta.content === 'string') localFinalContent += delta.content;
+                  if (typeof chunk?.choices?.[0]?.message?.content === 'string') {
+                    localFinalContent += chunk.choices[0].message.content;
+                  }
+                  if (typeof chunk?.choices?.[0]?.message?.reasoning_content === 'string') {
+                    localFinalContent += chunk.choices[0].message.reasoning_content;
+                  }
+                  if (chunk?.timings) localFinalTimings = chunk.timings;
+                }
+              } catch (error) {
+                const event = { requestIndex: index, type: 'json-parse-error', json, error: String(error), atMs: performance.now() - startedAt };
+                localChunks.push(event);
+                events.push(event);
+              }
+            }
+            const event = { requestIndex: index, requestId, type: 'inference', done, json, textLength: (text || '').length, atMs: performance.now() - startedAt };
+            localChunks.push(event);
+            events.push(event);
+          },
+        );
+
+        const deadline = performance.now() + 180000;
+        while (performance.now() < deadline) {
+          if (localChunks.some((chunk) => chunk.type === 'inference' && chunk.done)) break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return {
+          requestIndex: index,
+          requestId,
+          done: localChunks.some((chunk) => chunk.type === 'inference' && chunk.done),
+          durationMs: performance.now() - localStartedAt,
+          chunkCount: localChunks.filter((chunk) => chunk.type === 'inference' && chunk.json).length,
+          finalText: localFinalText,
+          finalTextLength: localFinalText.length,
+          finalTextPrefix: localFinalText.slice(0, 500),
+          finalContent: localFinalContent,
+          finalTimings: localFinalTimings,
+          chunks: localChunks,
+        };
+      };
+
+      const requests = await Promise.all(Array.from({ length: concurrentRequests }, (_, index) => runOne(index)));
+      const inferenceEvents = events
+        .filter((event) => event.type === 'inference' && event.json && !event.done)
+        .sort((a, b) => a.atMs - b.atMs);
+      let interleavingTransitions = 0;
+      for (let i = 1; i < inferenceEvents.length; i += 1) {
+        if (inferenceEvents[i].requestIndex !== inferenceEvents[i - 1].requestIndex) {
+          interleavingTransitions += 1;
+        }
+      }
+      return {
+        concurrent: true,
+        concurrentRequests,
+        done: requests.every((item) => item.done),
+        durationMs: performance.now() - startedAt,
+        requestId: requests.map((item) => item.requestId).join(','),
+        requestIds: requests.map((item) => item.requestId),
+        finalTextLength: requests.reduce((sum, item) => sum + item.finalTextLength, 0),
+        finalTextPrefix: requests.map((item) => `[${item.requestIndex}] ${item.finalTextPrefix}`).join('\n'),
+        finalContent: requests.map((item) => item.finalContent).join('\n'),
+        finalTimings: requests[requests.length - 1]?.finalTimings ?? null,
+        chunkCount: inferenceEvents.length,
+        interleavingTransitions,
+        eventOrder: inferenceEvents.map((event) => event.requestIndex),
+        requests,
+        chunks: events.sort((a, b) => a.atMs - b.atMs),
+        support: {
+          hasWebGpu: Boolean(navigator.gpu),
+          crossOriginIsolated: Boolean(globalThis.crossOriginIsolated),
+          hardwareConcurrency: navigator.hardwareConcurrency,
+        },
+      };
+    }
+
     const requestId = await window.fllamaChatWebJs(
       request,
       (downloadProgress, loadProgress) => {
@@ -360,11 +472,17 @@ try {
         if (json) {
           try {
             const parsed = JSON.parse(json);
-            const chunks = Array.isArray(parsed) ? parsed : [parsed];
-            for (const chunk of chunks) {
+            const parsedChunks = Array.isArray(parsed) ? parsed : [parsed];
+            for (const chunk of parsedChunks) {
               const delta = chunk?.choices?.[0]?.delta || {};
               if (typeof delta.content === 'string') finalContent += delta.content;
               if (typeof delta.reasoning_content === 'string') finalReasoning += delta.reasoning_content;
+              if (typeof chunk?.choices?.[0]?.message?.content === 'string') {
+                finalContent += chunk.choices[0].message.content;
+              }
+              if (typeof chunk?.choices?.[0]?.message?.reasoning_content === 'string') {
+                finalContent += chunk.choices[0].message.reasoning_content;
+              }
               if (chunk?.timings) finalTimings = chunk.timings;
             }
           } catch (error) {
@@ -400,7 +518,7 @@ try {
         hardwareConcurrency: navigator.hardwareConcurrency,
       },
     };
-  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images });
+  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images, concurrentRequests });
 
   await writeFile(path.join(outputDir, 'console.log'), logs.join('\n') + '\n');
   await writeFile(path.join(outputDir, 'result.json'), JSON.stringify(result, null, 2));
@@ -433,7 +551,15 @@ try {
     }
   }
   if (result.finalTimings?.predicted_per_second && result.finalTimings.predicted_per_second < 20) {
-    throw new Error(`Very slow inference: ${result.finalTimings.predicted_per_second} tok/s`);
+    const aggregateTokensPerSecond = result.concurrent
+      ? result.finalTimings.predicted_per_second * (result.concurrentRequests || 1)
+      : result.finalTimings.predicted_per_second;
+    if (aggregateTokensPerSecond < 20) {
+      throw new Error(
+        `Very slow inference: ${result.finalTimings.predicted_per_second} tok/s` +
+        (result.concurrent ? ` (${aggregateTokensPerSecond} aggregate tok/s)` : '')
+      );
+    }
   }
 } finally {
   if (browser) await browser.close();
