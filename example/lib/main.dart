@@ -53,7 +53,7 @@ class _MyAppState extends State<MyApp> {
   final TextEditingController _controller = TextEditingController();
   var _temperature = 0.5;
   var _topP = 1.0;
-  int _maxTokens = 2000;
+  int _maxTokens = 100;
 
   String latestResultString = '';
   String latestResultJson = '';
@@ -685,9 +685,9 @@ class _MyAppState extends State<MyApp> {
       // will repeat the same token.
       presencePenalty: 1.1,
       topP: _topP,
-      // 22.9s for 249 input tokens with 20K context for SmolLM3.
-      // 22.9s for 249 input tokens with 4K context for SmolLM3.
-      contextSize: 16000,
+      // Keep the browser default modest. Large contexts reserve substantially
+      // more WebGPU KV/compute memory and are rarely needed for the example.
+      contextSize: kIsWeb ? 4096 : 16000,
       // Don't use 0.0, some models will repeat
       // the same token.
       temperature: _temperature,
