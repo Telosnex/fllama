@@ -1,6 +1,6 @@
-import { Wllama } from "./wllama/index.js?v=ngxson-v3-webgpu";
+import { Wllama } from "./wllama/index.js?v=ngxson-v4-parallel-web";
 
-const WLLAMA_ASSET_VERSION = 'ngxson-v3-webgpu';
+const WLLAMA_ASSET_VERSION = 'ngxson-v4-parallel-web';
 
 function versionedAsset(path) {
     const url = new URL(path, import.meta.url);
