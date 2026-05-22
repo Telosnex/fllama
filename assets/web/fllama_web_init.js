@@ -12,6 +12,10 @@ const WLLAMA_PATHS = {
     default: versionedAsset('./wllama/wasm/wllama.wasm'),
 };
 
+// Keep web default aligned with native fllama's
+// ServerManager::DEFAULT_N_PARALLEL. Callers can override per request.
+const DEFAULT_N_PARALLEL = 4;
+
 let nextRequestId = 0;
 let serverWllama = null;
 let lastServerModelKey = '';
@@ -155,12 +159,20 @@ function chatTemplateFromRequest(request) {
     }
 }
 
+function requestNParallel(request = {}) {
+    if (typeof request.nParallel === 'number' && request.nParallel > 0) {
+        return Math.floor(request.nParallel);
+    }
+    return DEFAULT_N_PARALLEL;
+}
+
 function modelKey(modelPath, request = {}) {
     return JSON.stringify({
         modelPath,
         mmprojPath: request.modelMmprojPath || '',
         chatTemplate: chatTemplateFromRequest(request) || '',
         contextSize: request.contextSize || 4096,
+        nParallel: requestNParallel(request),
         numThreads: request.numThreads || 0,
         numGpuLayers: requestGpuLayers(request),
     });
@@ -260,7 +272,7 @@ async function loadModelIfNeededUnlocked(modelPath, request = {}, loadCallback =
         n_threads: request.numThreads || Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4)),
         n_gpu_layers: requestGpuLayers(request),
         n_batch: 512,
-        n_parallel: request.nParallel || 1,
+        n_parallel: requestNParallel(request),
         offload_kqv: true,
         flash_attn: true,
         useCache: true,

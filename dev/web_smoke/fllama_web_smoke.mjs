@@ -151,6 +151,8 @@ const temperature = Number(argValue('--temperature', process.env.FLLAMA_SMOKE_TE
 const expectRegex = argValue('--expect-regex', process.env.FLLAMA_SMOKE_EXPECT_REGEX || '');
 const contextSize = Number(argValue('--ctx', process.env.FLLAMA_SMOKE_CTX || '4096'));
 const concurrentRequests = Number(argValue('--concurrent', process.env.FLLAMA_SMOKE_CONCURRENT || '1'));
+const nParallelArg = argValue('--n-parallel', process.env.FLLAMA_SMOKE_N_PARALLEL || '');
+const nParallel = nParallelArg === '' ? null : Number(nParallelArg);
 const url = argValue('--url', process.env.FLLAMA_SMOKE_URL || 'http://localhost:8080');
 const shouldBuild = hasFlag('--build') || process.env.FLLAMA_SMOKE_BUILD === '1';
 const headless = process.env.HEADLESS !== '0';
@@ -179,6 +181,10 @@ if (imagePaths.length > 0 && !mmprojPath) {
 }
 if (!Number.isInteger(concurrentRequests) || concurrentRequests < 1) {
   console.error(`--concurrent must be a positive integer, got: ${concurrentRequests}`);
+  process.exit(2);
+}
+if (nParallel !== null && (!Number.isInteger(nParallel) || nParallel < 1)) {
+  console.error(`--n-parallel must be a positive integer when provided, got: ${nParallelArg}`);
   process.exit(2);
 }
 
@@ -316,7 +322,7 @@ try {
   const modelToken = await pickLocalModelFile(modelPath, 'model');
   const mmprojToken = mmprojPath ? await pickLocalModelFile(mmprojPath, 'mmproj') : null;
 
-  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images, concurrentRequests }) => {
+  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel }) => {
     const imageTags = images
       .map((image) => `<img src="data:${image.mimeType};base64,${image.base64}">`)
       .join('\n');
@@ -347,7 +353,7 @@ try {
       topP: 1,
       numThreads: Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4)),
       numGpuLayers: 99999,
-      nParallel: concurrentRequests,
+      ...(nParallel === null ? {} : { nParallel }),
     };
 
     const chunks = [];
@@ -518,7 +524,7 @@ try {
         hardwareConcurrency: navigator.hardwareConcurrency,
       },
     };
-  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images, concurrentRequests });
+  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel });
 
   await writeFile(path.join(outputDir, 'console.log'), logs.join('\n') + '\n');
   await writeFile(path.join(outputDir, 'result.json'), JSON.stringify(result, null, 2));
@@ -537,12 +543,16 @@ try {
     hasMmproj: Boolean(mmprojToken),
     prompt,
     imageCount: imagePaths.length,
+    nParallel,
     support: result.support,
     outputDir,
   }, null, 2));
 
   if (!result.done) throw new Error('Inference did not complete before timeout');
   if (!result.finalTextLength) throw new Error('Inference completed with empty output');
+  if (result.concurrent && result.concurrentRequests > 1 && result.interleavingTransitions <= 0) {
+    throw new Error('Concurrent inference completed without interleaved deltas');
+  }
   if (expectRegex) {
     const regex = new RegExp(expectRegex, 'i');
     const textToCheck = result.finalContent || result.finalText || '';
