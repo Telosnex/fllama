@@ -85,6 +85,7 @@ class OpenAiRequest {
   final String? mmprojPath;
   final int numGpuLayers;
   final int contextSize;
+  final int? nParallel;
   final String? jinjaTemplate;
   final Function(String)? logger;
   final ToolChoice? toolChoice;
@@ -156,6 +157,10 @@ class OpenAiRequest {
     // 4096, today it has 16384. 1000 tokens ~= 3 pages ~= 750 words ~= 3
     // minutes reading time.
     this.contextSize = 2048,
+    // Optional web-only override for llama.cpp n_parallel. Native fllama sets
+    // its own default internally. When null, web uses the native-aligned
+    // fllama_web_init.js default.
+    this.nParallel,
     // Optional logger.
     this.logger,
     this.jinjaTemplate,
