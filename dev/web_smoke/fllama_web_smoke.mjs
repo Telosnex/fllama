@@ -153,6 +153,7 @@ const contextSize = Number(argValue('--ctx', process.env.FLLAMA_SMOKE_CTX || '40
 const concurrentRequests = Number(argValue('--concurrent', process.env.FLLAMA_SMOKE_CONCURRENT || '1'));
 const nParallelArg = argValue('--n-parallel', process.env.FLLAMA_SMOKE_N_PARALLEL || '');
 const nParallel = nParallelArg === '' ? null : Number(nParallelArg);
+const mixedJinja = hasFlag('--mixed-jinja') || process.env.FLLAMA_SMOKE_MIXED_JINJA === '1';
 const url = argValue('--url', process.env.FLLAMA_SMOKE_URL || 'http://localhost:8080');
 const shouldBuild = hasFlag('--build') || process.env.FLLAMA_SMOKE_BUILD === '1';
 const headless = process.env.HEADLESS !== '0';
@@ -322,7 +323,7 @@ try {
   const modelToken = await pickLocalModelFile(modelPath, 'model');
   const mmprojToken = mmprojPath ? await pickLocalModelFile(mmprojPath, 'mmproj') : null;
 
-  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel }) => {
+  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, mixedJinja }) => {
     const imageTags = images
       .map((image) => `<img src="data:${image.mimeType};base64,${image.base64}">`)
       .join('\n');
@@ -366,12 +367,14 @@ try {
       const events = [];
       const runOne = async (index) => {
         const localStartedAt = performance.now();
+        const localOpenAiRequestObject = {
+          ...openAiRequestObject,
+          messages: [{ role: 'user', content: `${content}\n\nRequest index: ${index}.` }],
+          ...(mixedJinja && index === 0 ? { jinja_template: 'chatml' } : {}),
+        };
         const localRequest = {
           ...request,
-          openAiRequestJsonString: JSON.stringify({
-            ...openAiRequestObject,
-            messages: [{ role: 'user', content: `${content}\n\nRequest index: ${index}.` }],
-          }),
+          openAiRequestJsonString: JSON.stringify(localOpenAiRequestObject),
           messagesAsJsonString: JSON.stringify([{ role: 'user', content: `${content}\n\nRequest index: ${index}.` }]),
         };
         const localChunks = [];
@@ -460,6 +463,7 @@ try {
         eventOrder: inferenceEvents.map((event) => event.requestIndex),
         requests,
         chunks: events.sort((a, b) => a.atMs - b.atMs),
+        mixedJinja,
         support: {
           hasWebGpu: Boolean(navigator.gpu),
           crossOriginIsolated: Boolean(globalThis.crossOriginIsolated),
@@ -524,7 +528,7 @@ try {
         hardwareConcurrency: navigator.hardwareConcurrency,
       },
     };
-  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel });
+  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, mixedJinja });
 
   await writeFile(path.join(outputDir, 'console.log'), logs.join('\n') + '\n');
   await writeFile(path.join(outputDir, 'result.json'), JSON.stringify(result, null, 2));
@@ -544,6 +548,7 @@ try {
     prompt,
     imageCount: imagePaths.length,
     nParallel,
+    mixedJinja,
     support: result.support,
     outputDir,
   }, null, 2));

@@ -1,6 +1,6 @@
-import { Wllama } from "./wllama/index.js?v=ngxson-v4-parallel-web";
+import { Wllama } from "./wllama/index.js?v=ngxson-v5-request-jinja";
 
-const WLLAMA_ASSET_VERSION = 'ngxson-v4-parallel-web';
+const WLLAMA_ASSET_VERSION = 'ngxson-v5-request-jinja';
 
 function versionedAsset(path) {
     const url = new URL(path, import.meta.url);
@@ -23,6 +23,10 @@ let serverRequestQueue = Promise.resolve();
 let serverModelLoadQueue = Promise.resolve();
 let serverModelLoadPromise = null;
 let serverModelLoadKey = '';
+let activeServerRequestCount = 0;
+let activeServerRequestKey = '';
+let activeServerRequestZeroResolvers = [];
+let serverKeySwitchQueue = Promise.resolve();
 const abortControllers = new Map();
 const localModelFiles = new Map();
 
@@ -31,16 +35,68 @@ const localModelFiles = new Map();
 // continuous batching, so test direct concurrent createChatCompletion calls.
 const DISABLE_SERVER_REQUEST_QUEUE = true;
 
+function waitForNoActiveServerRequests() {
+    if (activeServerRequestCount === 0) return Promise.resolve();
+    return new Promise((resolve) => activeServerRequestZeroResolvers.push(resolve));
+}
+
+function noteServerRequestFinished() {
+    activeServerRequestCount = Math.max(0, activeServerRequestCount - 1);
+    if (activeServerRequestCount === 0) {
+        activeServerRequestKey = '';
+        const resolvers = activeServerRequestZeroResolvers;
+        activeServerRequestZeroResolvers = [];
+        for (const resolve of resolvers) resolve();
+    }
+}
+
 function enqueueServerRequest(kind, request, task) {
+    const key = request?.modelPath ? modelKey(request.modelPath, request) : '';
+    const runTask = async () => {
+        if (key) {
+            activeServerRequestKey = key;
+            activeServerRequestCount += 1;
+        }
+        try {
+            return await task();
+        } finally {
+            if (key) noteServerRequestFinished();
+        }
+    };
+
     if (DISABLE_SERVER_REQUEST_QUEUE) {
+        if (key && activeServerRequestCount > 0 && activeServerRequestKey !== key) {
+            console.info('[fllama_web_init.js.enqueueServerRequest] waiting for active request before model-key switch', {
+                kind,
+                requestId: request.requestId,
+                activeServerRequestCount,
+            });
+            const queuedSwitchTask = serverKeySwitchQueue.catch(() => { }).then(async () => {
+                await waitForNoActiveServerRequests();
+                console.info('[fllama_web_init.js.enqueueServerRequest] model-key switch unblocked; starting request', {
+                    kind,
+                    requestId: request.requestId,
+                });
+                return runTask();
+            });
+            serverKeySwitchQueue = queuedSwitchTask.catch((error) => {
+                console.error('[fllama_web_init.js.enqueueServerRequest] model-key switch request failed', {
+                    kind,
+                    requestId: request.requestId,
+                    error,
+                });
+            });
+            return queuedSwitchTask;
+        }
+
         console.info('[fllama_web_init.js.enqueueServerRequest] queue disabled; starting request immediately', {
             kind,
             requestId: request.requestId,
         });
-        return task();
+        return runTask();
     }
 
-    const queuedTask = serverRequestQueue.catch(() => { }).then(task);
+    const queuedTask = serverRequestQueue.catch(() => { }).then(runTask);
     serverRequestQueue = queuedTask.catch((error) => {
         console.error('[fllama_web_init.js.enqueueServerRequest] queued request failed', {
             kind,
@@ -170,7 +226,6 @@ function modelKey(modelPath, request = {}) {
     return JSON.stringify({
         modelPath,
         mmprojPath: request.modelMmprojPath || '',
-        chatTemplate: chatTemplateFromRequest(request) || '',
         contextSize: request.contextSize || 4096,
         nParallel: requestNParallel(request),
         numThreads: request.numThreads || 0,
@@ -276,7 +331,6 @@ async function loadModelIfNeededUnlocked(modelPath, request = {}, loadCallback =
         offload_kqv: true,
         flash_attn: true,
         useCache: true,
-        chat_template: chatTemplateFromRequest(request),
         jinja: true,
         progressCallback: ({ loaded, total }) => {
             const progress = total > 0 ? loaded / total : 0;
@@ -298,7 +352,6 @@ async function loadModelIfNeededUnlocked(modelPath, request = {}, loadCallback =
             offloadKqv: config.offload_kqv,
             flashAttn: config.flash_attn,
             useCache: config.useCache,
-            hasChatTemplate: Boolean(config.chat_template),
         }));
 
         const localFile = localModelFiles.get(modelPath);

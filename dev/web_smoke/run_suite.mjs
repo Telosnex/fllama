@@ -93,6 +93,16 @@ const tests = [
     ],
   },
   {
+    id: 'concurrent_mixed_jinja',
+    description: 'two simultaneous requests where one uses a per-request Jinja template',
+    args: [
+      '--prompt=Respond with a short friendly greeting.',
+      '--max-tokens=100',
+      '--concurrent=2',
+      '--mixed-jinja',
+    ],
+  },
+  {
     id: 'mmproj_hi',
     description: 'bare model + mmproj asked to respond to hi',
     args: ['--prompt=hi', '--max-tokens=100', '--mmproj=default'],
