@@ -18,7 +18,9 @@ struct fllama_mtmd_result {
 bool fllama_prompt_contains_image(const std::string & prompt);
 
 // Extract base64 images from the prompt and decode them to raw file bytes.
-// Replace <img> tags with mtmd's default media marker (<__media__>).
-fllama_mtmd_result fllama_extract_images(const std::string & prompt);
+// Replace <img> tags with the exact media marker used by the active mtmd_context.
+// This must match mtmd_context_params::media_marker (server get_media_marker()).
+fllama_mtmd_result fllama_extract_images(const std::string & prompt,
+                                         const char * media_marker);
 
 #endif // FLLAMA_MTMD_H

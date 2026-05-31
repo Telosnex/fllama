@@ -255,12 +255,14 @@ static void run_inference(fllama_inference_request request,
 
     std::vector<raw_buffer> files;
     if (fllama_prompt_contains_image(prompt)) {
-      auto img = fllama_extract_images(prompt);
+      const char * media_marker = get_media_marker();
+      auto img = fllama_extract_images(prompt, media_marker);
       prompt = std::move(img.text_with_markers);
       for (auto &fb : img.file_bytes)
         files.push_back(std::move(fb));
       log_message("[fllama] Extracted " +
-                      std::to_string(files.size()) + " image(s)",
+                      std::to_string(files.size()) + " image(s) using marker " +
+                      media_marker,
                   request.dart_logger);
     }
 

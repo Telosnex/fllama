@@ -1,5 +1,4 @@
 #include "fllama_mtmd.h"
-#include "mtmd.h"   // for mtmd_default_marker()
 
 #include "llama.cpp/common/base64.hpp"
 
@@ -48,7 +47,8 @@ bool fllama_prompt_contains_image(const std::string & prompt) {
     return !find_image_tags(prompt).empty();
 }
 
-fllama_mtmd_result fllama_extract_images(const std::string & prompt) {
+fllama_mtmd_result fllama_extract_images(const std::string & prompt,
+                                         const char * media_marker) {
     fllama_mtmd_result result;
     auto tags = find_image_tags(prompt);
     if (tags.empty()) {
@@ -56,14 +56,14 @@ fllama_mtmd_result fllama_extract_images(const std::string & prompt) {
         return result;
     }
 
-    const char * marker = mtmd_default_marker();
+    const char * marker = (media_marker && media_marker[0] != '\0') ? media_marker : "<__media__>";
 
     // Decode each base64 segment → raw file bytes (JPEG/PNG/etc.).
     for (auto & t : tags) {
         auto b64 = prompt.substr(t.data_begin, t.data_end - t.data_begin);
-        auto required = base64::required_encode_size(b64.size());
-        std::vector<uint8_t> bytes(required);
-        base64::decode(b64.begin(), b64.end(), bytes.begin());
+        std::vector<uint8_t> bytes(base64::max_decode_size(b64.size()));
+        auto out = base64::decode(b64.begin(), b64.end(), bytes.begin());
+        bytes.resize(static_cast<size_t>(out - bytes.begin()));
         result.file_bytes.push_back(std::move(bytes));
     }
 
