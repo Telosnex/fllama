@@ -73,27 +73,45 @@ ServerManager::get_or_create(const std::string &model_path,
     }
   }
 
-  // Params changed or server doesn't exist — evict old one if present.
+  // Params changed, server is unhealthy, or server doesn't exist — evict old
+  // idle contexts if present.  Do not hand out an unhealthy context; Metal can
+  // leave a backend permanently poisoned after command-buffer OOM and llama.cpp
+  // explicitly requires backend recreation to recover.
   {
-    std::unique_lock<std::shared_mutex> lk(servers_lock);
-    auto it = servers.find(model_path);
-    if (it != servers.end()) {
-      if (it->second->active_users.load() > 0) {
-        std::cerr << "[ServerManager] Params changed but server is busy, "
-                     "using existing context for: " << model_path << "\n";
-        auto *r = it->second.get();
-        r->last_used = std::chrono::steady_clock::now();
-        r->active_users.fetch_add(1);
-        return r;
+    std::unique_ptr<ServerResources> old;
+    {
+      std::unique_lock<std::shared_mutex> lk(servers_lock);
+      auto it = servers.find(model_path);
+      if (it != servers.end()) {
+        const bool shutting_down = it->second->shutting_down.load();
+        const bool matches = params_match(*it->second, params);
+        if (it->second->active_users.load() > 0) {
+          if (!shutting_down) {
+            if (!matches) {
+              std::cerr << "[ServerManager] Params changed but server is busy, "
+                           "using existing context for: " << model_path << "\n";
+            }
+            auto *r = it->second.get();
+            r->last_used = std::chrono::steady_clock::now();
+            r->active_users.fetch_add(1);
+            return r;
+          }
+
+          std::cerr << "[ServerManager] Server context is unhealthy and still "
+                       "busy; refusing reuse: " << model_path << "\n";
+          return nullptr;
+        }
+
+        std::cout << "[ServerManager] "
+                  << (shutting_down ? "Discarding unhealthy context: "
+                                    : "Params changed, recreating: ")
+                  << model_path << "\n";
+        // Move out so destructor runs outside the lock.
+        old = std::move(it->second);
+        servers.erase(it);
       }
-      std::cout << "[ServerManager] Params changed, recreating: "
-                << model_path << "\n";
-      // Move out so destructor runs outside the lock.
-      auto old = std::move(it->second);
-      servers.erase(it);
-      lk.unlock();
-      old.reset(); // terminate + join
     }
+    old.reset(); // terminate + join
   }
 
   // Slow path — serialise all model loads.  ggml Metal initialisation uses
@@ -145,12 +163,50 @@ ServerManager::get_or_create(const std::string &model_path,
 }
 
 void ServerManager::release(const std::string &model_path) {
-  std::shared_lock<std::shared_mutex> lk(servers_lock);
-  auto it = servers.find(model_path);
-  if (it != servers.end()) {
-    it->second->active_users.fetch_sub(1);
+  std::unique_ptr<ServerResources> to_free;
+  {
+    std::unique_lock<std::shared_mutex> lk(servers_lock);
+    auto it = servers.find(model_path);
+    if (it == servers.end()) {
+      return;
+    }
+
+    const int previous_users = it->second->active_users.fetch_sub(1);
+    if (previous_users <= 0) {
+      it->second->active_users.store(0);
+      return;
+    }
+
     it->second->last_used = std::chrono::steady_clock::now();
+    if (previous_users == 1 && it->second->shutting_down.load()) {
+      std::cout << "[ServerManager] Destroying unhealthy context: "
+                << model_path << "\n";
+      to_free = std::move(it->second);
+      servers.erase(it);
+    }
   }
+  // Destructor runs outside the lock.
+}
+
+void ServerManager::mark_unhealthy(const std::string &model_path) {
+  std::unique_ptr<ServerResources> to_free;
+  {
+    std::unique_lock<std::shared_mutex> lk(servers_lock);
+    auto it = servers.find(model_path);
+    if (it == servers.end()) {
+      return;
+    }
+
+    it->second->shutting_down.store(true);
+    it->second->last_used = std::chrono::steady_clock::now();
+    if (it->second->active_users.load() == 0) {
+      std::cout << "[ServerManager] Destroying unhealthy idle context: "
+                << model_path << "\n";
+      to_free = std::move(it->second);
+      servers.erase(it);
+    }
+  }
+  // Destructor runs outside the lock.
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +267,8 @@ void ServerManager::cleanup_loop() {
       for (auto &[path, r] : servers) {
         auto sec = std::chrono::duration_cast<std::chrono::seconds>(
                        now - r->last_used).count();
-        if (sec >= MODEL_INACTIVITY_TIMEOUT_SEC &&
+        if ((r->shutting_down.load() ||
+             sec >= MODEL_INACTIVITY_TIMEOUT_SEC) &&
             r->active_users.load() == 0) {
           expired.push_back(path);
         }

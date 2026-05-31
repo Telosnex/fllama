@@ -99,6 +99,19 @@ static void fllama_copy_cstr(char * dst, size_t cap, const char * src) {
   std::snprintf(dst, cap, "%s", src ? src : "");
 }
 
+static bool fllama_error_requires_backend_recreation(const std::string &msg) {
+  // llama.cpp reports Metal command-buffer OOM / poisoned backend failures to
+  // callers as a generic "Compute error.".  Once the backend is in that state,
+  // the fix is to destroy and recreate the server_context rather than retrying
+  // on the same context.
+  return msg.find("Compute error") != std::string::npos ||
+         msg.find("backend is in error state") != std::string::npos ||
+         msg.find("failed to compute graph") != std::string::npos ||
+         msg.find("failed to decode") != std::string::npos ||
+         msg.find("OutOfMemory") != std::string::npos ||
+         msg.find("out of memory") != std::string::npos;
+}
+
 // ── The actual inference logic (runs on per-request thread) ──────────────────
 
 static void run_inference(fllama_inference_request request,
@@ -351,6 +364,12 @@ static void run_inference(fllama_inference_request request,
         std::string msg = ej.contains("message")
                               ? ej["message"].get<std::string>()
                               : ej.dump();
+        if (fllama_error_requires_backend_recreation(msg)) {
+          log_message("[fllama] Backend compute error; marking context "
+                      "unhealthy so the next request recreates it",
+                      request.dart_logger);
+          g_mgr.mark_unhealthy(request.model_path);
+        }
         callback(msg.c_str(), "", true);
         g_mgr.clear_cancel(rid);
         g_mgr.unregister_request_thread(rid);

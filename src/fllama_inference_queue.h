@@ -65,6 +65,11 @@ public:
   // Decrement active_users (call when your request finishes).
   void release(const std::string &model_path);
 
+  // Mark a context as unsafe to reuse.  The active request still owns it until
+  // release(); once active_users reaches zero the context is destroyed so the
+  // next request recreates the backend from scratch.
+  void mark_unhealthy(const std::string &model_path);
+
   // Cancellation.
   void cancel(int request_id);
   bool is_cancelled(int request_id);
