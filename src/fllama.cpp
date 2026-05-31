@@ -35,6 +35,8 @@
 
 // ── Logging ──────────────────────────────────────────────────────────────────
 
+static constexpr bool kLogVerboseDebugMessages = false;
+
 static void log_message(const char *msg,
                         fllama_log_callback logger = nullptr) {
   if (!logger) {
@@ -232,17 +234,19 @@ static void run_inference(fllama_inference_request request,
             parser_params.parser.load(result.parser);
           }
 
-          log_message("[JPZ] fllama inputs.reasoning_format=" +
-                          std::string(common_reasoning_format_name(inputs.reasoning_format)),
-                      request.dart_logger);
-          log_message("[fllama] Chat format: " +
-                          std::string(common_chat_format_name(
-                              result.format)),
-                      request.dart_logger);
-          log_message("[JPZ] PROMPT (" +
-                          std::to_string(prompt.size()) + " chars):\n" +
-                          prompt,
-                      request.dart_logger);
+          if constexpr (kLogVerboseDebugMessages) {
+            log_message("[fllama] fllama inputs.reasoning_format=" +
+                            std::string(common_reasoning_format_name(inputs.reasoning_format)),
+                        request.dart_logger);
+            log_message("[fllama] Chat format: " +
+                            std::string(common_chat_format_name(
+                                result.format)),
+                        request.dart_logger);
+            log_message("[fllama] PROMPT (" +
+                            std::to_string(prompt.size()) + " chars):\n" +
+                            prompt,
+                        request.dart_logger);
+          }
         }
       } catch (const std::exception &e) {
         log_message(std::string("[fllama] OAI parse error: ") + e.what(),
@@ -334,8 +338,10 @@ static void run_inference(fllama_inference_request request,
       } catch (const std::exception &e) {
         // Final parse can fail (e.g. doubled generated_text in update_chat_msg).
         // Log and break — we still have the accumulated text + last good JSON.
-        log_message(std::string("[JPZ] reader.next() threw: ") + e.what(),
-                    request.dart_logger);
+        if constexpr (kLogVerboseDebugMessages) {
+          log_message(std::string("[fllama] reader.next() threw: ") + e.what(),
+                      request.dart_logger);
+        }
         break;
       }
       if (!res) break;
@@ -355,10 +361,12 @@ static void run_inference(fllama_inference_request request,
           dynamic_cast<server_task_result_cmpl_partial *>(res.get());
       if (partial) {
         full_content += partial->content;
-        log_message("[fllama] token: \"" + partial->content +
-                    "\"  cumulative(" + std::to_string(full_content.size()) +
-                    " chars)",
-                    request.dart_logger);
+        if constexpr (kLogVerboseDebugMessages) {
+          log_message("[fllama] token: \"" + partial->content +
+                      "\"  cumulative(" + std::to_string(full_content.size()) +
+                      " chars)",
+                      request.dart_logger);
+        }
         auto j = res->to_json();
         if (!j.is_null()) {
           last_json = j.dump();
@@ -375,21 +383,27 @@ static void run_inference(fllama_inference_request request,
         try {
           auto j = res->to_json();
           last_json = j.is_null() ? "" : j.dump();
-          log_message("[JPZ] final to_json() is_null=" +
-                          std::to_string(j.is_null()) +
-                          " type=" + std::to_string((int)j.type()) +
-                          " size=" + std::to_string(j.size()) +
-                          " dump=" + last_json.substr(0, 200),
-                      request.dart_logger);
+          if constexpr (kLogVerboseDebugMessages) {
+            log_message("[fllama] final to_json() is_null=" +
+                            std::to_string(j.is_null()) +
+                            " type=" + std::to_string((int)j.type()) +
+                            " size=" + std::to_string(j.size()) +
+                            " dump=" + last_json.substr(0, 200),
+                        request.dart_logger);
+          }
         } catch (const std::exception &e) {
-          log_message(std::string("[JPZ] final to_json() THREW: ") + e.what(),
-                      request.dart_logger);
+          if constexpr (kLogVerboseDebugMessages) {
+            log_message(std::string("[fllama] final to_json() THREW: ") + e.what(),
+                        request.dart_logger);
+          }
           last_json = "";
         }
-        log_message("[JPZ] final_r->content(" +
-                        std::to_string(final_r->content.size()) +
-                        ")=\"" + final_r->content.substr(0, 100) + "\"",
-                    request.dart_logger);
+        if constexpr (kLogVerboseDebugMessages) {
+          log_message("[fllama] final_r->content(" +
+                          std::to_string(final_r->content.size()) +
+                          ")=\"" + final_r->content.substr(0, 100) + "\"",
+                      request.dart_logger);
+        }
         callback(full_content.c_str(), last_json.c_str(), true);
 
         log_message("[fllama] Done. " +
