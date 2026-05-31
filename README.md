@@ -148,21 +148,114 @@ The code as-is on GitHub is licensed under GPL v2. That requires distribution of
 
 Commercial licenses are also available. Contact info@telosnex.com. Expect very fair terms: our intent is to charge only entities, with a launched app, making a lot of money, with FLLAMA as a core dependency. The base agreement is here: https://github.com/lawndoc/dual-license-templates/blob/main/pdf/Basic-Yearly.pdf
 
-# llama.cpp update process
-- Best practice is:
-1. Check out latest llama.cpp.
-2. Copy checked out llama.cpp to macos/llama.cpp. Commit. DO NOT PUSH.
-3. Try running example app, fix, repeat.
-4. Commit. DO NOT PUSH.
-5. Copy macos/llama.cpp to ios/llama.cpp. DO NOT PUSH.
-6. Try running example app in iOS simulator.
-7. Fix, repeat.
-8. Commit. DO NOT PUSH.
-9. Copy checked out llama.cpp to src/llama.cpp. 
-10. Commit. Push. Watch codemagic, particularly for errors on Android/Windows/Linux.
-11. Rebuild the bundled web runtime under `assets/web/wllama` using the wllama process documented in `docs/RUNBOOK_WEB_RUNTIME.md`.
-12. Test using instructions below, then commit and push.
-- Note: Drop usually requires restoring build-info.cpp for macOS and iOS. It's a stock set of values with ex. git commit. That should be updated. Other than that you can leave it alone.
+# llama.cpp source layout and update process
+
+fllama has two llama.cpp delivery paths:
+
+- **Native platforms** compile the vendored source tree in this repo:
+  ```text
+  src/llama.cpp
+  ```
+- **Web** uses prebuilt wllama artifacts bundled in this repo:
+  ```text
+  assets/web/wllama/index.js
+  assets/web/wllama/wasm/wllama.js
+  assets/web/wllama/wasm/wllama.wasm
+  ```
+  Those artifacts are built from the separate wllama checkout. In the Telosnex dev workspace, that source is usually:
+  ```text
+  /Users/jpo/dev/ngxson_wllama/llama.cpp
+  ```
+
+That means web's underlying llama.cpp is whatever the wllama checkout contains at build time. To keep native and web matched, refresh fllama's native vendored tree from wllama's llama.cpp tree, then rebuild/copy the web artifacts.
+
+## Refresh native llama.cpp from wllama
+
+```sh
+export FLLAMA=/Users/jpo/dev/fllama
+export WLLAMA=/Users/jpo/dev/ngxson_wllama
+
+cd "$FLLAMA"
+git status --short
+
+# Dry run first. Review every changed/deleted file.
+rsync -nrc --delete \
+  --exclude='.git/' \
+  --exclude='build/' \
+  --exclude='FLLAMA_LLAMA_CPP_DROP.txt' \
+  "$WLLAMA/llama.cpp/" \
+  "$FLLAMA/src/llama.cpp/"
+
+# If the dry run is sane, do the copy.
+rsync -a --delete \
+  --exclude='.git/' \
+  --exclude='build/' \
+  --exclude='FLLAMA_LLAMA_CPP_DROP.txt' \
+  "$WLLAMA/llama.cpp/" \
+  "$FLLAMA/src/llama.cpp/"
+```
+
+Then update the native build metadata/documentation:
+
+- `src/CMakeLists.txt`: update `LLAMA_BUILD_COMMIT`.
+- `src/llama.cpp/FLLAMA_LLAMA_CPP_DROP.txt`: record where the drop came from and why.
+
+If the wllama `llama.cpp` directory is a real Git checkout, use:
+
+```sh
+git -C "$WLLAMA/llama.cpp" rev-parse --short HEAD
+```
+
+If it is a copied/submodule tree without `.git` metadata, use the recorded source commit in `FLLAMA_LLAMA_CPP_DROP.txt` or the wllama submodule gitlink:
+
+```sh
+git -C "$WLLAMA" ls-files -s llama.cpp
+```
+
+Clean stale native build outputs before validating:
+
+```sh
+cd "$FLLAMA"
+rm -rf src/build example/build
+cmake -S src -B src/build -DCMAKE_BUILD_TYPE=Release
+cmake --build src/build -j
+```
+
+Then validate through a Flutter host, for example:
+
+```sh
+cd "$FLLAMA/example"
+flutter build macos --debug
+```
+
+## Rebuild and copy the web wllama artifacts
+
+After changing the wllama checkout, rebuild its generated glue, WASM, worker, and ESM bundle:
+
+```sh
+cd /Users/jpo/dev/ngxson_wllama
+npm run build:glue
+npx tsc --noEmit -p tsconfig.build.json
+npm run build:wasm
+npm run build:worker
+npm run build:tsup
+```
+
+Copy the generated artifacts into fllama:
+
+```sh
+cd /Users/jpo/dev/fllama
+cp /Users/jpo/dev/ngxson_wllama/esm/index.js assets/web/wllama/index.js
+cp /Users/jpo/dev/ngxson_wllama/src/wasm/wllama.js assets/web/wllama/wasm/wllama.js
+cp /Users/jpo/dev/ngxson_wllama/src/wasm/wllama.wasm assets/web/wllama/wasm/wllama.wasm
+```
+
+Validate the web assets:
+
+```sh
+node --check assets/web/fllama_web_init.js
+scripts/check_web_assets.sh
+```
 
 # Web development
 - The web example uses wllama's server backend and requires cross-origin isolation for SharedArrayBuffer/pthreads.
