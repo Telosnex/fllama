@@ -29,6 +29,10 @@ let activeServerRequestZeroResolvers = [];
 let serverKeySwitchQueue = Promise.resolve();
 const abortControllers = new Map();
 const localModelFiles = new Map();
+const FSA_MODEL_HANDLE_DB = 'fllama-model-handles.db';
+const FSA_MODEL_HANDLE_STORE = 'files';
+const FSA_MODEL_HANDLE_KEY_PROP = 'id';
+const FSA_MODEL_HANDLE_PROP = 'handle';
 
 // 26-05-20: Temporarily bypass the JS-side request Promise queue. Upstream
 // wllama/llama.cpp server code may now handle multiple in-flight requests via
@@ -127,6 +131,295 @@ function createWllama() {
         logger: fllamaWllamaLogger,
     });
 }
+
+function isIdbUrl(value) {
+    return typeof value === 'string' && value.startsWith('idb://');
+}
+
+function isFsaUrl(value) {
+    return typeof value === 'string' && value.startsWith('fsa://');
+}
+
+function fllamaWebIsFileSystemAccessSupportedJs() {
+    return typeof window.showOpenFilePicker === 'function' && typeof indexedDB !== 'undefined';
+}
+window.fllamaWebIsFileSystemAccessSupportedJs = fllamaWebIsFileSystemAccessSupportedJs;
+
+function indexedDbRequest(request) {
+    return new Promise((resolve, reject) => {
+        request.onerror = () => reject(request.error || new Error('IndexedDB request failed'));
+        request.onsuccess = () => resolve(request.result);
+    });
+}
+
+function indexedDbTransactionComplete(transaction) {
+    return new Promise((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error || new Error('IndexedDB transaction failed'));
+        transaction.onabort = () => reject(transaction.error || new Error('IndexedDB transaction aborted'));
+    });
+}
+
+function idbFilenameFromUrl(url) {
+    const matchValue = url.searchParams.get('matchValue');
+    const fallback = url.hash ? decodeURIComponent(url.hash.slice(1)) : 'model.gguf';
+    if (!matchValue) return fallback;
+    const parts = matchValue.split('/').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : fallback;
+}
+
+async function getIndexedDbObject({ dbName, objectStoreName, matchPropName, matchPropValue }) {
+    const db = await indexedDbRequest(indexedDB.open(dbName));
+    try {
+        const transaction = db.transaction(objectStoreName, 'readonly');
+        const transactionDone = indexedDbTransactionComplete(transaction);
+        const store = transaction.objectStore(objectStoreName);
+        let object = await indexedDbRequest(store.get(matchPropValue));
+
+        if (!object && matchPropName) {
+            try {
+                object = await indexedDbRequest(store.index(matchPropName).get(matchPropValue));
+            } catch (_) {
+                await new Promise((resolve, reject) => {
+                    const cursorRequest = store.openCursor();
+                    cursorRequest.onerror = () => reject(cursorRequest.error || new Error('IndexedDB cursor failed'));
+                    cursorRequest.onsuccess = () => {
+                        const cursor = cursorRequest.result;
+                        if (!cursor) {
+                            resolve();
+                            return;
+                        }
+                        if (cursor.value?.[matchPropName] === matchPropValue) {
+                            object = cursor.value;
+                            resolve();
+                        } else {
+                            cursor.continue();
+                        }
+                    };
+                });
+            }
+        }
+
+        await transactionDone;
+        return object;
+    } finally {
+        db.close();
+    }
+}
+
+async function fileFromIdbUrl(idbUrl) {
+    const url = new URL(idbUrl);
+    const dbName = decodeURIComponent(url.hostname);
+    const objectStoreName = decodeURIComponent(url.pathname.replace(/^\//, ''));
+    const matchPropName = url.searchParams.get('matchProp');
+    const matchPropValue = url.searchParams.get('matchValue');
+    const bytesPropName = url.searchParams.get('bytesProp') || 'contents';
+    if (!dbName || !objectStoreName || !matchPropValue) {
+        throw new Error(`Invalid idb model URL: ${idbUrl}`);
+    }
+
+    const object = await getIndexedDbObject({
+        dbName,
+        objectStoreName,
+        matchPropName,
+        matchPropValue,
+    });
+    if (!object) {
+        throw new Error(`IndexedDB model file not found: ${matchPropValue}`);
+    }
+    const contents = object[bytesPropName];
+    if (!contents) {
+        throw new Error(`IndexedDB model file has no byte property "${bytesPropName}": ${matchPropValue}`);
+    }
+    return new File([contents], idbFilenameFromUrl(url), { type: 'application/octet-stream' });
+}
+
+async function modelFilesFromIdbUrls(modelPath, mmprojPath) {
+    const modelFile = await fileFromIdbUrl(modelPath);
+    if (!mmprojPath) return [modelFile];
+    if (!isIdbUrl(mmprojPath)) {
+        throw new Error(`Model path is idb:// but mmproj path is not: ${mmprojPath}`);
+    }
+    return [modelFile, await fileFromIdbUrl(mmprojPath)];
+}
+
+function openFsaModelHandleDb() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(FSA_MODEL_HANDLE_DB, 1);
+        request.onerror = () => reject(request.error || new Error('Failed to open fllama model handle database'));
+        request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(FSA_MODEL_HANDLE_STORE)) {
+                db.createObjectStore(FSA_MODEL_HANDLE_STORE, { keyPath: FSA_MODEL_HANDLE_KEY_PROP });
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+    });
+}
+
+function fsaModelHandleUrl(id, fileName) {
+    const url = new URL(`fsa://${FSA_MODEL_HANDLE_DB}/${FSA_MODEL_HANDLE_STORE}`);
+    url.searchParams.set('id', id);
+    url.searchParams.set('name', fileName || 'model.gguf');
+    url.searchParams.set('handleProp', FSA_MODEL_HANDLE_PROP);
+    return url.href;
+}
+
+function fsaIdFromUrl(fsaUrl) {
+    const id = new URL(fsaUrl).searchParams.get('id');
+    if (!id) throw new Error(`Invalid fsa model URL: ${fsaUrl}`);
+    return id;
+}
+
+async function putFsaModelHandle({ id, handle, file }) {
+    const db = await openFsaModelHandleDb();
+    try {
+        const transaction = db.transaction(FSA_MODEL_HANDLE_STORE, 'readwrite');
+        const transactionDone = indexedDbTransactionComplete(transaction);
+        const store = transaction.objectStore(FSA_MODEL_HANDLE_STORE);
+        await indexedDbRequest(store.put({
+            [FSA_MODEL_HANDLE_KEY_PROP]: id,
+            [FSA_MODEL_HANDLE_PROP]: handle,
+            name: file?.name || handle?.name || 'model.gguf',
+            size: Number(file?.size || 0),
+            lastModified: Number(file?.lastModified || 0),
+            updatedAt: new Date().toISOString(),
+        }));
+        await transactionDone;
+    } finally {
+        db.close();
+    }
+}
+
+async function getFsaModelHandleRecord(fsaUrl) {
+    const db = await openFsaModelHandleDb();
+    try {
+        const transaction = db.transaction(FSA_MODEL_HANDLE_STORE, 'readonly');
+        const transactionDone = indexedDbTransactionComplete(transaction);
+        const store = transaction.objectStore(FSA_MODEL_HANDLE_STORE);
+        const record = await indexedDbRequest(store.get(fsaIdFromUrl(fsaUrl)));
+        await transactionDone;
+        return record;
+    } finally {
+        db.close();
+    }
+}
+
+async function deleteFsaModelHandleRecord(fsaUrl) {
+    const db = await openFsaModelHandleDb();
+    try {
+        const transaction = db.transaction(FSA_MODEL_HANDLE_STORE, 'readwrite');
+        const transactionDone = indexedDbTransactionComplete(transaction);
+        const store = transaction.objectStore(FSA_MODEL_HANDLE_STORE);
+        await indexedDbRequest(store.delete(fsaIdFromUrl(fsaUrl)));
+        await transactionDone;
+    } finally {
+        db.close();
+    }
+}
+
+async function fsaModelHandleExists(fsaUrl) {
+    try {
+        const record = await getFsaModelHandleRecord(fsaUrl);
+        return Boolean(record?.[FSA_MODEL_HANDLE_PROP]);
+    } catch (_) {
+        return false;
+    }
+}
+
+async function ensureFsaReadPermission(handle) {
+    if (!handle) throw new Error('Missing File System Access handle');
+    const options = { mode: 'read' };
+    if (typeof handle.queryPermission === 'function') {
+        const state = await handle.queryPermission(options);
+        if (state === 'granted') return;
+    }
+    if (typeof handle.requestPermission === 'function') {
+        const state = await handle.requestPermission(options);
+        if (state === 'granted') return;
+    }
+    throw new Error('Permission denied for browser file handle. Re-select the custom model file in Settings > AIs.');
+}
+
+async function fileFromFsaUrl(fsaUrl) {
+    const record = await getFsaModelHandleRecord(fsaUrl);
+    const handle = record?.[new URL(fsaUrl).searchParams.get('handleProp') || FSA_MODEL_HANDLE_PROP];
+    if (!handle) {
+        throw new Error(`Stored browser file handle not found for ${fsaUrl}`);
+    }
+    await ensureFsaReadPermission(handle);
+    return await handle.getFile();
+}
+
+async function modelFilesFromFsaUrls(modelPath, mmprojPath) {
+    const modelFile = await fileFromFsaUrl(modelPath);
+    if (!mmprojPath) return [modelFile];
+    if (isFsaUrl(mmprojPath)) return [modelFile, await fileFromFsaUrl(mmprojPath)];
+    if (isIdbUrl(mmprojPath)) return [modelFile, await fileFromIdbUrl(mmprojPath)];
+    throw new Error(`Model path is fsa:// but mmproj path is not browser-local: ${mmprojPath}`);
+}
+
+function normalizedModelExtensions(extensionsJson) {
+    let extensions = [];
+    try {
+        extensions = JSON.parse(extensionsJson || '[]');
+    } catch (_) {
+        extensions = [];
+    }
+    extensions = Array.isArray(extensions) ? extensions : [];
+    extensions = extensions
+        .map((extension) => String(extension || '').trim().toLowerCase())
+        .filter(Boolean)
+        .map((extension) => extension.startsWith('.') ? extension : `.${extension}`);
+    return extensions.length > 0 ? extensions : ['.gguf'];
+}
+
+function hasAcceptedModelExtension(fileName, extensions) {
+    const lower = String(fileName || '').toLowerCase();
+    return extensions.some((extension) => lower.endsWith(extension));
+}
+
+async function fllamaWebPickPersistentModelFileJs(extensionsJson, importId, fallbackFilename) {
+    if (!fllamaWebIsFileSystemAccessSupportedJs()) return '';
+    const extensions = normalizedModelExtensions(extensionsJson);
+    const options = {
+        multiple: false,
+        excludeAcceptAllOption: false,
+        types: [{
+            description: 'Model files',
+            accept: {
+                'application/octet-stream': extensions,
+                'application/gguf': extensions,
+            },
+        }],
+    };
+
+    let handles;
+    try {
+        handles = await window.showOpenFilePicker(options);
+    } catch (error) {
+        if (String(error?.name || error).includes('AbortError')) return '';
+        throw error;
+    }
+    const handle = handles?.[0];
+    if (!handle) return '';
+    await ensureFsaReadPermission(handle);
+    const file = await handle.getFile();
+    const fileName = file?.name || handle.name || fallbackFilename || 'model.gguf';
+    if (!hasAcceptedModelExtension(fileName, extensions)) {
+        throw new Error(`Choose a ${extensions.join(' or ')} file.`);
+    }
+
+    const idPrefix = String(importId || crypto.randomUUID()).replace(/[^A-Za-z0-9._-]+/g, '_');
+    const id = `${idPrefix}/${crypto.randomUUID()}`;
+    await putFsaModelHandle({ id, handle, file });
+    return JSON.stringify({
+        path: fsaModelHandleUrl(id, fileName),
+        displayName: fileName,
+        sizeBytes: Number(file.size || 0),
+    });
+}
+window.fllamaWebPickPersistentModelFileJs = fllamaWebPickPersistentModelFileJs;
 
 function base64ToArrayBuffer(base64) {
     const binary = atob(base64.replace(/\s+/g, ''));
@@ -369,6 +662,22 @@ async function loadModelIfNeededUnlocked(modelPath, request = {}, loadCallback =
                 : null;
             loadCallback(1, 0);
             await instance.loadModel(mmprojBlob ? [blob, mmprojBlob] : [blob], config);
+        } else if (isIdbUrl(modelPath)) {
+            // idb:// is a browser-local storage locator, not a fetchable .gguf
+            // URL. Read the bytes and pass a File through wllama's local path.
+            loadCallback(1, 0);
+            await instance.loadModel(
+                await modelFilesFromIdbUrls(modelPath, request.modelMmprojPath || ''),
+                config
+            );
+        } else if (isFsaUrl(modelPath)) {
+            // fsa:// points at a persisted File System Access handle. This is
+            // the fastest web custom-model path: no GGUF copy into IndexedDB.
+            loadCallback(1, 0);
+            await instance.loadModel(
+                await modelFilesFromFsaUrls(modelPath, request.modelMmprojPath || ''),
+                config
+            );
         } else {
             const source = request.modelMmprojPath
                 ? { url: modelPath, mmprojUrl: request.modelMmprojPath }
@@ -534,6 +843,9 @@ async function runChat(request, loadCallback, inferenceCallback, abortController
 
 async function fllamaWebModelDeleteJs(modelPath) {
     localModelFiles.delete(modelPath);
+    if (isFsaUrl(modelPath)) {
+        await deleteFsaModelHandleRecord(modelPath);
+    }
     if (lastServerModelKey.includes(modelPath) && serverWllama !== null) {
         try {
             await serverWllama.exit();
@@ -562,6 +874,12 @@ async function fllamaWebIsModelDownloadedJs(modelPath) {
     }
     if (modelPath.startsWith('blob:')) {
         return true;
+    }
+    if (isIdbUrl(modelPath)) {
+        return true;
+    }
+    if (isFsaUrl(modelPath)) {
+        return await fsaModelHandleExists(modelPath);
     }
     try {
         const manager = (serverWllama || createWllama()).modelManager;
