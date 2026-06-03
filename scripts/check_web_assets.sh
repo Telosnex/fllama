@@ -45,7 +45,7 @@ require_absent assets/web/wllama/asyncify-multi-thread
 require_grep 'assets/web/fllama_web_init\.js' pubspec.yaml
 require_grep 'assets/web/wllama/wasm/' pubspec.yaml
 require_grep "import './assets/packages/fllama/assets/web/fllama_web_init\.js';" example/web/index.html
-require_grep 'ngxson-v3-webgpu' assets/web/fllama_web_init.js
+require_grep 'ngxson-v5-request-jinja' assets/web/fllama_web_init.js
 require_grep 'default:' assets/web/fllama_web_init.js
 
 wasm="assets/web/wllama/wasm/wllama.wasm"
