@@ -262,9 +262,13 @@ static void run_inference(fllama_inference_request request,
           }
         }
       } catch (const std::exception &e) {
+        std::string msg = "Error: OAI parse error: " + std::string(e.what());
         log_message(std::string("[fllama] OAI parse error: ") + e.what(),
                     request.dart_logger);
-        is_oai = false;
+        callback(msg.c_str(), "", true);
+        g_mgr.clear_cancel(request.request_id);
+        g_mgr.unregister_request_thread(request.request_id);
+        return;
       }
     }
 
