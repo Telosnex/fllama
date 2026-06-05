@@ -858,7 +858,7 @@ async function fllamaWebModelDeleteJs(modelPath) {
     try {
         const manager = (serverWllama || createWllama()).modelManager;
         const models = await manager.getModels({ includeInvalid: true });
-        const model = models.find((m) => m.url === modelPath);
+        const model = models.find((m) => m.url === modelPath || m.mmprojUrl === modelPath);
         if (model) {
             await model.remove();
         }
@@ -884,7 +884,7 @@ async function fllamaWebIsModelDownloadedJs(modelPath) {
     try {
         const manager = (serverWllama || createWllama()).modelManager;
         const models = await manager.getModels();
-        return models.some((m) => m.url === modelPath);
+        return models.some((m) => m.url === modelPath || m.mmprojUrl === modelPath);
     } catch (error) {
         console.error('[fllama_web_init.js.fllamaWebIsModelDownloadedJs] Error checking model cache:', error);
         return false;
