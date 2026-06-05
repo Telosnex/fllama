@@ -60,6 +60,35 @@ static void log_message(const std::string &m,
   log_message(m.c_str(), l);
 }
 
+struct fllama_callback_payload {
+  std::string response;
+  std::string openai_json;
+};
+
+static void emit_inference_callback(fllama_inference_callback callback,
+                                    std::string response,
+                                    std::string openai_json,
+                                    uint8_t done) {
+  if (!callback) {
+    return;
+  }
+
+  // NativeCallable.listener relays calls from worker threads back to the Dart
+  // isolate asynchronously. Pointer arguments are just addresses, so c_str()
+  // into a local std::string can be dead by the time Dart reads it. Keep a
+  // rolling native-side copy alive, same as log_message() does for logger
+  // callbacks above.
+  static std::mutex mtx;
+  static std::deque<fllama_callback_payload> q;
+  std::lock_guard<std::mutex> lk(mtx);
+  q.push_back({std::move(response), std::move(openai_json)});
+  while (q.size() > 1000) {
+    q.pop_front();
+  }
+  const auto &payload = q.back();
+  callback(payload.response.c_str(), payload.openai_json.c_str(), done);
+}
+
 // ── Globals ──────────────────────────────────────────────────────────────────
 
 // Intentionally leaked — avoids static destruction order crash on exit.
@@ -163,7 +192,8 @@ static void run_inference(fllama_inference_request request,
     auto *srv = g_mgr.get_or_create(
         request.model_path, params, request.dart_logger);
     if (!srv || !srv->srv_ctx) {
-      callback("Error: Failed to create inference context", "", true);
+      emit_inference_callback(
+          callback, "Error: Failed to create inference context", "", true);
       return;
     }
     // RAII — release when we leave scope.
@@ -265,7 +295,7 @@ static void run_inference(fllama_inference_request request,
         std::string msg = "Error: OAI parse error: " + std::string(e.what());
         log_message(std::string("[fllama] OAI parse error: ") + e.what(),
                     request.dart_logger);
-        callback(msg.c_str(), "", true);
+        emit_inference_callback(callback, msg, "", true);
         g_mgr.clear_cancel(request.request_id);
         g_mgr.unregister_request_thread(request.request_id);
         return;
@@ -374,7 +404,7 @@ static void run_inference(fllama_inference_request request,
                       request.dart_logger);
           g_mgr.mark_unhealthy(request.model_path);
         }
-        callback(msg.c_str(), "", true);
+        emit_inference_callback(callback, msg, "", true);
         g_mgr.clear_cancel(rid);
         g_mgr.unregister_request_thread(rid);
         return;
@@ -393,7 +423,7 @@ static void run_inference(fllama_inference_request request,
         auto j = res->to_json();
         if (!j.is_null()) {
           last_json = j.dump();
-          callback(full_content.c_str(), last_json.c_str(), false);
+          emit_inference_callback(callback, full_content, last_json, false);
         }
         continue;
       }
@@ -427,7 +457,7 @@ static void run_inference(fllama_inference_request request,
                           ")=\"" + final_r->content.substr(0, 100) + "\"",
                       request.dart_logger);
         }
-        callback(full_content.c_str(), last_json.c_str(), true);
+        emit_inference_callback(callback, full_content, last_json, true);
 
         log_message("[fllama] Done. " +
                         std::to_string(final_r->n_decoded) + " tok, " +
@@ -440,17 +470,17 @@ static void run_inference(fllama_inference_request request,
     }
 
     // Cancelled or exhausted without final result.
-    callback(full_content.c_str(), last_json.c_str(), true);
+    emit_inference_callback(callback, full_content, last_json, true);
     g_mgr.clear_cancel(rid);
     g_mgr.unregister_request_thread(rid);
 
   } catch (const std::exception &e) {
     std::string msg = "Error: " + std::string(e.what());
-    callback(msg.c_str(), "", true);
+    emit_inference_callback(callback, msg, "", true);
     g_mgr.clear_cancel(request.request_id);
     g_mgr.unregister_request_thread(request.request_id);
   } catch (...) {
-    callback("Error: Unknown exception", "", true);
+    emit_inference_callback(callback, "Error: Unknown exception", "", true);
     g_mgr.clear_cancel(request.request_id);
     g_mgr.unregister_request_thread(request.request_id);
   }
