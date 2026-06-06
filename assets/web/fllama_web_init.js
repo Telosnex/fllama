@@ -111,8 +111,18 @@ function enqueueServerRequest(kind, request, task) {
     return queuedTask;
 }
 
+function isNoisyPerTokenLlamaLog(args) {
+    const first = String(args?.[0] ?? '').trim();
+    return first === 'set_embeddings: value = 0' ||
+        first === 'set_adapters_lora: adapters = 0' ||
+        first === 'adapters_lora_are_same: adapters = 0';
+}
+
 const fllamaWllamaLogger = {
-    debug: (...args) => console.debug(...args),
+    debug: (...args) => {
+        if (isNoisyPerTokenLlamaLog(args)) return;
+        console.debug(...args);
+    },
     log: (...args) => console.log(...args),
     // Upstream wllama forwards native stderr through warn(), which makes Chrome
     // attach a huge stack trace to every llama.cpp line. Keep the lines visible

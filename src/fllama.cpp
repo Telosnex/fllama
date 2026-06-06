@@ -60,6 +60,28 @@ static void log_message(const std::string &m,
   log_message(m.c_str(), l);
 }
 
+static bool fllama_is_noisy_per_token_llama_log(const char *text) {
+  if (!text) {
+    return false;
+  }
+  std::string s(text);
+  while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
+    s.pop_back();
+  }
+  return s == "set_embeddings: value = 0" ||
+         s == "set_adapters_lora: adapters = 0" ||
+         s == "adapters_lora_are_same: adapters = 0";
+}
+
+static void fllama_filtered_llama_log_callback(enum ggml_log_level level,
+                                               const char *text,
+                                               void *user_data) {
+  if (fllama_is_noisy_per_token_llama_log(text)) {
+    return;
+  }
+  common_log_default_callback(level, text, user_data);
+}
+
 struct fllama_callback_payload {
   std::string response;
   std::string openai_json;
@@ -101,6 +123,7 @@ static void fllama_backend_init_once() {
   std::call_once(g_backend_init, [] {
     ggml_backend_load_all();
     llama_backend_init();
+    llama_log_set(fllama_filtered_llama_log_callback, nullptr);
   });
 }
 
