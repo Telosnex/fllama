@@ -252,6 +252,15 @@ final class fllama_inference_request extends ffi.Struct {
 
   /// Optional: OpenAI JSON string. Defaults to NULL.
   external ffi.Pointer<ffi.Char> openai_request_json_string;
+
+  /// Optional: MTP assistant/drafter GGUF for speculative decoding.
+  /// NULL/"" disables. Keep draft KV cache at F16.
+  external ffi.Pointer<ffi.Char> draft_model_path;
+
+  /// Optional: tokens to draft per step when draft_model_path is set.
+  /// <= 0 falls back to 3.
+  @ffi.Int()
+  external int draft_n_max;
 }
 
 typedef fllama_log_callback

@@ -60,6 +60,12 @@ struct fllama_inference_request {
   fllama_log_callback
       dart_logger; // Optional: Dart caller logger. Defaults to NULL.
   char * openai_request_json_string; // Optional: OpenAI JSON string. Defaults to NULL.
+  char * draft_model_path; // Optional: MTP assistant/drafter GGUF for speculative
+                           // decoding (e.g. gemma-4-*-it-assistant). NULL/"" disables.
+                           // NOTE: keep draft KV cache at F16 (default); Q8 KV
+                           // destroys MTP draft acceptance.
+  int draft_n_max;         // Optional: tokens to draft per step when
+                           // draft_model_path is set. <= 0 falls back to 3.
 };
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,

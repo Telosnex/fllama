@@ -35,6 +35,7 @@ struct ServerResources {
   int n_ctx         = 0;
   int n_gpu_layers  = -1;
   std::string mmproj_path;
+  std::string draft_path; // MTP/speculative drafter model path ("" if none)
 
   ServerResources() = default;
   ~ServerResources(); // terminates loop, joins thread

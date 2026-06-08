@@ -132,6 +132,11 @@ Pointer<fllama_inference_request> _toNative(
     request.openai_request_json_string =
         openAiRequestJsonStringCstr.cast<Char>();
   }
+  if (dart.draftModelPath != null && dart.draftModelPath?.isNotEmpty == true) {
+    Pointer<Utf8> draftModelPathCstr = dart.draftModelPath!.toNativeUtf8();
+    request.draft_model_path = draftModelPathCstr.cast<Char>();
+    request.draft_n_max = dart.draftNMax ?? 0;
+  }
   if (dart.logger != null) {
     void onResponse(Pointer<Char> responsePointer) {
       final message = pointerCharToString(responsePointer);
@@ -342,6 +347,9 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
           }
           if (nativeRequest.model_mmproj_path != nullptr) {
             calloc.free(nativeRequest.model_mmproj_path);
+          }
+          if (nativeRequest.draft_model_path != nullptr) {
+            calloc.free(nativeRequest.draft_model_path);
           }
           calloc.free(nativeRequestPointer);
         }

@@ -53,6 +53,16 @@ class FllamaInferenceRequest {
   Function(String)? logger;
   String? eosToken;
 
+  /// Optional: path to an MTP assistant/drafter GGUF (e.g.
+  /// gemma-4-31B-it-assistant) to enable Multi-Token Prediction speculative
+  /// decoding. null/empty disables it. Only dense Gemma 4 targets (12B/31B and
+  /// the 26B-A4B MoE) have drafters; E2B/E4B are unsupported.
+  String? draftModelPath;
+
+  /// Optional: tokens to draft per step when [draftModelPath] is set.
+  /// null or <= 0 falls back to 3.
+  int? draftNMax;
+
   FllamaInferenceRequest({
     required this.contextSize,
     required this.input,
@@ -69,6 +79,8 @@ class FllamaInferenceRequest {
     this.numThreads = 2,
     this.logger,
     this.openAiRequestJsonString,
+    this.draftModelPath,
+    this.draftNMax,
   });
 }
 

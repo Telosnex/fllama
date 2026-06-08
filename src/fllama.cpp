@@ -210,6 +210,20 @@ static void run_inference(fllama_inference_request request,
     if (request.model_mmproj_path && strlen(request.model_mmproj_path) > 0)
       params.mmproj.path = request.model_mmproj_path;
 
+    // Multi-Token Prediction (MTP) speculative decoding. When a drafter/
+    // assistant GGUF is supplied (e.g. gemma-4-31B-it-assistant), wire it into
+    // common_params.speculative; server_context handles the shared-KV draft
+    // loop. Leave draft cache_type_k/v at their F16 defaults — Q8 KV cache was
+    // shown to collapse MTP draft acceptance (llama.cpp#23398).
+    if (request.draft_model_path && strlen(request.draft_model_path) > 0) {
+      params.speculative.draft.mparams.path = request.draft_model_path;
+      params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_MTP };
+      params.speculative.draft.n_max =
+          request.draft_n_max > 0 ? request.draft_n_max : 3;
+      // Offload the (small) drafter alongside the target model.
+      params.speculative.draft.n_gpu_layers = params.n_gpu_layers;
+    }
+
     // ── 2. Get or create server_context ───────────────────────────────
 
     auto *srv = g_mgr.get_or_create(
