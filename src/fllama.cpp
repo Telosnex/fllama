@@ -220,6 +220,14 @@ static void run_inference(fllama_inference_request request,
       params.speculative.types = { COMMON_SPECULATIVE_TYPE_DRAFT_MTP };
       params.speculative.draft.n_max =
           request.draft_n_max > 0 ? request.draft_n_max : 3;
+      if (request.draft_p_min >= 0.0f) {
+        params.speculative.draft.p_min = request.draft_p_min;
+      }
+      log_message("[fllama] MTP draft enabled: n_max=" +
+                      std::to_string(params.speculative.draft.n_max) +
+                      ", p_min=" +
+                      std::to_string(params.speculative.draft.p_min),
+                  request.dart_logger);
       // Offload the (small) drafter alongside the target model.
       params.speculative.draft.n_gpu_layers = params.n_gpu_layers;
     }

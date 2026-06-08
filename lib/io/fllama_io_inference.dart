@@ -9,10 +9,14 @@ import 'package:fllama/fllama_universal.dart';
 import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
 
-typedef NativeInferenceCallback = Void Function(
-    Pointer<Char> response, Pointer<Char> openaiResponseJsonString, Uint8 done);
-typedef NativeFllamaInferenceCallback
-    = Pointer<NativeFunction<NativeInferenceCallback>>;
+typedef NativeInferenceCallback =
+    Void Function(
+      Pointer<Char> response,
+      Pointer<Char> openaiResponseJsonString,
+      Uint8 done,
+    );
+typedef NativeFllamaInferenceCallback =
+    Pointer<NativeFunction<NativeInferenceCallback>>;
 typedef FllamaLogCallbackNative = Void Function(Pointer<Char>);
 typedef FllamaLogCallbackDart = void Function(Pointer<Char>);
 
@@ -24,13 +28,17 @@ typedef FllamaLogCallbackDart = void Function(Pointer<Char>);
 /// template and an EOS token. Use [fllamaChat] instead if you expect this
 /// sort of interface, i.e. an OpenAI-like API.
 Future<int> fllamaInference(
-    FllamaInferenceRequest request, FllamaInferenceCallback callback) async {
+  FllamaInferenceRequest request,
+  FllamaInferenceCallback callback,
+) async {
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
   final int requestId = _nextInferenceRequestId++;
-  final _IsolateInferenceRequest isolateRequest =
-      _IsolateInferenceRequest(requestId, request);
+  final _IsolateInferenceRequest isolateRequest = _IsolateInferenceRequest(
+    requestId,
+    request,
+  );
   _isolateInferenceCallbacks[requestId] = callback;
-  
+
   // Store the logger callback so we can call it when we get messages from the isolate
   if (request.logger != null) {
     _loggerCallbacks[requestId] = request.logger;
@@ -58,9 +66,9 @@ class _IsolateInferenceCancel {
 }
 
 class _IsolateLogMessage {
-  final int id;  // Request ID to know which logger to call
+  final int id; // Request ID to know which logger to call
   final String message;
-  
+
   const _IsolateLogMessage(this.id, this.message);
 }
 
@@ -91,7 +99,11 @@ final Map<int, void Function(String)?> _loggerCallbacks =
     <int, void Function(String)?>{};
 
 Pointer<fllama_inference_request> _toNative(
-    FllamaInferenceRequest dart, int requestId, [Map<int, NativeCallable>? loggerCallbacks, SendPort? sendPort]) {
+  FllamaInferenceRequest dart,
+  int requestId, [
+  Map<int, NativeCallable>? loggerCallbacks,
+  SendPort? sendPort,
+]) {
   // Allocate memory for the request structure.
   final Pointer<fllama_inference_request> requestPointer =
       calloc<fllama_inference_request>();
@@ -127,15 +139,16 @@ Pointer<fllama_inference_request> _toNative(
   }
   if (dart.openAiRequestJsonString != null &&
       dart.openAiRequestJsonString?.isNotEmpty == true) {
-    Pointer<Utf8> openAiRequestJsonStringCstr =
-        dart.openAiRequestJsonString!.toNativeUtf8();
-    request.openai_request_json_string =
-        openAiRequestJsonStringCstr.cast<Char>();
+    Pointer<Utf8> openAiRequestJsonStringCstr = dart.openAiRequestJsonString!
+        .toNativeUtf8();
+    request.openai_request_json_string = openAiRequestJsonStringCstr
+        .cast<Char>();
   }
   if (dart.draftModelPath != null && dart.draftModelPath?.isNotEmpty == true) {
     Pointer<Utf8> draftModelPathCstr = dart.draftModelPath!.toNativeUtf8();
     request.draft_model_path = draftModelPathCstr.cast<Char>();
     request.draft_n_max = dart.draftNMax ?? 0;
+    request.draft_p_min = dart.draftPMin ?? -1;
   }
   if (dart.logger != null) {
     void onResponse(Pointer<Char> responsePointer) {
@@ -192,7 +205,7 @@ Future<SendPort> _helperIsolateSendPort = () async {
         }
         if (data.done) {
           _isolateInferenceCallbacks.remove(data.id);
-          _loggerCallbacks.remove(data.id);  // Clean up the logger callback
+          _loggerCallbacks.remove(data.id); // Clean up the logger callback
           // Note: NativeCallable cleanup happens in the isolate when inference is done
           return;
         } else {
@@ -222,8 +235,9 @@ Future<SendPort> _helperIsolateSendPort = () async {
 /// `true` and the final output of the inference.
 void fllamaCancelInference(int requestId) async {
   final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
-  final _IsolateInferenceCancel isolateCancel =
-      _IsolateInferenceCancel(requestId);
+  final _IsolateInferenceCancel isolateCancel = _IsolateInferenceCancel(
+    requestId,
+  );
   helperIsolateSendPort.send(isolateCancel);
 }
 
@@ -260,12 +274,20 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
       // Clean up logger callbacks from previously completed requests
       // This is safe because at this point those requests are fully done on the C++ side
       _cleanupCompletedLoggerCallbacks();
-      
-      final nativeRequestPointer = _toNative(data.request, data.id, _globalLoggerCallbacks, sendPort);
+
+      final nativeRequestPointer = _toNative(
+        data.request,
+        data.id,
+        _globalLoggerCallbacks,
+        sendPort,
+      );
       final nativeRequest = nativeRequestPointer.ref;
       late final NativeCallable<NativeInferenceCallback> callback;
-      void onResponse(Pointer<Char> responsePointer,
-          Pointer<Char> openaiReponseJsonStringPointer, int done) {
+      void onResponse(
+        Pointer<Char> responsePointer,
+        Pointer<Char> openaiReponseJsonStringPointer,
+        int done,
+      ) {
         // NOTE: We do NOT close the logger callback here even when done == 1.
         // This is because the C++ side may continue calling log_message() after
         // signaling done=1 (e.g., during cleanup). Instead, we mark this request
@@ -288,8 +310,10 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
 
           while (length > 0) {
             try {
-              decodedString = utf8.decode(codeUnits.asTypedList(length),
-                  allowMalformed: false);
+              decodedString = utf8.decode(
+                codeUnits.asTypedList(length),
+                allowMalformed: false,
+              );
               // if the decode succeeds, exit the loop
               break;
             } catch (e) {
@@ -316,8 +340,10 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
 
           while (length > 0) {
             try {
-              decodedOpenaiResponseJsonString = utf8
-                  .decode(codeUnits.asTypedList(length), allowMalformed: false);
+              decodedOpenaiResponseJsonString = utf8.decode(
+                codeUnits.asTypedList(length),
+                allowMalformed: false,
+              );
               // if the decode succeeds, exit the loop
               break;
             } catch (e) {
@@ -357,11 +383,8 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
 
       callback = NativeCallable<NativeInferenceCallback>.listener(onResponse);
 
-      fllamaBindings.fllama_inference(
-        nativeRequest,
-        callback.nativeFunction,
-      );
-      
+      fllamaBindings.fllama_inference(nativeRequest, callback.nativeFunction);
+
       // DON'T clean up logger callback here - inference hasn't happened yet!
       // Logger cleanup is now deferred to avoid race conditions where C++
       // continues logging after signaling done=1

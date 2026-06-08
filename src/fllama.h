@@ -66,6 +66,8 @@ struct fllama_inference_request {
                            // destroys MTP draft acceptance.
   int draft_n_max;         // Optional: tokens to draft per step when
                            // draft_model_path is set. <= 0 falls back to 3.
+  float draft_p_min;       // Optional: minimum drafter top-token probability.
+                           // < 0 uses llama.cpp default.
 };
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,

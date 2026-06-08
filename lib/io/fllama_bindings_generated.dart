@@ -15,65 +15,63 @@ import 'dart:ffi' as ffi;
 class FllamaBindings {
   /// Holds the symbol lookup function.
   final ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
-      _lookup;
+  _lookup;
 
   /// The symbols are looked up in [dynamicLibrary].
   FllamaBindings(ffi.DynamicLibrary dynamicLibrary)
-      : _lookup = dynamicLibrary.lookup;
+    : _lookup = dynamicLibrary.lookup;
 
   /// The symbols are looked up with [lookup].
   FllamaBindings.fromLookup(
-      ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
-          lookup)
-      : _lookup = lookup;
+    ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName) lookup,
+  ) : _lookup = lookup;
 
   void fllama_inference(
     fllama_inference_request request,
     fllama_inference_callback callback,
   ) {
-    return _fllama_inference(
-      request,
-      callback,
-    );
+    return _fllama_inference(request, callback);
   }
 
-  late final _fllama_inferencePtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Void Function(fllama_inference_request,
-              fllama_inference_callback)>>('fllama_inference');
-  late final _fllama_inference = _fllama_inferencePtr.asFunction<
-      void Function(fllama_inference_request, fllama_inference_callback)>();
+  late final _fllama_inferencePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(fllama_inference_request, fllama_inference_callback)
+        >
+      >('fllama_inference');
+  late final _fllama_inference = _fllama_inferencePtr
+      .asFunction<
+        void Function(fllama_inference_request, fllama_inference_callback)
+      >();
 
   void fllama_inference_sync(
     fllama_inference_request request,
     fllama_inference_callback callback,
   ) {
-    return _fllama_inference_sync(
-      request,
-      callback,
-    );
+    return _fllama_inference_sync(request, callback);
   }
 
-  late final _fllama_inference_syncPtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Void Function(fllama_inference_request,
-              fllama_inference_callback)>>('fllama_inference_sync');
-  late final _fllama_inference_sync = _fllama_inference_syncPtr.asFunction<
-      void Function(fllama_inference_request, fllama_inference_callback)>();
+  late final _fllama_inference_syncPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(fllama_inference_request, fllama_inference_callback)
+        >
+      >('fllama_inference_sync');
+  late final _fllama_inference_sync = _fllama_inference_syncPtr
+      .asFunction<
+        void Function(fllama_inference_request, fllama_inference_callback)
+      >();
 
-  void fllama_inference_cancel(
-    int request_id,
-  ) {
-    return _fllama_inference_cancel(
-      request_id,
-    );
+  void fllama_inference_cancel(int request_id) {
+    return _fllama_inference_cancel(request_id);
   }
 
   late final _fllama_inference_cancelPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Int)>>(
-          'fllama_inference_cancel');
-  late final _fllama_inference_cancel =
-      _fllama_inference_cancelPtr.asFunction<void Function(int)>();
+        'fllama_inference_cancel',
+      );
+  late final _fllama_inference_cancel = _fllama_inference_cancelPtr
+      .asFunction<void Function(int)>();
 
   /// GPU device information.
   /// Returns the number of GPU devices visible to ggml/llama.cpp.
@@ -83,9 +81,10 @@ class FllamaBindings {
 
   late final _fllama_get_gpu_device_countPtr =
       _lookup<ffi.NativeFunction<ffi.Int Function()>>(
-          'fllama_get_gpu_device_count');
-  late final _fllama_get_gpu_device_count =
-      _fllama_get_gpu_device_countPtr.asFunction<int Function()>();
+        'fllama_get_gpu_device_count',
+      );
+  late final _fllama_get_gpu_device_count = _fllama_get_gpu_device_countPtr
+      .asFunction<int Function()>();
 
   /// Fills [out_info] for the GPU at [gpu_index].
   /// Returns 0 on success, non-zero on failure.
@@ -93,77 +92,67 @@ class FllamaBindings {
     int gpu_index,
     ffi.Pointer<fllama_gpu_memory_info> out_info,
   ) {
-    return _fllama_get_gpu_memory_info(
-      gpu_index,
-      out_info,
-    );
+    return _fllama_get_gpu_memory_info(gpu_index, out_info);
   }
 
-  late final _fllama_get_gpu_memory_infoPtr = _lookup<
-          ffi.NativeFunction<
-              ffi.Int Function(ffi.Int, ffi.Pointer<fllama_gpu_memory_info>)>>(
-      'fllama_get_gpu_memory_info');
+  late final _fllama_get_gpu_memory_infoPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Int, ffi.Pointer<fllama_gpu_memory_info>)
+        >
+      >('fllama_get_gpu_memory_info');
   late final _fllama_get_gpu_memory_info = _fllama_get_gpu_memory_infoPtr
       .asFunction<int Function(int, ffi.Pointer<fllama_gpu_memory_info>)>();
 
-  ffi.Pointer<ffi.Char> fllama_get_chat_template(
-    ffi.Pointer<ffi.Char> fname,
-  ) {
-    return _fllama_get_chat_template(
-      fname,
-    );
+  ffi.Pointer<ffi.Char> fllama_get_chat_template(ffi.Pointer<ffi.Char> fname) {
+    return _fllama_get_chat_template(fname);
   }
 
-  late final _fllama_get_chat_templatePtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Pointer<ffi.Char> Function(
-              ffi.Pointer<ffi.Char>)>>('fllama_get_chat_template');
+  late final _fllama_get_chat_templatePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)
+        >
+      >('fllama_get_chat_template');
   late final _fllama_get_chat_template = _fllama_get_chat_templatePtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
-  ffi.Pointer<ffi.Char> fllama_get_bos_token(
-    ffi.Pointer<ffi.Char> fname,
-  ) {
-    return _fllama_get_bos_token(
-      fname,
-    );
+  ffi.Pointer<ffi.Char> fllama_get_bos_token(ffi.Pointer<ffi.Char> fname) {
+    return _fllama_get_bos_token(fname);
   }
 
-  late final _fllama_get_bos_tokenPtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Pointer<ffi.Char> Function(
-              ffi.Pointer<ffi.Char>)>>('fllama_get_bos_token');
+  late final _fllama_get_bos_tokenPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)
+        >
+      >('fllama_get_bos_token');
   late final _fllama_get_bos_token = _fllama_get_bos_tokenPtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
-  ffi.Pointer<ffi.Char> fllama_get_eos_token(
-    ffi.Pointer<ffi.Char> fname,
-  ) {
-    return _fllama_get_eos_token(
-      fname,
-    );
+  ffi.Pointer<ffi.Char> fllama_get_eos_token(ffi.Pointer<ffi.Char> fname) {
+    return _fllama_get_eos_token(fname);
   }
 
-  late final _fllama_get_eos_tokenPtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Pointer<ffi.Char> Function(
-              ffi.Pointer<ffi.Char>)>>('fllama_get_eos_token');
+  late final _fllama_get_eos_tokenPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)
+        >
+      >('fllama_get_eos_token');
   late final _fllama_get_eos_token = _fllama_get_eos_tokenPtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
-  int fllama_tokenize(
-    fllama_tokenize_request request,
-  ) {
-    return _fllama_tokenize(
-      request,
-    );
+  int fllama_tokenize(fllama_tokenize_request request) {
+    return _fllama_tokenize(request);
   }
 
   late final _fllama_tokenizePtr =
       _lookup<ffi.NativeFunction<ffi.Size Function(fllama_tokenize_request)>>(
-          'fllama_tokenize');
-  late final _fllama_tokenize =
-      _fllama_tokenizePtr.asFunction<int Function(fllama_tokenize_request)>();
+        'fllama_tokenize',
+      );
+  late final _fllama_tokenize = _fllama_tokenizePtr
+      .asFunction<int Function(fllama_tokenize_request)>();
 }
 
 final class fllama_gpu_memory_info extends ffi.Struct {
@@ -261,16 +250,25 @@ final class fllama_inference_request extends ffi.Struct {
   /// <= 0 falls back to 3.
   @ffi.Int()
   external int draft_n_max;
+
+  /// Optional: minimum drafter top-token probability.
+  /// < 0 uses llama.cpp default.
+  @ffi.Float()
+  external double draft_p_min;
 }
 
-typedef fllama_log_callback
-    = ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>;
-typedef fllama_inference_callback = ffi.Pointer<
-    ffi.NativeFunction<
+typedef fllama_log_callback =
+    ffi.Pointer<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>;
+typedef fllama_inference_callback =
+    ffi.Pointer<
+      ffi.NativeFunction<
         ffi.Void Function(
-            ffi.Pointer<ffi.Char> response,
-            ffi.Pointer<ffi.Char> openai_response_json_string,
-            ffi.Uint8 done)>>;
+          ffi.Pointer<ffi.Char> response,
+          ffi.Pointer<ffi.Char> openai_response_json_string,
+          ffi.Uint8 done,
+        )
+      >
+    >;
 
 final class fllama_tokenize_request extends ffi.Struct {
   /// Required: input text

@@ -97,6 +97,12 @@ class OpenAiRequest {
   /// Optional: tokens to draft per step when [draftModelPath] is set.
   final int? draftNMax;
 
+  /// Optional: minimum drafter top-token probability required to keep drafting.
+  /// Higher values stop low-confidence long drafts before they become expensive
+  /// rejected work. For Gemma 4 chat on Metal, ~0.95–0.99 is much safer than
+  /// llama.cpp's default 0.0 when [draftNMax] is large.
+  final double? draftPMin;
+
   String toJsonString() {
     final Map<String, dynamic> json = {
       'messages': messages
@@ -174,5 +180,6 @@ class OpenAiRequest {
     // Optional MTP/speculative drafter GGUF (native-only).
     this.draftModelPath,
     this.draftNMax,
+    this.draftPMin,
   });
 }

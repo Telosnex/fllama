@@ -54,7 +54,9 @@ static bool params_match(const ServerResources &r,
   return r.n_ctx        == params.n_ctx &&
          r.n_gpu_layers == params.n_gpu_layers &&
          r.mmproj_path  == params.mmproj.path &&
-         r.draft_path   == params.speculative.draft.mparams.path;
+         r.draft_path   == params.speculative.draft.mparams.path &&
+         r.draft_n_max  == params.speculative.draft.n_max &&
+         r.draft_p_min  == params.speculative.draft.p_min;
 }
 
 ServerResources *
@@ -149,6 +151,8 @@ ServerManager::get_or_create(const std::string &model_path,
   res->n_gpu_layers  = params.n_gpu_layers;
   res->mmproj_path   = params.mmproj.path;
   res->draft_path    = params.speculative.draft.mparams.path;
+  res->draft_n_max   = params.speculative.draft.n_max;
+  res->draft_p_min   = params.speculative.draft.p_min;
   res->last_used     = std::chrono::steady_clock::now();
   res->active_users.store(1);
 

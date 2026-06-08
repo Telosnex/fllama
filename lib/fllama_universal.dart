@@ -63,6 +63,11 @@ class FllamaInferenceRequest {
   /// null or <= 0 falls back to 3.
   int? draftNMax;
 
+  /// Optional: minimum drafter top-token probability required to continue a
+  /// draft. null means llama.cpp default. Gemma 4 chat often needs a high value
+  /// such as 0.95–0.99 when [draftNMax] is high.
+  double? draftPMin;
+
   FllamaInferenceRequest({
     required this.contextSize,
     required this.input,
@@ -81,6 +86,7 @@ class FllamaInferenceRequest {
     this.openAiRequestJsonString,
     this.draftModelPath,
     this.draftNMax,
+    this.draftPMin,
   });
 }
 
@@ -127,34 +133,10 @@ Future<int> fllamaChat(
   OpenAiRequest request,
   FllamaInferenceCallback callback,
 ) async {
-  final String text;
-  final String eosToken;
-  final String bosToken;
-  final String chatTemplate;
-
-  chatTemplate = '';
-  // fllamaSanitizeChatTemplate(
-  //   await fllamaChatTemplateGet(request.modelPath),
-  //   request.modelPath,
-  // );
-  eosToken = '';
-  // chatTemplate == chatMlTemplate
-  //     ? chatMlEosToken
-  //     : await fllamaEosTokenGet(request.modelPath);
-  bosToken = '';
-
-  //  chatTemplate == chatMlTemplate
-  //     ? chatMlBosToken
-  //     : await fllamaBosTokenGet(request.modelPath);
-
-  text =
-      '' ??
-      fllamaApplyChatTemplate(
-        chatTemplate: chatTemplate,
-        bosToken: bosToken,
-        eosToken: eosToken,
-        request: request,
-      );
+  // Chat requests are handled by llama.cpp's native OpenAI/server path via
+  // [openAiRequestJsonString]. Keep the plain inference input empty.
+  const text = '';
+  const eosToken = '';
 
   final inferenceRequest = FllamaInferenceRequest(
     contextSize: request.contextSize,
@@ -173,6 +155,7 @@ Future<int> fllamaChat(
     openAiRequestJsonString: request.toJsonString(),
     draftModelPath: request.draftModelPath,
     draftNMax: request.draftNMax,
+    draftPMin: request.draftPMin,
   );
 
   return fllamaInference(inferenceRequest, callback);

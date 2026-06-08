@@ -36,6 +36,8 @@ struct ServerResources {
   int n_gpu_layers  = -1;
   std::string mmproj_path;
   std::string draft_path; // MTP/speculative drafter model path ("" if none)
+  int draft_n_max = 0;    // MTP/speculative max draft tokens; load-time param
+  float draft_p_min = -1; // MTP/speculative min draft confidence; load-time param
 
   ServerResources() = default;
   ~ServerResources(); // terminates loop, joins thread

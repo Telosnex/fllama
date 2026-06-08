@@ -14,6 +14,9 @@ late final SharedPreferences kSharedPrefs;
 const String kModelPathKey = 'modelPath';
 const String kMmprojPathKey = 'mmprojPath';
 const String kDraftPathKey = 'draftPath';
+const String kDraftNMaxKey = 'draftNMax';
+const int kDefaultDraftNMax = 12;
+const double kDefaultDraftPMin = 0.99;
 
 const String kExampleQwenGgufUrl =
     'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf';
@@ -67,6 +70,7 @@ class _MyAppState extends State<MyApp> {
   var _temperature = 0.5;
   var _topP = 1.0;
   int _maxTokens = 100;
+  int _draftNMax = kDefaultDraftNMax;
 
   String latestResultString = '';
   String latestResultJson = '';
@@ -74,7 +78,8 @@ class _MyAppState extends State<MyApp> {
   String latestChatTemplate = '';
   String latestEosToken = '';
   String latestBosToken = '';
-  double _tokensPerSecond = 0;
+  double _tokensPerSecond =
+      0; // wall-clock fallback; includes load/reload overhead
   DateTime? _inferenceStartTime;
 
   // Parsed streaming state
@@ -98,6 +103,7 @@ class _MyAppState extends State<MyApp> {
       _mmprojPath = kSharedPrefs.getString(kMmprojPathKey);
       _modelPath = kSharedPrefs.getString(kModelPathKey);
       _draftPath = kSharedPrefs.getString(kDraftPathKey);
+      _draftNMax = kSharedPrefs.getInt(kDraftNMaxKey) ?? kDefaultDraftNMax;
     }
   }
 
@@ -208,6 +214,45 @@ class _MyAppState extends State<MyApp> {
                         ]
                       ],
                     ),
+                    if (_draftPath != null) ...[
+                      Row(
+                        children: [
+                          Tooltip(
+                            message:
+                                'Maximum number of tokens the drafter proposes per round.\n'
+                                'Higher values reduce verification rounds but can waste more work\n'
+                                'after a rejected draft token. On Apple Silicon, 8–12 is often\n'
+                                'better than llama.cpp examples that use 3–4.',
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('Draft tokens: $_draftNMax',
+                                    style: textStyle),
+                                const SizedBox(width: 4),
+                                const Icon(Icons.info),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Slider.adaptive(
+                              label: 'Draft tokens: $_draftNMax',
+                              value: _draftNMax.toDouble(),
+                              min: 1,
+                              max: 32,
+                              divisions: 31,
+                              onChanged: (newDraftNMax) {
+                                final value = newDraftNMax.round();
+                                setState(() {
+                                  _draftNMax = value;
+                                });
+                                kSharedPrefs.setInt(kDraftNMaxKey, value);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                   if (kIsWeb) ...[
                     const Text(
@@ -523,11 +568,25 @@ class _MyAppState extends State<MyApp> {
                     const SizedBox(height: 8),
                   ],
                   if (!kIsWeb && latestResultString.isNotEmpty) ...[
-                    if (_tokensPerSecond > 0)
+                    if (_displayTokensPerSecond > 0) ...[
                       Text(
-                        'Speed: ${_tokensPerSecond.toStringAsFixed(1)} tokens/s',
+                        'Generation speed: ${_displayTokensPerSecond.toStringAsFixed(1)} tokens/s',
                         style: const TextStyle(fontFamily: 'monospace'),
                       ),
+                      Text(
+                        _timingsPredictedPerSecond == null
+                            ? '(wall clock incl. load/reload: ${_tokensPerSecond.toStringAsFixed(1)} tokens/s)'
+                            : '(server predicted_per_second)',
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 12),
+                      ),
+                      if (_draftTimingLabel != null)
+                        Text(
+                          _draftTimingLabel!,
+                          style: const TextStyle(
+                              fontFamily: 'monospace', fontSize: 12),
+                        ),
+                    ],
                     Text('Output token count: $latestOutputTokenCount',
                         style: textStyle),
                   ],
@@ -642,6 +701,30 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
+  double? get _timingsPredictedPerSecond {
+    final value = _timings?['predicted_per_second'];
+    if (value is num) return value.toDouble();
+    return null;
+  }
+
+  double get _displayTokensPerSecond =>
+      _timingsPredictedPerSecond ?? _tokensPerSecond;
+
+  String? get _draftTimingLabel {
+    final draftN = _timings?['draft_n'];
+    final accepted = _timings?['draft_n_accepted'];
+    if (draftN is! num || accepted is! num || draftN <= 0) return null;
+    final acceptance = accepted / draftN * 100.0;
+    return 'draft accepted: ${accepted.toInt()}/${draftN.toInt()} '
+        '(${acceptance.toStringAsFixed(0)}%)';
+  }
+
+  void _mergeTimings(dynamic value) {
+    if (value is Map) {
+      _timings = Map<String, dynamic>.from(value);
+    }
+  }
+
   String _prettyToolCalls() {
     final out = <Map<String, dynamic>>[];
     for (final tc in _accToolCalls) {
@@ -664,12 +747,16 @@ class _MyAppState extends State<MyApp> {
       final List<dynamic> chunks = decoded is List ? decoded : [decoded];
       for (final chunk in chunks) {
         if (chunk is! Map<String, dynamic>) continue;
+        _mergeTimings(chunk['timings']);
+        final usage = chunk['usage'];
+        if (usage is Map) {
+          _mergeTimings(usage['timings']);
+        }
         final choices = chunk['choices'] as List<dynamic>? ?? [];
         if (choices.isEmpty) continue;
         final choice = choices[0] as Map<String, dynamic>;
         final delta = choice['delta'] as Map<String, dynamic>? ?? {};
         final finishReason = choice['finish_reason'] as String?;
-        final timings = chunk['timings'] as Map<String, dynamic>?;
 
         if (delta['reasoning_content'] is String) {
           _accReasoning += delta['reasoning_content'] as String;
@@ -699,9 +786,6 @@ class _MyAppState extends State<MyApp> {
         }
         if (finishReason != null) {
           _finishReason = finishReason;
-        }
-        if (timings != null) {
-          _timings = timings;
         }
       }
     } catch (_) {}
@@ -776,7 +860,12 @@ class _MyAppState extends State<MyApp> {
       mmprojPath: _mmprojPath,
       // MTP speculative decoding (native-only). Ignored on web.
       draftModelPath: kIsWeb ? null : _draftPath,
-      draftNMax: 3,
+      draftNMax: _draftNMax,
+      // Gemma 4 chat MTP is fragile with llama.cpp's default p_min=0.0:
+      // high n_max blindly drafts low-confidence future tokens and can slow
+      // creative/agentic prompts dramatically. 0.99 kept math speedups while
+      // avoiding most regressions in local 12B chat sweeps.
+      draftPMin: _draftPath == null ? null : kDefaultDraftPMin,
       frequencyPenalty: 0.0,
       // Don't use below 1.1, LLMs without a repeat penalty
       // will repeat the same token.
@@ -805,6 +894,24 @@ class _MyAppState extends State<MyApp> {
       },
     );
 
+    // Keep this one-line-ish debug block copy/pasteable. MTP behavior is very
+    // sensitive to the exact prompt/request shape; without this, GUI vs
+    // integration vs llama-server comparisons are easy to misread.
+    // ignore: avoid_print
+    print('[fllama example request] ${jsonEncode({
+          'modelPath': request.modelPath,
+          'draftModelPath': request.draftModelPath,
+          'draftNMax': request.draftNMax,
+          'draftPMin': request.draftPMin,
+          'contextSize': request.contextSize,
+          'maxTokens': request.maxTokens,
+          'temperature': request.temperature,
+          'topP': request.topP,
+          'frequencyPenalty': request.frequencyPenalty,
+          'presencePenalty': request.presencePenalty,
+          'openAiRequest': jsonDecode(request.toJsonString()),
+        })}');
+
     _inferenceStartTime = DateTime.now();
     setState(() {
       _accReasoning = '';
@@ -814,6 +921,8 @@ class _MyAppState extends State<MyApp> {
       _timings = null;
       latestResultString = '';
       latestResultJson = '';
+      latestOutputTokenCount = 0;
+      _tokensPerSecond = 0;
     });
 
     if (kIsWeb) {
@@ -882,6 +991,20 @@ class _MyAppState extends State<MyApp> {
           });
         });
         if (done) {
+          // ignore: avoid_print
+          print('[fllama example final] ${jsonEncode({
+                'timings': _timings,
+                'finishReason': _finishReason,
+                'reasoningPrefix': _accReasoning.length > 300
+                    ? _accReasoning.substring(0, 300)
+                    : _accReasoning,
+                'contentPrefix': _accContent.length > 300
+                    ? _accContent.substring(0, 300)
+                    : _accContent,
+                'latestResultPrefix': latestResultString.length > 300
+                    ? latestResultString.substring(0, 300)
+                    : latestResultString,
+              })}');
           _runningRequestId = null;
           _inferenceStartTime = null;
 
