@@ -166,7 +166,7 @@ struct mtmd_cli_context {
     }
 
     bool load_media(const std::string & fname) {
-        mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(ctx_vision.get(), fname.c_str()));
+        mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(ctx_vision.get(), fname.c_str(), false));
         if (!bmp.ptr) {
             return false;
         }
@@ -294,6 +294,8 @@ int main(int argc, char ** argv) {
         LOG_ERR("ERR: Missing --mmproj argument\n");
         return 1;
     }
+
+    ggml_backend_load_all();
 
     mtmd_cli_context ctx(params);
     LOG_INF("%s: loading model: %s\n", __func__, params.model.path.c_str());

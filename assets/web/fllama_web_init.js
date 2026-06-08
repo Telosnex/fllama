@@ -1,6 +1,6 @@
-import { Wllama } from "./wllama/index.js?v=ngxson-v5-request-jinja";
+import { Wllama } from "./wllama/index.js?v=ngxson-v6-llamacpp-b9553";
 
-const WLLAMA_ASSET_VERSION = 'ngxson-v5-request-jinja';
+const WLLAMA_ASSET_VERSION = 'ngxson-v6-llamacpp-b9553';
 
 function versionedAsset(path) {
     const url = new URL(path, import.meta.url);

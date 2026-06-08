@@ -372,12 +372,17 @@ const func_builtins & global_builtins() {
             std::string format = args.get_pos(0)->as_string().str();
             // get current time
             // TODO: make sure this is the same behavior as Python's strftime
+            #ifdef __EMSCRIPTEN__
+            (void) format;
+            return mk_val<value_string>(std::string("Jan 01 1970"));
+#else
             char buf[100];
             if (std::strftime(buf, sizeof(buf), format.c_str(), std::localtime(&args.ctx.current_time))) {
                 return mk_val<value_string>(std::string(buf));
             } else {
                 throw raised_exception("strftime_now: failed to format time");
             }
+#endif
         }},
         {"range", [](const func_args & args) -> value {
             args.ensure_count(1, 3);

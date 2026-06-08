@@ -9,6 +9,7 @@
 #include <stdbool.h>
 
 #ifdef __cplusplus
+#include <map>
 #include <string>
 #include <vector>
 #include <cinttypes>
@@ -132,9 +133,16 @@ MTMD_API int mtmd_get_audio_sample_rate(const mtmd_context * ctx);
 // if bitmap is image:
 //     length of data must be nx * ny * 3
 //     the data is in RGBRGBRGB... format
+//     note: some video-capable models (i.e. qwen-vl) can merge consecutive bitmaps
+//           into one chunk, mtmd_tokenize() will automatically handle this
 // if bitmap is audio:
 //     length of data must be n_samples * sizeof(float)
 //     the data is in float format (PCM F32)
+//
+// if data == nullptr:
+//     the bitmap is considered "empty", and will be treated as a placeholder for counting tokens
+//     you can pass the bitmap via mtmd_tokenize(), then call mtmd_*_get_n_tokens() to count the tokens
+//     note: passing a placeholder bitmap to mtmd_encode() will return an error
 MTMD_API mtmd_bitmap *         mtmd_bitmap_init           (uint32_t nx, uint32_t ny, const unsigned char * data);
 MTMD_API mtmd_bitmap *         mtmd_bitmap_init_from_audio(size_t n_samples,         const float         * data);
 MTMD_API uint32_t              mtmd_bitmap_get_nx     (const mtmd_bitmap * bitmap);
@@ -244,6 +252,14 @@ MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 // If this is not called, or NULL is supplied, everything is output on stderr.
 MTMD_API void mtmd_log_set(ggml_log_callback log_callback, void * user_data);
 
+// EXPERIMENTAL API to get mmproj's capabilities without initializing the full context
+// This is only intended to be used by llama-server, breaking changes is expected
+struct mtmd_caps {
+    bool inp_vision;
+    bool inp_audio;
+};
+MTMD_API struct mtmd_caps mtmd_get_cap_from_file(const char * mmproj_fname);
+
 /////////////////////////////////////////
 
 // test function, to be used in test-mtmd-c-api.c
@@ -251,6 +267,14 @@ MTMD_API mtmd_input_chunks * mtmd_test_create_input_chunks(void);
 
 #ifdef __cplusplus
 } // extern "C"
+#endif
+
+// Get memory usage of the current model in bytes, per backend device
+// Note: this is an unstable API, used internally by fit_params; it WILL be removed or changed without deprecation
+#ifdef __cplusplus
+MTMD_API std::map<ggml_backend_dev_t, size_t> mtmd_get_memory_usage(
+    const char * mmproj_fname,
+    struct mtmd_context_params ctx_params);
 #endif
 
 //

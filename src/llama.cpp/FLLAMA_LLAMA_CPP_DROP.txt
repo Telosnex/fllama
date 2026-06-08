@@ -1,3 +1,13 @@
-This vendored llama.cpp tree was refreshed from /Users/jpo/dev/wllama-stock/llama.cpp.
-Source commit: f22c8021d Merge remote-tracking branch 'origin/master' into file-loader-changes
-Reason: keep fllama's native/wasm builds on the fast ggml-webgpu backend used by wllama-stock.
+This vendored llama.cpp tree was refreshed from /Users/jpo/dev/ngxson_wllama/llama.cpp.
+Source commit: cbbe868c0 Avoid iostream crashes in wasm chat and WebGPU preprocessing
+Source base:   9e3b928fd (upstream tag b9553) + wllama wasm iostream-avoidance patch
+Reason: match fllama's native build to the same llama.cpp commit as the web wllama
+        artifacts (assets/web/wllama/*), which were rebuilt from this same checkout.
+
+Notes:
+- Previous drop was wllama-stock @ f22c8021d (upstream ~Apr 29 2026, "file-loader-changes").
+  Its only custom source patch (64-bit file offsets via llama_mmap_ftell/llama_mmap_fseek
+  in src/llama-mmap.cpp) is already present upstream in b9553, so nothing was lost.
+- The wllama patch adds #ifdef __EMSCRIPTEN__ fallbacks (chat/jinja date formatting) and
+  stream-free string building in common/ and ggml-webgpu. These are wasm-only or
+  behavior-neutral and compile the normal path on native builds.

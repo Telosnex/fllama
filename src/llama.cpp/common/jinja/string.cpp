@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <functional>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -46,11 +45,11 @@ std::string string::str() const {
     if (parts.size() == 1) {
         return parts[0].val;
     }
-    std::ostringstream oss;
+    std::string res;
     for (const auto & part : parts) {
-        oss << part.val;
+        res += part.val;
     }
-    return oss.str();
+    return res;
 }
 
 size_t string::length() const {
