@@ -171,6 +171,8 @@ Future<int> fllamaChat(
     logger: request.logger,
     eosToken: eosToken,
     openAiRequestJsonString: request.toJsonString(),
+    draftModelPath: request.draftModelPath,
+    draftNMax: request.draftNMax,
   );
 
   return fllamaInference(inferenceRequest, callback);

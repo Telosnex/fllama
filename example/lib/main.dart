@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 late final SharedPreferences kSharedPrefs;
 const String kModelPathKey = 'modelPath';
 const String kMmprojPathKey = 'mmprojPath';
+const String kDraftPathKey = 'draftPath';
 
 const String kExampleQwenGgufUrl =
     'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf';
@@ -58,6 +59,9 @@ class _MyAppState extends State<MyApp> {
   // This is only required for multimodal models.
   // Multimodal models are rare.
   String? _mmprojPath;
+  // Optional: MTP assistant/drafter GGUF (e.g. gemma-4-31B-it-assistant)
+  // to enable speculative decoding. Native-only.
+  String? _draftPath;
   Uint8List? _imageBytes;
   final TextEditingController _controller = TextEditingController();
   var _temperature = 0.5;
@@ -93,6 +97,7 @@ class _MyAppState extends State<MyApp> {
     if (!kIsWeb) {
       _mmprojPath = kSharedPrefs.getString(kMmprojPathKey);
       _modelPath = kSharedPrefs.getString(kModelPathKey);
+      _draftPath = kSharedPrefs.getString(kDraftPathKey);
     }
   }
 
@@ -159,6 +164,44 @@ class _MyAppState extends State<MyApp> {
                                 _imageBytes = null;
                               });
                               kSharedPrefs.remove(kMmprojPathKey);
+                            },
+                            icon: const Icon(Icons.close),
+                          ),
+                        ]
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _openDraftGgufPressed,
+                          icon: const Icon(Icons.file_open),
+                          label: const Text('Open drafter .gguf'),
+                        ),
+                        const SizedBox(width: 8),
+                        const Tooltip(
+                          message:
+                              'Optional: an MTP assistant/drafter GGUF (e.g.\n'
+                              'gemma-4-31B-it-assistant) enables speculative\n'
+                              'decoding. Dense Gemma 4 targets only (12B/31B,\n'
+                              '26B-A4B). Keep the drafter at F16/Q8; do NOT use\n'
+                              'a Q8 KV cache.',
+                          child: Icon(Icons.bolt),
+                        ),
+                        if (_draftPath != null) ...[
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8.0),
+                            child: SelectableText(
+                              _draftPath!,
+                              style: textStyle,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              setState(() {
+                                _draftPath = null;
+                              });
+                              kSharedPrefs.remove(kDraftPathKey);
                             },
                             icon: const Icon(Icons.close),
                           ),
@@ -731,6 +774,9 @@ class _MyAppState extends State<MyApp> {
       /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
       modelPath: kIsWeb ? _webModelPath : _modelPath!,
       mmprojPath: _mmprojPath,
+      // MTP speculative decoding (native-only). Ignored on web.
+      draftModelPath: kIsWeb ? null : _draftPath,
+      draftNMax: 3,
       frequencyPenalty: 0.0,
       // Don't use below 1.1, LLMs without a repeat penalty
       // will repeat the same token.
@@ -877,6 +923,20 @@ class _MyAppState extends State<MyApp> {
 
     setState(() {
       _mmprojPath = filePath;
+    });
+  }
+
+  void _openDraftGgufPressed() async {
+    final filePath = await _pickGgufPath();
+    if (filePath == null) {
+      await kSharedPrefs.remove(kDraftPathKey);
+      return;
+    } else {
+      await kSharedPrefs.setString(kDraftPathKey, filePath);
+    }
+
+    setState(() {
+      _draftPath = filePath;
     });
   }
 

@@ -90,6 +90,13 @@ class OpenAiRequest {
   final Function(String)? logger;
   final ToolChoice? toolChoice;
 
+  /// Optional: path to an MTP assistant/drafter GGUF to enable Multi-Token
+  /// Prediction speculative decoding. Native-only; ignored on web.
+  final String? draftModelPath;
+
+  /// Optional: tokens to draft per step when [draftModelPath] is set.
+  final int? draftNMax;
+
   String toJsonString() {
     final Map<String, dynamic> json = {
       'messages': messages
@@ -164,5 +171,8 @@ class OpenAiRequest {
     // Optional logger.
     this.logger,
     this.jinjaTemplate,
+    // Optional MTP/speculative drafter GGUF (native-only).
+    this.draftModelPath,
+    this.draftNMax,
   });
 }
