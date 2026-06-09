@@ -12,7 +12,8 @@ Web runtime provenance:
   - CMakeLists.txt adds -sSTACK_SIZE=16MB. This fixes Gemma4 tool/response-format
     grammar generation stack exhaustion that surfaced as RuntimeError:null function
     in libc++ ostream/string_join frames.
-  - cpp/wllama-time.js is linked with --js-library to provide _localtime_js for
+  - CMakeLists.txt adds -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=_localtime_js to
+    force-include Emscripten's stock libtime.js _localtime_js implementation for
     upstream llama.cpp std::localtime/strftime diagnostics.
 
 Notes:
@@ -29,6 +30,6 @@ Notes:
 
 Validated during this refresh:
 - Direct wllama wasm instantiation smoke test passed with upstream llama.cpp +
-  _localtime_js import.
+  Emscripten stock _localtime_js import.
 - Tiny-model Gemma4-like template + tools repro passed with upstream llama.cpp,
   -sSTACK_SIZE=16MB, _localtime_js import, and regenerated worker bundle.

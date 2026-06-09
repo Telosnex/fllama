@@ -1,6 +1,6 @@
-import { Wllama } from "./wllama/index.js?v=ngxson-v8-llamacpp-b9553-stack16-localtime";
+import { Wllama } from "./wllama/index.js?v=ngxson-v9-llamacpp-b9553-stack16-libtime";
 
-const WLLAMA_ASSET_VERSION = 'ngxson-v8-llamacpp-b9553-stack16-localtime';
+const WLLAMA_ASSET_VERSION = 'ngxson-v9-llamacpp-b9553-stack16-libtime';
 
 function versionedAsset(path) {
     const url = new URL(path, import.meta.url);

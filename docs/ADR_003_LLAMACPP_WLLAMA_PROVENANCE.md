@@ -41,8 +41,9 @@ The browser fixes now live in the **wllama parent build/runtime**, not in
 `llama.cpp` source:
 
 - `-sSTACK_SIZE=16MB` fixes Gemma4 tool/response-format grammar stack exhaustion.
-- `cpp/wllama-time.js` provides Emscripten's `_localtime_js` import for upstream
-  `std::localtime` / `strftime` paths.
+- `-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=_localtime_js` force-includes Emscripten's
+  stock `libtime.js` `_localtime_js` implementation for upstream `std::localtime`
+  / `strftime` paths.
 
 ---
 
@@ -85,7 +86,8 @@ This refresh changes the wllama working tree to:
 - rewind the `llama.cpp` submodule from Telosnex `b7f7dabed` to upstream
   `9e3b928fd`;
 - add `-sSTACK_SIZE=16MB` in wllama `CMakeLists.txt`;
-- add `cpp/wllama-time.js` and link it with `--js-library`;
+- add `-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=_localtime_js` so generated glue
+  includes Emscripten's stock `_localtime_js` implementation;
 - rebuild wasm, generated worker code, and the ESM bundle.
 
 ### 3b. llama.cpp source
@@ -137,16 +139,18 @@ The missing `_localtime_js` path is handled by providing the import at link time
 - Validation: upstream `llama.cpp` `9e3b928fd` + this stack setting passed the
   tiny-model Gemma4-like template + tools repro.
 
-### 4c. Fix: provide `_localtime_js`
+### 4c. Fix: force-include Emscripten `_localtime_js`
 
-- Where: wllama `cpp/wllama-time.js`, linked with:
+- Where: wllama `CMakeLists.txt`:
   ```cmake
-  --js-library=${CMAKE_CURRENT_SOURCE_DIR}/cpp/wllama-time.js
+  -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=_localtime_js
   ```
 - Why: upstream llama.cpp can use `std::localtime` / `strftime` in diagnostics.
-  The wasm imports `_localtime_js`; wllama's minimized runtime must provide it.
+  The wasm imports `_localtime_js`. Emscripten ships the implementation in
+  `src/lib/libtime.js`; this flag forces generated glue to include that canonical
+  implementation instead of relying on auto-inclusion.
 - Validation: direct wllama wasm instantiation smoke test passed with upstream
-  `llama.cpp` after this import was supplied.
+  `llama.cpp` after the stock Emscripten libtime implementation was included.
 
 ### 4d. fllama-side native build glue
 
