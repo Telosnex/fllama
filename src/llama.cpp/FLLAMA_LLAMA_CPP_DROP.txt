@@ -1,15 +1,34 @@
 This vendored llama.cpp tree was refreshed from /Users/jpo/dev/ngxson_wllama/llama.cpp.
-Source commit: b7f7dabed Avoid remaining wasm iostream traps in Jinja and MTMD loading
-Source base:   9e3b928fd (upstream tag b9553) + wllama wasm iostream-avoidance patches
-Reason: keep fllama's native build and web wllama artifacts on the same llama.cpp
-        commit, including the web fixes for Jinja/autoparser and MTMD/mmproj loads.
+Source commit: 9e3b928fd common : relax sampler name matching (#23744)
+Source base:   upstream llama.cpp b9553
+Reason: keep fllama's native build and web wllama artifacts aligned after replacing
+        the prior wasm iostream workaround patches with build/runtime fixes in wllama.
+
+Web runtime provenance:
+- wllama parent checkout: /Users/jpo/dev/ngxson_wllama
+- wllama branch: telosnex/request-id-parallel-llamacpp-head-diagnose-wasm-runtime
+- llama.cpp submodule: 9e3b928fd
+- wasm fixes live in wllama, not in llama.cpp:
+  - CMakeLists.txt adds -sSTACK_SIZE=16MB. This fixes Gemma4 tool/response-format
+    grammar generation stack exhaustion that surfaced as RuntimeError:null function
+    in libc++ ostream/string_join frames.
+  - cpp/wllama-time.js is linked with --js-library to provide _localtime_js for
+    upstream llama.cpp std::localtime/strftime diagnostics.
 
 Notes:
-- Previous drop was cbbe868c0. This update fixes additional wasm RuntimeError:null function
-  traps seen in production:
-  - tools/mtmd/clip.cpp: use FILE*/fseeko instead of std::ifstream in clip_model_loader::load_tensors
-  - common/jinja/value.cpp: serialize to JSON with std::string append instead of std::ostringstream
-  - common/jinja/runtime.cpp: format rethrown Jinja errors with std::string append instead of std::ostringstream
-- The MTMD fix was validated against the local Qwen3.5 model pair:
-  /Users/jpo/Documents/Telosnex/models/Qwen3.5-0.8B-Q4_K_M.gguf
-  /Users/jpo/Documents/Telosnex/models/Qwen3.5-0.8B-mmproj-F16.gguf
+- Previous drop was b7f7dabed, i.e. upstream 9e3b928fd plus two Telosnex
+  llama.cpp wasm iostream-avoidance commits:
+  - cbbe868c0 Avoid iostream crashes in wasm chat and WebGPU preprocessing
+  - b7f7dabed Avoid remaining wasm iostream traps in Jinja and MTMD loading
+- Those source patches were removed from the vendored native tree. Validation showed
+  upstream 9e3b928fd + wllama stack/import fixes instantiates and passes the Gemma4
+  tool grammar repro.
+- The old MTMD std::ifstream workaround was not retained. If a separate browser
+  mmproj/MTMD loading issue reappears, validate it independently rather than
+  assuming it is the same Gemma4 stack bug.
+
+Validated during this refresh:
+- Direct wllama wasm instantiation smoke test passed with upstream llama.cpp +
+  _localtime_js import.
+- Tiny-model Gemma4-like template + tools repro passed with upstream llama.cpp,
+  -sSTACK_SIZE=16MB, _localtime_js import, and regenerated worker bundle.

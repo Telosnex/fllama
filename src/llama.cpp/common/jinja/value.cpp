@@ -5,7 +5,6 @@
 // for converting from JSON to jinja values
 #include <nlohmann/json.hpp>
 
-#include <cstdio>
 #include <sstream>
 #include <string>
 #include <cctype>
@@ -373,17 +372,12 @@ const func_builtins & global_builtins() {
             std::string format = args.get_pos(0)->as_string().str();
             // get current time
             // TODO: make sure this is the same behavior as Python's strftime
-            #ifdef __EMSCRIPTEN__
-            (void) format;
-            return mk_val<value_string>(std::string("Jan 01 1970"));
-#else
             char buf[100];
             if (std::strftime(buf, sizeof(buf), format.c_str(), std::localtime(&args.ctx.current_time))) {
                 return mk_val<value_string>(std::string(buf));
             } else {
                 throw raised_exception("strftime_now: failed to format time");
             }
-#endif
         }},
         {"range", [](const func_args & args) -> value {
             args.ensure_count(1, 3);
@@ -1369,101 +1363,90 @@ void global_from_json(context & ctx, const nlohmann::ordered_json & json_obj, bo
 
 // recursively convert value to JSON string
 // TODO: avoid circular references
-static void value_to_json_internal(std::string & out, const value & val, int curr_lvl, int indent, const std::string_view item_sep, const std::string_view key_sep) {
+static void value_to_json_internal(std::ostringstream & oss, const value & val, int curr_lvl, int indent, const std::string_view item_sep, const std::string_view key_sep) {
     auto indent_str = [indent, curr_lvl]() -> std::string {
         return (indent > 0) ? std::string(curr_lvl * indent, ' ') : "";
     };
     auto newline = [indent]() -> std::string {
         return (indent >= 0) ? "\n" : "";
     };
-    auto append_float = [&out](float value) {
-        char buf[64];
-        std::snprintf(buf, sizeof(buf), "%.9g", value);
-        out += buf;
-    };
 
     if (is_val<value_none>(val) || val->is_undefined()) {
-        out += "null";
+        oss << "null";
     } else if (is_val<value_bool>(val)) {
-        out += val->as_bool() ? "true" : "false";
+        oss << (val->as_bool() ? "true" : "false");
     } else if (is_val<value_int>(val)) {
-        out += std::to_string(val->as_int());
+        oss << val->as_int();
     } else if (is_val<value_float>(val)) {
-        append_float(val->as_float());
+        oss << val->as_float();
     } else if (is_val<value_string>(val)) {
-        out += "\"";
+        oss << "\"";
         for (char c : val->as_string().str()) {
             switch (c) {
-                case '"': out += "\\\""; break;
-                case '\\': out += "\\\\"; break;
-                case '\b': out += "\\b"; break;
-                case '\f': out += "\\f"; break;
-                case '\n': out += "\\n"; break;
-                case '\r': out += "\\r"; break;
-                case '\t': out += "\\t"; break;
+                case '"': oss << "\\\""; break;
+                case '\\': oss << "\\\\"; break;
+                case '\b': oss << "\\b"; break;
+                case '\f': oss << "\\f"; break;
+                case '\n': oss << "\\n"; break;
+                case '\r': oss << "\\r"; break;
+                case '\t': oss << "\\t"; break;
                 default:
                     if (static_cast<unsigned char>(c) < 0x20) {
                         char buf[7];
-                        std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
-                        out += buf;
+                        snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+                        oss << buf;
                     } else {
-                        out += c;
+                        oss << c;
                     }
             }
         }
-        out += "\"";
+        oss << "\"";
     } else if (is_val<value_array>(val)) {
         const auto & arr = val->as_array();
-        out += "[";
+        oss << "[";
         if (!arr.empty()) {
-            out += newline();
+            oss << newline();
             for (size_t i = 0; i < arr.size(); ++i) {
-                out += indent_str();
-                if (indent > 0) {
-                    out += std::string(indent, ' ');
-                }
-                value_to_json_internal(out, arr[i], curr_lvl + 1, indent, item_sep, key_sep);
+                oss << indent_str() << (indent > 0 ? std::string(indent, ' ') : "");
+                value_to_json_internal(oss, arr[i], curr_lvl + 1, indent, item_sep, key_sep);
                 if (i < arr.size() - 1) {
-                    out += item_sep;
+                    oss << item_sep;
                 }
-                out += newline();
+                oss << newline();
             }
-            out += indent_str();
+            oss << indent_str();
         }
-        out += "]";
+        oss << "]";
     } else if (is_val<value_object>(val)) {
         const auto & obj = val->as_ordered_object(); // IMPORTANT: need to keep exact order
-        out += "{";
+        oss << "{";
         if (!obj.empty()) {
-            out += newline();
+            oss << newline();
             size_t i = 0;
             for (const auto & pair : obj) {
-                out += indent_str();
-                if (indent > 0) {
-                    out += std::string(indent, ' ');
-                }
-                value_to_json_internal(out, mk_val<value_string>(pair.first->as_string().str()), curr_lvl + 1, indent, item_sep, key_sep);
-                out += key_sep;
-                value_to_json_internal(out, pair.second, curr_lvl + 1, indent, item_sep, key_sep);
+                oss << indent_str() << (indent > 0 ? std::string(indent, ' ') : "");
+                value_to_json_internal(oss, mk_val<value_string>(pair.first->as_string().str()), curr_lvl + 1, indent, item_sep, key_sep);
+                oss << key_sep;
+                value_to_json_internal(oss, pair.second, curr_lvl + 1, indent, item_sep, key_sep);
                 if (i < obj.size() - 1) {
-                    out += item_sep;
+                    oss << item_sep;
                 }
-                out += newline();
+                oss << newline();
                 ++i;
             }
-            out += indent_str();
+            oss << indent_str();
         }
-        out += "}";
+        oss << "}";
     } else {
-        out += "null";
+        oss << "null";
     }
 }
 
 std::string value_to_json(const value & val, int indent, const std::string_view item_sep, const std::string_view key_sep) {
-    std::string result;
-    value_to_json_internal(result, val, 0, indent, item_sep, key_sep);
-    JJ_DEBUG("value_to_json: result=%s", result.c_str());
-    return result;
+    std::ostringstream oss;
+    value_to_json_internal(oss, val, 0, indent, item_sep, key_sep);
+    JJ_DEBUG("value_to_json: result=%s", oss.str().c_str());
+    return oss.str();
 }
 
 // TODO: avoid circular references

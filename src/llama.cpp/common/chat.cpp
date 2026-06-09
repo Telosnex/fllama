@@ -31,18 +31,12 @@
 using json = nlohmann::ordered_json;
 
 static std::string format_time(const std::chrono::system_clock::time_point & now, const std::string & format) {
-#ifdef __EMSCRIPTEN__
-    (void) now;
-    (void) format;
-    return "Jan 01 1970";
-#else
     auto               time       = std::chrono::system_clock::to_time_t(now);
     auto               local_time = *std::localtime(&time);
     std::ostringstream ss;
     ss << std::put_time(&local_time, format.c_str());
     auto res = ss.str();
     return res;
-#endif
 }
 
 static json safe_args_parse(const std::string & to_parse) {

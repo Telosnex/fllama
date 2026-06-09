@@ -36,18 +36,10 @@ static std::string trim(const std::string & s) {
     return s.substr(a, b - a);
 }
 
-static std::string take_token(std::string & s) {
-    s = trim(s);
-    if (s.empty()) {
-        return "";
-    }
-    size_t pos = 0;
-    while (pos < s.size() && !std::isspace((unsigned char) s[pos])) {
-        pos++;
-    }
-    std::string token = s.substr(0, pos);
-    s = pos < s.size() ? trim(s.substr(pos)) : "";
-    return token;
+static std::string trim_value(std::istream & is) {
+    std::ostringstream ss;
+    ss << is.rdbuf();
+    return trim(ss.str());
 }
 
 static bool isIdentChar(char c) {
@@ -616,36 +608,17 @@ class Preprocessor {
                               std::unordered_set<std::string> &              include_stack,
                               DirectiveMode                                  mode) {
         std::vector<Cond>  cond;  // Conditional stack for this shader
-        std::string        out;
-        size_t             line_pos = 0;
-        auto next_line = [&shader_code, &line_pos](std::string & dst) -> bool {
-            if (line_pos > shader_code.size()) {
-                return false;
-            }
-            size_t next = shader_code.find('\n', line_pos);
-            if (next == std::string::npos) {
-                if (line_pos == shader_code.size()) {
-                    line_pos++;
-                    dst.clear();
-                    return false;
-                }
-                dst = shader_code.substr(line_pos);
-                line_pos = shader_code.size() + 1;
-                return true;
-            }
-            dst = shader_code.substr(line_pos, next - line_pos);
-            line_pos = next + 1;
-            return true;
-        };
+        std::stringstream  out;
+        std::istringstream in(shader_code);
         std::string        line;
 
-        while (next_line(line)) {
+        while (std::getline(in, line)) {
             std::string logical = line;
             std::string t       = trim(logical);
             if (!t.empty() && t[0] == '#') {
                 while (endsWithContinuation(logical)) {
                     stripContinuation(logical);
-                    if (!next_line(line)) {
+                    if (!std::getline(in, line)) {
                         break;
                     }
                     logical += "\n";
@@ -657,18 +630,15 @@ class Preprocessor {
             if (!t.empty() && t[0] == '#') {
                 bool handled = handleDirective(t, out, macros, predefined_macros, cond, include_stack, mode);
                 if (mode == DirectiveMode::IncludesOnly && !handled) {
-                    out += logical;
-                    out += "\n";
+                    out << logical << "\n";
                 }
             } else {
                 if (mode == DirectiveMode::IncludesOnly) {
-                    out += logical;
-                    out += "\n";
+                    out << logical << "\n";
                 } else if (condActive(cond)) {
                     // Expand macros in the line before outputting
                     std::string expanded = expandMacrosRecursive(logical, macros);
-                    out += expanded;
-                    out += "\n";
+                    out << expanded << "\n";
                 }
             }
         }
@@ -677,34 +647,35 @@ class Preprocessor {
             throw std::runtime_error("Unclosed #if directive");
         }
 
-        return out;
+        return out.str();
     }
 
     //----------------------------------------------------------
     // Directive handler
     //----------------------------------------------------------
     bool handleDirective(const std::string &                            t,
-                         std::string &                                  out,
+                         std::stringstream &                            out,
                          std::unordered_map<std::string, std::string> & macros,
                          const std::unordered_set<std::string> &        predefined_macros,
                          std::vector<Cond> &                            cond,
                          std::unordered_set<std::string> &              include_stack,
                          DirectiveMode                                  mode) {
-        // Split directive tokens without string streams. This path runs during WebGPU
-        // pipeline creation, and avoiding iostreams keeps wasm builds out of
-        // libc++ stream code that can trap in some runtimes.
-        std::string body = t.substr(1);
-        std::string cmd  = take_token(body);
+        // split into tokens
+        std::string        body = t.substr(1);
+        std::istringstream iss(body);
+        std::string        cmd;
+        iss >> cmd;
 
         if (cmd == "include") {
             if (mode == DirectiveMode::All && !condActive(cond)) {
                 return true;
             }
-            std::string file = take_token(body);
+            std::string file;
+            iss >> file;
             if (file.size() >= 2 && file.front() == '"' && file.back() == '"') {
                 file = file.substr(1, file.size() - 2);
             }
-            out += processIncludeFile(file, macros, predefined_macros, include_stack, mode);
+            out << processIncludeFile(file, macros, predefined_macros, include_stack, mode);
             return true;
         }
 
@@ -716,12 +687,13 @@ class Preprocessor {
             if (!condActive(cond)) {
                 return true;
             }
-            std::string name = take_token(body);
+            std::string name;
+            iss >> name;
             // Don't override predefined macros from options
             if (predefined_macros.count(name)) {
                 return true;
             }
-            std::string value = trim(body);
+            std::string value = trim_value(iss);
             macros[name]      = value;
             return true;
         }
@@ -730,7 +702,8 @@ class Preprocessor {
             if (!condActive(cond)) {
                 return true;
             }
-            std::string name = take_token(body);
+            std::string name;
+            iss >> name;
             // Don't undef predefined macros from options
             if (predefined_macros.count(name)) {
                 return true;
@@ -740,7 +713,8 @@ class Preprocessor {
         }
 
         if (cmd == "ifdef") {
-            std::string name = take_token(body);
+            std::string name;
+            iss >> name;
             bool p = condActive(cond);
             bool v = macros.count(name);
             cond.push_back({ p, p && v, p && v });
@@ -748,7 +722,8 @@ class Preprocessor {
         }
 
         if (cmd == "ifndef") {
-            std::string name = take_token(body);
+            std::string name;
+            iss >> name;
             bool p = condActive(cond);
             bool v = !macros.count(name);
             cond.push_back({ p, p && v, p && v });
@@ -756,7 +731,7 @@ class Preprocessor {
         }
 
         if (cmd == "if") {
-            std::string expr = trim(body);
+            std::string expr = trim_value(iss);
             bool        p    = condActive(cond);
             bool        v    = false;
             if (p) {
@@ -769,7 +744,7 @@ class Preprocessor {
         }
 
         if (cmd == "elif") {
-            std::string expr = trim(body);
+            std::string expr = trim_value(iss);
 
             if (cond.empty()) {
                 throw std::runtime_error("#elif without #if");

@@ -65,25 +65,17 @@ value statement::execute(context & ctx) {
     } catch (const std::exception & e) {
         const std::string & source = *ctx.src;
         if (source.empty()) {
-            std::string message = "\nError executing ";
-            message += type();
-            message += " at position ";
-            message += std::to_string(pos);
-            message += ": ";
-            message += e.what();
-            throw rethrown_exception(message);
+            std::ostringstream oss;
+            oss << "\nError executing " << type() << " at position " << pos << ": " << e.what();
+            throw rethrown_exception(oss.str());
         } else {
-            std::string message = "\n------------\n";
-            message += "While executing ";
-            message += type();
-            message += " at ";
-            message += get_line_col(source, pos);
-            message += " in source:\n";
-            message += peak_source(source, pos);
-            message += "\nError: ";
-            message += e.what();
+            std::ostringstream oss;
+            oss << "\n------------\n";
+            oss << "While executing " << type() << " at " << get_line_col(source, pos) << " in source:\n";
+            oss << peak_source(source, pos) << "\n";
+            oss << "Error: " << e.what();
             // throw as another exception to avoid repeated formatting
-            throw rethrown_exception(message);
+            throw rethrown_exception(oss.str());
         }
     }
 }
