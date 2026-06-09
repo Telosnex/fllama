@@ -20,7 +20,7 @@ fllama runs llama.cpp two ways, and as of this drop **both are the same commit**
 Both are now at:
 
 ```
-llama.cpp = cbbe868c0  =  upstream b9553 (9e3b928fd) + 1 wllama wasm patch
+llama.cpp = b7f7dabed  =  upstream b9553 (9e3b928fd) + wllama wasm iostream patches
 ```
 
 The "Frankenstein" = **upstream llama.cpp HEAD** + **a telosnex wllama feature
@@ -48,11 +48,12 @@ published to any public remote yet (all local branches — see §5).
 
 ### 3a. wllama parent (`/Users/jpo/dev/ngxson_wllama`)
 
-Branch: `telosnex/request-id-parallel-llamacpp-head-diagnose-wasm-runtime` @ `65c71fd`
+Branch: `telosnex/request-id-parallel-llamacpp-head-diagnose-wasm-runtime` @ `7faf82a`
 Pushed to: `https://github.com/Telosnex/wllama` (same branch name).
 
 ```
-65c71fd  Point llama.cpp submodule at Telosnex fork    <- HEAD (.gitmodules -> Telosnex/llama.cpp)
+7faf82a  Fix wasm MTMD and Jinja iostream traps      <- HEAD (submodule b7f7dabed + rebuilt wasm)
+65c71fd  Point llama.cpp submodule at Telosnex fork    <- .gitmodules -> Telosnex/llama.cpp
 090c345  Fix llama.cpp HEAD wasm iostream crashes      <- bumps submodule + rebuilt wasm
 5a14145  Rebuild wasm for llama.cpp 9e3b928fd
 83e67fe  Update llama.cpp to 9e3b928fd                 <- bump submodule to upstream HEAD (b9553)
@@ -64,22 +65,23 @@ e8e134f  Add support for async file read (#221)         <- base the feature was 
 ```
 
 > `.gitmodules` was repointed from `ggerganov/llama.cpp` to `Telosnex/llama.cpp`
-> so the submodule SHA `cbbe868c0` resolves on a fresh clone.
+> so the submodule SHA `b7f7dabed` resolves on a fresh clone.
 
 So the web build = **ngxson/wllama master** + **request-id parallel feature** +
 **llama.cpp bumped to upstream HEAD** + **rebuilt wasm**.
 
 ### 3b. llama.cpp submodule (`/Users/jpo/dev/ngxson_wllama/llama.cpp`)
 
-Branch: `telosnex/wasm-avoid-iostream-null-function-on-9e3b928fd` @ `cbbe868c0`
+Branch: `telosnex/wasm-avoid-iostream-null-function-on-9e3b928fd` @ `b7f7dabed`
 Pushed to: `https://github.com/Telosnex/llama.cpp` (same branch name).
 
 ```
-cbbe868c0  Avoid iostream crashes in wasm chat and WebGPU preprocessing  <- the ONLY patch
+b7f7dabed  Avoid remaining wasm iostream traps in Jinja and MTMD loading
+cbbe868c0  Avoid iostream crashes in wasm chat and WebGPU preprocessing
 9e3b928fd  common : relax sampler name matching (#23744)                 <- upstream, tag b9553
 ```
 
-i.e. **upstream b9553 + exactly one patch.**
+i.e. **upstream b9553 + two wasm iostream-avoidance patches.**
 
 ---
 
@@ -91,7 +93,7 @@ i.e. **upstream b9553 + exactly one patch.**
 - Lives in: the wllama parent tree (NOT in `src/llama.cpp`). It ships to fllama web
   **only** via the bundled `assets/web/wllama/index.js` + `wllama.js` + `wllama.wasm`.
 
-### 4b. Patch: wasm iostream crash fix  (llama.cpp commit `cbbe868c0`)
+### 4b. Patch: wasm iostream crash fixes  (llama.cpp commits `cbbe868c0` and `b7f7dabed`)
 - Why: on upstream HEAD, the wasm build crashed with `RuntimeError: null function`
   inside libc++ stream machinery (and a follow-on `_gmtime_js` import error). Root
   cause: several newly-exercised chat-template / WebGPU-preprocessor paths use
@@ -112,6 +114,23 @@ i.e. **upstream b9553 + exactly one patch.**
 - Date behavior in wasm: chat-template `strftime_now` / template date returns the
   constant `"Jan 01 1970"`. This is cosmetic (template probing/example rendering),
   not model correctness. Deliberately NOT reimplemented as calendar math.
+
+Additional production hotfix (`b7f7dabed`):
+- `tools/mtmd/clip.cpp`: replace `std::ifstream` in `clip_model_loader::load_tensors`
+  with `FILE*` + `fseeko`/`_fseeki64`. This fixes production crashes while loading
+  Qwen3.5 mmproj, where the stack ended in `clip_model_loader::load_tensors`.
+- `common/jinja/value.cpp`: rewrite `value_to_json` serialization from
+  `std::ostringstream` to `std::string` append. This fixes Qwen chat templates that
+  use `tojson`.
+- `common/jinja/runtime.cpp`: rewrite rethrown error formatting from
+  `std::ostringstream` to `std::string` append so Jinja errors do not themselves
+  trap in wasm.
+
+Validated hotfix cases:
+- HF text URL: `https://huggingface.co/telosnex/fllama/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf`
+- Local mmproj pair:
+  `/Users/jpo/Documents/Telosnex/models/Qwen3.5-0.8B-Q4_K_M.gguf`
+  + `/Users/jpo/Documents/Telosnex/models/Qwen3.5-0.8B-mmproj-F16.gguf`
 
 ### 4c. fllama-side glue that makes the new `common` link
 - Upstream made `common` link `cpp-httplib` unconditionally (old `LLAMA_HTTPLIB` /
@@ -135,18 +154,18 @@ i.e. **upstream b9553 + exactly one patch.**
 
 - **fllama** (this repo): the drop is **committed-able but currently UNCOMMITTED**
   in the working tree as of writing — web artifacts, `src/CMakeLists.txt`
-  (`LLAMA_BUILD_COMMIT cbbe868c0`), `FLLAMA_LLAMA_CPP_DROP.txt`, and ~1,966 vendored
+  (`LLAMA_BUILD_COMMIT b7f7dabed`), `FLLAMA_LLAMA_CPP_DROP.txt`, and ~1,966 vendored
   `src/llama.cpp` path changes. Once committed to `main`, the **entire** native tree
   (including the iostream patch) is permanently captured here, because `src/llama.cpp`
   is a plain vendored copy, not a submodule.
 
 - **wllama parent** branch `telosnex/request-id-parallel-llamacpp-head-diagnose-wasm-runtime`
-  @ `65c71fd`: **PUSHED** to `github.com/Telosnex/wllama` (remote `telosnex`). The
+  @ `7faf82a`: **PUSHED** to `github.com/Telosnex/wllama` (remote `telosnex`). The
   request-id feature + wasm rebuild source is preserved there. (`origin` remains
   `ngxson/wllama` upstream.)
 
 - **llama.cpp patch** branch `telosnex/wasm-avoid-iostream-null-function-on-9e3b928fd`
-  @ `cbbe868c0`: **PUSHED** to `github.com/Telosnex/llama.cpp` (remote `telosnex`).
+  @ `b7f7dabed`: **PUSHED** to `github.com/Telosnex/llama.cpp` (remote `telosnex`).
   Also baked into fllama's vendored `src/llama.cpp` at drop time. (`origin` remains
   `ggerganov/llama.cpp` upstream.)
 

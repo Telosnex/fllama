@@ -13,9 +13,11 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <map>
 #include <stdexcept>
 #include <unordered_set>
@@ -25,6 +27,12 @@
 #include <array>
 #include <functional>
 #include <float.h>
+
+#if defined(_WIN32)
+#    define clip_fseek _fseeki64
+#else
+#    define clip_fseek fseeko
+#endif
 
 struct clip_logger_state g_logger_state = {clip_log_callback_default, NULL};
 
@@ -1719,7 +1727,7 @@ struct clip_model_loader {
         std::map<std::string, size_t> tensor_offset;
         std::vector<ggml_tensor *> tensors_to_load;
 
-        auto fin = std::ifstream(fname, std::ios::binary);
+        std::unique_ptr<FILE, decltype(&std::fclose)> fin(std::fopen(fname.c_str(), "rb"), std::fclose);
         if (!fin) {
             throw std::runtime_error(string_format("%s: failed to open %s\n", __func__, fname.c_str()));
         }
@@ -1773,9 +1781,13 @@ struct clip_model_loader {
                 return default_val;
             }
             size_t offset = it->second;
-            fin.seekg(offset, std::ios::beg);
+            if (clip_fseek(fin.get(), static_cast<int64_t>(offset), SEEK_SET) != 0) {
+                throw std::runtime_error(string_format("%s: failed to seek scalar %s\n", __func__, name.c_str()));
+            }
             float value;
-            fin.read(reinterpret_cast<char*>(&value), sizeof(float));
+            if (std::fread(&value, sizeof(float), 1, fin.get()) != 1) {
+                throw std::runtime_error(string_format("%s: failed to read scalar %s\n", __func__, name.c_str()));
+            }
             return value;
         };
 
@@ -2767,22 +2779,24 @@ struct clip_model_loader {
                 auto it_off = tensor_offset.find(t->name);
                 GGML_ASSERT(it_off != tensor_offset.end() && "no offset for tensor");
                 const size_t offset = it_off->second;
-                fin.seekg(offset, std::ios::beg);
-                if (!fin) {
+                if (clip_fseek(fin.get(), static_cast<int64_t>(offset), SEEK_SET) != 0) {
                     throw std::runtime_error(string_format("%s: failed to seek for tensor %s\n", __func__, t->name));
                 }
                 size_t num_bytes = ggml_nbytes(cur);
                 if (ggml_backend_buft_is_host(buft)) {
                     // for the CPU and Metal backend, we can read directly into the tensor
-                    fin.read(reinterpret_cast<char *>(cur->data), num_bytes);
+                    if (std::fread(cur->data, 1, num_bytes, fin.get()) != num_bytes) {
+                        throw std::runtime_error(string_format("%s: failed to read tensor %s\n", __func__, t->name));
+                    }
                 } else {
                     // read into a temporary buffer first, then copy to device memory
                     read_buf.resize(num_bytes);
-                    fin.read(reinterpret_cast<char *>(read_buf.data()), num_bytes);
+                    if (std::fread(read_buf.data(), 1, num_bytes, fin.get()) != num_bytes) {
+                        throw std::runtime_error(string_format("%s: failed to read tensor %s\n", __func__, t->name));
+                    }
                     ggml_backend_tensor_set(cur, read_buf.data(), 0, num_bytes);
                 }
             }
-            fin.close();
 
             LOG_DBG("%s: loaded %zu tensors from %s\n", __func__, tensors_to_load.size(), fname.c_str());
         }

@@ -1,13 +1,15 @@
 This vendored llama.cpp tree was refreshed from /Users/jpo/dev/ngxson_wllama/llama.cpp.
-Source commit: cbbe868c0 Avoid iostream crashes in wasm chat and WebGPU preprocessing
-Source base:   9e3b928fd (upstream tag b9553) + wllama wasm iostream-avoidance patch
-Reason: match fllama's native build to the same llama.cpp commit as the web wllama
-        artifacts (assets/web/wllama/*), which were rebuilt from this same checkout.
+Source commit: b7f7dabed Avoid remaining wasm iostream traps in Jinja and MTMD loading
+Source base:   9e3b928fd (upstream tag b9553) + wllama wasm iostream-avoidance patches
+Reason: keep fllama's native build and web wllama artifacts on the same llama.cpp
+        commit, including the web fixes for Jinja/autoparser and MTMD/mmproj loads.
 
 Notes:
-- Previous drop was wllama-stock @ f22c8021d (upstream ~Apr 29 2026, "file-loader-changes").
-  Its only custom source patch (64-bit file offsets via llama_mmap_ftell/llama_mmap_fseek
-  in src/llama-mmap.cpp) is already present upstream in b9553, so nothing was lost.
-- The wllama patch adds #ifdef __EMSCRIPTEN__ fallbacks (chat/jinja date formatting) and
-  stream-free string building in common/ and ggml-webgpu. These are wasm-only or
-  behavior-neutral and compile the normal path on native builds.
+- Previous drop was cbbe868c0. This update fixes additional wasm RuntimeError:null function
+  traps seen in production:
+  - tools/mtmd/clip.cpp: use FILE*/fseeko instead of std::ifstream in clip_model_loader::load_tensors
+  - common/jinja/value.cpp: serialize to JSON with std::string append instead of std::ostringstream
+  - common/jinja/runtime.cpp: format rethrown Jinja errors with std::string append instead of std::ostringstream
+- The MTMD fix was validated against the local Qwen3.5 model pair:
+  /Users/jpo/Documents/Telosnex/models/Qwen3.5-0.8B-Q4_K_M.gguf
+  /Users/jpo/Documents/Telosnex/models/Qwen3.5-0.8B-mmproj-F16.gguf
