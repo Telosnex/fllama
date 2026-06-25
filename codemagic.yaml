@@ -68,6 +68,36 @@ definitions:
     script: |
       set -eo pipefail
       cd example && flutter build linux --verbose --no-tree-shake-icons 2>&1 | tee flutter_build_output.txt
+  script_linux_install_lld: &script_linux_install_lld
+    name: Install lld linker
+    script: |
+      set -euo pipefail
+
+      apt_get() {
+        # Codemagic Ubuntu images can start unattended-upgrades at boot, briefly
+        # holding dpkg's frontend lock. Wait/retry instead of failing CI before
+        # the build starts.
+        local attempts=5
+        local delay_seconds=20
+        local attempt
+        for attempt in $(seq 1 "$attempts"); do
+          if sudo DEBIAN_FRONTEND=noninteractive \
+            apt-get -o DPkg::Lock::Timeout=300 "$@"; then
+            return 0
+          fi
+
+          if [ "$attempt" -eq "$attempts" ]; then
+            return 1
+          fi
+
+          echo "apt-get $* failed, retrying in ${delay_seconds}s (${attempt}/${attempts})"
+          sleep "$delay_seconds"
+        done
+      }
+
+      # Flutter native assets expects ld.lld in the LLVM bin dir.
+      apt_get update
+      apt_get install -y lld
   script_macos_build: &script_macos_build
     name: macOS build
     script: |
@@ -226,10 +256,7 @@ workflows:
     environment:
       <<: *env_versions
     scripts:
-      - name: Install lld linker
-        script: |
-          # Flutter native assets expects ld.lld in the LLVM bin dir.
-          sudo apt-get update && sudo apt-get install -y lld
+      - <<: *script_linux_install_lld
       - <<: *script_pub_get
       - <<: *script_linux_build
     artifacts:
