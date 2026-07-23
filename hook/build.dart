@@ -41,7 +41,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 //
 //   build_key = sha256(
-//     target_os, target_arch, build_mode,
+//     schema_version, target_os, target_arch, ios_sdk (iOS only),
 //     sorted(defines),
 //     sorted( (relpath, size, mtime_µs) for each source file )
 //   )
@@ -75,6 +75,29 @@
 //     rebuild; subsequent calls hit the new cache entry.
 //   - No git hash / pub cache path in the key: updating fllama to a
 //     new commit that changed zero source bytes reuses the cache.
+//
+// ═══════════════════════════════════════════════════════════════════════
+//   iOS device vs Simulator (v2 cache schema)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// On Apple Silicon, iOS device and iOS Simulator builds report the same
+// `os` ("ios") and `arch` ("arm64") — the Simulator runs arm64 natively
+// now, it's not x86_64 like on Intel Macs. Prior to the `v2` schema, the
+// cache key didn't distinguish them, so a Simulator build and a device
+// build collided on the same cache entry: whichever was compiled first
+// was silently reused for the other. In practice this meant running the
+// app once on iOS Simulator during development could poison the cache
+// for a later release/App Store build, which would then silently ship a
+// Simulator-tagged `libfllama.dylib` — passing local `flutter build ipa`
+// but rejected by App Store Connect at upload with errors like:
+//   - 90125: binary invalid / missing LC_ENCRYPTION_INFO
+//   - 91169: "references an unsupported platform in the arm64 slice ...
+//     Simulator platforms aren't permitted"
+//
+// Fixed by including `input.config.code.iOS.targetSdk.type` ("iphoneos"
+// vs "iphonesimulator") in the cache key for iOS targets, and bumping
+// the schema tag so any pre-existing (potentially mis-tagged) cache
+// entries are invalidated automatically on every machine.
 
 import 'dart:convert';
 import 'dart:io';
@@ -122,6 +145,13 @@ void main(List<String> args) async {
     final sourceDir = input.packageRoot.resolve('src/');
     final targetOS = input.config.code.targetOS;
 
+    // iOS device vs Simulator can't be told apart by os+arch alone on
+    // Apple Silicon — see the "iOS device vs Simulator" note above.
+    // `input.config.code.iOS` throws if accessed when targetOS isn't
+    // iOS, so this must stay guarded.
+    final iosSdk =
+        targetOS == OS.iOS ? input.config.code.iOS.targetSdk.type : null;
+
     // ── CMake defines ──────────────────────────────────────────────────
     final defines = _computeDefines(targetOS);
 
@@ -137,6 +167,7 @@ void main(List<String> args) async {
     final buildKey = _computeBuildKey(
       os: targetOS.name,
       arch: input.config.code.targetArchitecture.name,
+      iosSdk: iosSdk,
       defines: defines,
       sourceFiles: sourceFiles,
     );
@@ -406,13 +437,22 @@ Future<List<_SourceFile>> _collectSourceFiles(Uri sourceDir) async {
 String _computeBuildKey({
   required String os,
   required String arch,
+  String? iosSdk,
   required Map<String, String> defines,
   required List<_SourceFile> sourceFiles,
 }) {
   final buffer = StringBuffer();
-  buffer.writeln('v1'); // schema tag — bump to invalidate all prior caches
+  // v2: added `iosSdk` to the key to fix a device/simulator cache
+  // collision on Apple Silicon, where both report os=ios, arch=arm64.
+  // Bumping the schema tag invalidates all pre-existing (potentially
+  // mis-tagged) cache entries automatically, on every machine, with no
+  // manual `rm -rf ~/.cache/fllama` required.
+  buffer.writeln('v2');
   buffer.writeln('os=$os');
   buffer.writeln('arch=$arch');
+  if (iosSdk != null) {
+    buffer.writeln('ios_sdk=$iosSdk');
+  }
 
   final sortedDefines = defines.entries.toList()
     ..sort((a, b) => a.key.compareTo(b.key));
