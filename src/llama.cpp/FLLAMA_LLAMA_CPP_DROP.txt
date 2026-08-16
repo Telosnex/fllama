@@ -1,35 +1,57 @@
-This vendored llama.cpp tree was refreshed from /Users/jpo/dev/ngxson_wllama/llama.cpp.
-Source commit: 9e3b928fd common : relax sampler name matching (#23744)
-Source base:   upstream llama.cpp b9553
-Reason: keep fllama's native build and web wllama artifacts aligned after replacing
-        the prior wasm iostream workaround patches with build/runtime fixes in wllama.
+This vendored llama.cpp tree was refreshed from the submodule in the wllama
+integration checkout at /Users/jpo/dev/fllama/tmp/wllama-refresh/llama.cpp.
+
+Source commit: ece963f41b0b02d7a0d61436ae365762c073a4c8
+Source subject: ui: mask API Key field in settings and error splash to stop browser a… (#26562)
+Nearest tag:   upstream llama.cpp b10448
+Build number:  b10450 (git rev-list --count HEAD)
+
+Native and web use this exact upstream commit. There are no Telosnex patches in
+the vendored llama.cpp source.
 
 Web runtime provenance:
-- wllama parent checkout: /Users/jpo/dev/ngxson_wllama
-- wllama branch: telosnex/request-id-parallel-llamacpp-head-diagnose-wasm-runtime
-- llama.cpp submodule: 9e3b928fd
-- wasm fixes live in wllama, not in llama.cpp:
-  - CMakeLists.txt adds -sSTACK_SIZE=16MB. This fixes Gemma4 tool/response-format
-    grammar generation stack exhaustion that surfaced as RuntimeError:null function
-    in libc++ ostream/string_join frames.
-  - CMakeLists.txt adds -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=_localtime_js to
-    force-include Emscripten's stock libtime.js _localtime_js implementation for
-    upstream llama.cpp std::localtime/strftime diagnostics.
+- wllama upstream base: 3.5.1 / 766d28e03eeac044fe055327d06b83d3f9b84544
+- reproducible source patch:
+  docs/patches/WLLAMA_3_5_1_LLAMA_B10450.patch
+- llama.cpp submodule override: ece963f41b0b02d7a0d61436ae365762c073a4c8
+- embedded web version: b10450-ece963f
+- Emscripten SDK image: 4.0.20-arm64
+- Dawn WebGPU package: v20260317.182325
+- only the default JSPI runtime was built (SKIP_COMPAT=1)
 
-Notes:
-- Previous drop was b7f7dabed, i.e. upstream 9e3b928fd plus two Telosnex
-  llama.cpp wasm iostream-avoidance commits:
-  - cbbe868c0 Avoid iostream crashes in wasm chat and WebGPU preprocessing
-  - b7f7dabed Avoid remaining wasm iostream traps in Jinja and MTMD loading
-- Those source patches were removed from the vendored native tree. Validation showed
-  upstream 9e3b928fd + wllama stack/import fixes instantiates and passes the Gemma4
-  tool grammar repro.
-- The old MTMD std::ifstream workaround was not retained. If a separate browser
-  mmproj/MTMD loading issue reappears, validate it independently rather than
-  assuming it is the same Gemma4 stack bug.
+Required wllama changes:
+- request-ID keyed parallel completion, embedding, and rerank readers;
+- serialized JSPI worker actions with interleaved request polling;
+- per-request Jinja templates;
+- -sSTACK_SIZE=16MB;
+- -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=_localtime_js;
+- llama.cpp b10450 server-schema, load-mode, chat-video, and queue/yield API
+  adaptations.
 
-Validated during this refresh:
-- Direct wllama wasm instantiation smoke test passed with upstream llama.cpp +
-  Emscripten stock _localtime_js import.
-- Tiny-model Gemma4-like template + tools repro passed with upstream llama.cpp,
-  -sSTACK_SIZE=16MB, _localtime_js import, and regenerated worker bundle.
+Shipped web artifact SHA-256:
+- index.js:    4a58f9247ded1b6cfc49a61a94faca709d60cb5d0489ed74ba97aa10190ea583
+- wllama.js:   eb2adba824b0c41ed7c24d19ae91a83de5a08b2145b75355af2502eb497c0baa
+- wllama.wasm: c6c13820c090724a6e3ce8defac7af9631e30821e07fd167ccb8c5d7b3e3513c
+
+Native fllama adaptations for this refresh:
+- the local server-context target includes server-stream.cpp, server-tools.cpp,
+  server-mcp.cpp, and server-schema.cpp;
+- tokenizer-only model loading uses LLAMA_LOAD_MODE_MMAP and the current
+  llama_model_load_from_file / llama_model_free APIs;
+- fllama postprocesses directly constructed CPU params so batch/speculative
+  thread counts do not retain the -1 CLI sentinel and overflow allocation size.
+
+Validated on 2026-08-15:
+- wllama WASM compiled successfully against ece963f41;
+- wllama TypeScript no-emit check and ESM build passed;
+- fllama native CMake target built on macOS arm64;
+- packaged web asset checks passed;
+- browser WebGPU inference passed for a single stream, two interleaved streams
+  with n_parallel=2, and mixed per-request Jinja templates;
+- native Metal inference passed with Qwen3.5 27B Q4_K_M and the reported
+  contextSize=16000 / numThreads=2 request.
+
+Previous fllama drop:
+- llama.cpp 9e3b928fd (b9553)
+- wllama based on upstream 1bcd8af plus Telosnex request-ID work
+- web asset version ngxson-v9-llamacpp-b9553-stack16-libtime

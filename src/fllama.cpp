@@ -232,6 +232,18 @@ static void run_inference(fllama_inference_request request,
       params.speculative.draft.n_gpu_layers = params.n_gpu_layers;
     }
 
+    // common_params is normally finalized by common_params_parse(), but fllama
+    // constructs it directly. Keep the batch and speculative thread settings
+    // in sync with the requested model threads just as llama.cpp's CLI does.
+    // Leaving cpuparams_batch.n_threads at its sentinel value (-1) makes the
+    // b10450 threadpool allocation wrap to nearly SIZE_MAX.
+    postprocess_cpu_params(params.cpuparams, nullptr);
+    postprocess_cpu_params(params.cpuparams_batch, &params.cpuparams);
+    postprocess_cpu_params(params.speculative.draft.cpuparams,
+                           &params.cpuparams);
+    postprocess_cpu_params(params.speculative.draft.cpuparams_batch,
+                           &params.cpuparams_batch);
+
     // ── 2. Get or create server_context ───────────────────────────────
 
     auto *srv = g_mgr.get_or_create(

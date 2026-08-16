@@ -74,7 +74,7 @@ if(NOT DEFINED LLAMA_BUILD_NUMBER OR LLAMA_BUILD_NUMBER STREQUAL "")
   set(LLAMA_BUILD_NUMBER "1")
 endif()
 if(NOT DEFINED LLAMA_BUILD_COMMIT OR LLAMA_BUILD_COMMIT STREQUAL "")
-  set(LLAMA_BUILD_COMMIT "9e3b928fd")
+  set(LLAMA_BUILD_COMMIT "ece963f41")
 endif()
 
 add_subdirectory("llama.cpp")
@@ -95,6 +95,10 @@ add_library(server-context STATIC
   ${SERVER_SRC_DIR}/server-common.cpp
   ${SERVER_SRC_DIR}/server-chat.cpp
   ${SERVER_SRC_DIR}/server-context.cpp
+  ${SERVER_SRC_DIR}/server-stream.cpp
+  ${SERVER_SRC_DIR}/server-tools.cpp
+  ${SERVER_SRC_DIR}/server-mcp.cpp
+  ${SERVER_SRC_DIR}/server-schema.cpp
 )
 target_include_directories(server-context PUBLIC  ${SERVER_SRC_DIR})
 target_include_directories(server-context PRIVATE

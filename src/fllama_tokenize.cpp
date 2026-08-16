@@ -107,17 +107,17 @@ std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path) {
     // Initialize model params with defaults
     llama_model_params mparams = llama_model_default_params();
     mparams.vocab_only = true;
-    mparams.use_mmap = true;
+    mparams.load_mode = LLAMA_LOAD_MODE_MMAP;
     mparams.n_gpu_layers = 0;
     llama_backend_init();
-    // Using llama_load_model_from_file instead of llama_init_from_gpt_params
+    // Using llama_model_load_from_file instead of llama_init_from_gpt_params
     // avoided a crash when tokenization was called in quick succession without
     // this caching mechanism in place.
     //
-    // It seems wise to continue using llama_load_model_from_file for tokenization,
+    // It seems wise to continue using llama_model_load_from_file for tokenization,
     // as after viewing the call chain, the resource allocation load is lower.
     llama_model *raw_model =
-        llama_load_model_from_file(model_path.c_str(), mparams);
+        llama_model_load_from_file(model_path.c_str(), mparams);
 
     if (raw_model == nullptr) {
       return nullptr;
@@ -125,7 +125,7 @@ std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path) {
 
     // Create a shared_ptr with custom deleter
     std::shared_ptr<llama_model> model(
-        raw_model, [](llama_model *ptr) { llama_free_model(ptr); });
+        raw_model, [](llama_model *ptr) { llama_model_free(ptr); });
 
     model_cache[model_path] = {model, std::chrono::steady_clock::now()};
     llama_backend_free();
