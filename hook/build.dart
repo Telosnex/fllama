@@ -43,7 +43,7 @@
 //   build_key = sha256(
 //     target_os, target_arch, build_mode,
 //     sorted(defines),
-//     sorted( (relpath, size, mtime_µs) for each source file )
+//     sorted( (relpath, size, sha256(contents)) for each source file )
 //   )
 //
 //   cache_dir = ~/.cache/fllama/<build_key>/
@@ -71,41 +71,20 @@
 //   - 18 concurrent `flutter test` invocations: 1 builds under flock,
 //     the other 17 wait (<10s for flock contention) then all hit
 //     cache. No PathNotFoundException crash storm.
-//   - Editing fllama.cpp: mtime changes → new build_key → one
+//   - Editing fllama.cpp: content changes → new build_key → one
 //     rebuild; subsequent calls hit the new cache entry.
 //   - No git hash / pub cache path in the key: updating fllama to a
 //     new commit that changed zero source bytes reuses the cache.
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
-import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/logging.dart';
 import 'package:native_toolchain_cmake/native_toolchain_cmake.dart';
 import 'package:path/path.dart' as p;
 
-/// Source extensions we consider part of the "build input fingerprint".
-const _sourceExtensions = <String>{
-  '.c',
-  '.cc',
-  '.cpp',
-  '.cxx',
-  '.h',
-  '.hh',
-  '.hpp',
-  '.hxx',
-  '.m',
-  '.mm',
-  '.metal',
-  '.cmake',
-};
-
-/// Additional file *basenames* (case-sensitive) to include.
-const _sourceBasenames = <String>{
-  'CMakeLists.txt',
-};
+import 'cache_key.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
@@ -127,14 +106,14 @@ void main(List<String> args) async {
 
     // ── Enumerate source files (used for both key + dep declarations) ──
     final swStart = Stopwatch()..start();
-    final sourceFiles = await _collectSourceFiles(sourceDir);
+    final sourceFiles = await collectSourceFiles(sourceDir);
     logger.info(
       'Enumerated ${sourceFiles.length} source files '
       'in ${swStart.elapsedMilliseconds}ms',
     );
 
     // ── Compute build key ──────────────────────────────────────────────
-    final buildKey = _computeBuildKey(
+    final buildKey = computeBuildKey(
       os: targetOS.name,
       arch: input.config.code.targetArchitecture.name,
       defines: defines,
@@ -351,82 +330,6 @@ Map<String, String> _computeDefines(OS targetOS) {
   }
 
   return defines;
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-//   source-file enumeration
-// ─────────────────────────────────────────────────────────────────────────
-
-class _SourceFile {
-  _SourceFile(this.relPath, this.absoluteUri, this.size, this.mtimeMicros);
-
-  final String relPath;
-  final Uri absoluteUri;
-  final int size;
-  final int mtimeMicros;
-}
-
-Future<List<_SourceFile>> _collectSourceFiles(Uri sourceDir) async {
-  final srcDir = Directory.fromUri(sourceDir);
-  final basePath = srcDir.path;
-  final files = <_SourceFile>[];
-
-  await for (final entity in srcDir.list(recursive: true, followLinks: false)) {
-    if (entity is! File) continue;
-    final path = entity.path;
-    final ext = p.extension(path).toLowerCase();
-    final basename = p.basename(path);
-    if (!_sourceExtensions.contains(ext) &&
-        !_sourceBasenames.contains(basename)) {
-      continue;
-    }
-    // Skip anything inside a build/ directory — output, not input. (Only
-    // relevant if someone did a local cmake build by hand.)
-    if (p.split(p.relative(path, from: basePath)).contains('build')) {
-      continue;
-    }
-    final stat = await entity.stat();
-    files.add(
-      _SourceFile(
-        p.relative(path, from: basePath),
-        entity.uri,
-        stat.size,
-        stat.modified.microsecondsSinceEpoch,
-      ),
-    );
-  }
-  files.sort((a, b) => a.relPath.compareTo(b.relPath));
-  return files;
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-//   build key
-// ─────────────────────────────────────────────────────────────────────────
-
-String _computeBuildKey({
-  required String os,
-  required String arch,
-  required Map<String, String> defines,
-  required List<_SourceFile> sourceFiles,
-}) {
-  final buffer = StringBuffer();
-  buffer.writeln('v1'); // schema tag — bump to invalidate all prior caches
-  buffer.writeln('os=$os');
-  buffer.writeln('arch=$arch');
-
-  final sortedDefines = defines.entries.toList()
-    ..sort((a, b) => a.key.compareTo(b.key));
-  for (final e in sortedDefines) {
-    buffer.writeln('D:${e.key}=${e.value}');
-  }
-  for (final f in sourceFiles) {
-    buffer.writeln('F:${f.relPath}|${f.size}|${f.mtimeMicros}');
-  }
-
-  final digest = sha256.convert(utf8.encode(buffer.toString()));
-  // 16 hex chars = 64 bits. For ~10^5 distinct cache entries the
-  // birthday-collision probability is ~2.7e-10 — effectively zero.
-  return digest.toString().substring(0, 16);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -663,7 +566,7 @@ Future<void> _registerAsset({
 
 void _declareDependencies(
   BuildOutputBuilder output,
-  List<_SourceFile> sourceFiles,
+  List<SourceFileFingerprint> sourceFiles,
 ) {
   output.dependencies.addAll(sourceFiles.map((f) => f.absoluteUri));
 }
