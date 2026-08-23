@@ -8,9 +8,20 @@
 #include <climits>
 #include <cstring>
 
+#include "dart_alloc.h"
 #include "fllama_eos.h"
 
 static int gguf_data_to_int(enum gguf_type type, const void *data, int i);
+
+static const char *copy_for_dart_and_free_contexts(
+    const char *value, struct ggml_context *meta, struct gguf_context *ctx) {
+  const size_t length = std::strlen(value);
+  char *copy = dart_malloc<char>(length + 1);
+  std::memcpy(copy, value, length + 1);
+  ggml_free(meta);
+  gguf_free(ctx);
+  return copy;
+}
 
 extern "C" {
 EMSCRIPTEN_KEEPALIVE const char *fllama_get_eos_token(const char *fname) {
@@ -33,14 +44,14 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_eos_token(const char *fname) {
 
   if (tokens_idx < 0) {
     printf("%s: key '%s' not found.\n", __func__, tokens_key);
-    return ""; // Key not found.
+    return copy_for_dart_and_free_contexts("", meta, ctx);
   }
 
   const char *eos_id_key = "tokenizer.ggml.eos_token_id";
   const int eos_id_idx = gguf_find_key(ctx, eos_id_key);
   if (eos_id_idx < 0) {
     printf("%s: key '%s' not found.\n", __func__, eos_id_key);
-    return ""; // Key not found.
+    return copy_for_dart_and_free_contexts("", meta, ctx);
   }
 
   const void *eos_id_val_data = gguf_get_val_data(ctx, eos_id_idx);
@@ -48,27 +59,21 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_eos_token(const char *fname) {
       gguf_data_to_int(gguf_get_kv_type(ctx, eos_id_idx), eos_id_val_data, 0);
   if (eos_id_index == INT_MIN) {
     printf("%s: eos_id_val is INT_MIN, indicating an error.\n", __func__);
-    return ""; // Key not found.
+    return copy_for_dart_and_free_contexts("", meta, ctx);
   }
 
   const uint32_t n_vocab = gguf_get_arr_n(ctx, tokens_idx);
-  if (n_vocab <= tokens_idx) {
-    printf("%s: tokens key found, but index %d is out of bounds for array of "
-           "size %d.\n",
-           __func__, eos_id_idx, n_vocab);
+  if (eos_id_index < 0 || static_cast<uint32_t>(eos_id_index) >= n_vocab) {
+    printf("%s: tokens key found, but token index %d is out of bounds for "
+           "array of "
+           "size %u.\n",
+           __func__, eos_id_index, n_vocab);
+    return copy_for_dart_and_free_contexts("", meta, ctx);
   }
 
   std::string word = gguf_get_arr_str(ctx, tokens_idx, eos_id_index);
   printf("%s: word: %s\n", __func__, word.c_str());
-  char *heapWord = new char[word.length() + 1]; // +1 for the null terminator
-
-  // Copy the contents of `word` to the allocated memory.
-  std::strcpy(heapWord, word.c_str());
-
-  ggml_free(meta);
-  gguf_free(ctx);
-  // Return the pointer to the caller. The caller must `delete[]` this memory.
-  return heapWord;
+  return copy_for_dart_and_free_contexts(word.c_str(), meta, ctx);
 }
 
 EMSCRIPTEN_KEEPALIVE const char *fllama_get_bos_token(const char *fname) {
@@ -91,14 +96,14 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_bos_token(const char *fname) {
 
   if (tokens_idx < 0) {
     printf("%s: key '%s' not found.\n", __func__, tokens_key);
-    return ""; // Key not found.
+    return copy_for_dart_and_free_contexts("", meta, ctx);
   }
 
   const char *bos_id_key = "tokenizer.ggml.bos_token_id";
   const int bos_id_idx = gguf_find_key(ctx, bos_id_key);
   if (bos_id_idx < 0) {
     printf("%s: key '%s' not found.\n", __func__, bos_id_key);
-    return ""; // Key not found.
+    return copy_for_dart_and_free_contexts("", meta, ctx);
   }
 
   const void *bos_id_val_data = gguf_get_val_data(ctx, bos_id_idx);
@@ -106,27 +111,21 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_bos_token(const char *fname) {
       gguf_data_to_int(gguf_get_kv_type(ctx, bos_id_idx), bos_id_val_data, 0);
   if (bos_id_index == INT_MIN) {
     printf("%s: bos_id_val is INT_MIN, indicating an error.\n", __func__);
-    return ""; // Key not found.
+    return copy_for_dart_and_free_contexts("", meta, ctx);
   }
 
   const uint32_t n_vocab = gguf_get_arr_n(ctx, tokens_idx);
-  if (n_vocab <= tokens_idx) {
-    printf("%s: tokens key found, but index %d is out of bounds for array of "
-           "size %d.\n",
-           __func__, bos_id_idx, n_vocab);
+  if (bos_id_index < 0 || static_cast<uint32_t>(bos_id_index) >= n_vocab) {
+    printf("%s: tokens key found, but token index %d is out of bounds for "
+           "array of "
+           "size %u.\n",
+           __func__, bos_id_index, n_vocab);
+    return copy_for_dart_and_free_contexts("", meta, ctx);
   }
 
   std::string word = gguf_get_arr_str(ctx, tokens_idx, bos_id_index);
   printf("%s: word: %s\n", __func__, word.c_str());
-  char *heapWord = new char[word.length() + 1]; // +1 for the null terminator
-
-  // Copy the contents of `word` to the allocated memory.
-  std::strcpy(heapWord, word.c_str());
-
-  ggml_free(meta);
-  gguf_free(ctx);
-  // Return the pointer to the caller. The caller must `delete[]` this memory.
-  return heapWord;
+  return copy_for_dart_and_free_contexts(word.c_str(), meta, ctx);
 }
 }
 

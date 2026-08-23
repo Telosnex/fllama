@@ -52,6 +52,7 @@ Future<String> fllamaChatTemplateGet(String modelPath) {
     return Future.value('');
   }
   final builtInChatTemplate = pointerCharToString(templatePointer);
+  calloc.free(templatePointer);
   return Future.value(builtInChatTemplate);
 }
 
@@ -67,7 +68,9 @@ Future<String> fllamaEosTokenGet(String modelPath) async {
   if (eosTokenPointer == nullptr) {
     return '';
   }
-  return pointerCharToString(eosTokenPointer);
+  final eosToken = pointerCharToString(eosTokenPointer);
+  calloc.free(eosTokenPointer);
+  return eosToken;
 }
 
 /// Returns the EOS token embedded in the .gguf file.
@@ -77,12 +80,14 @@ Future<String> fllamaEosTokenGet(String modelPath) async {
 /// files that don't have an EOS token or have incorrect EOS tokens.
 Future<String> fllamaBosTokenGet(String modelPath) async {
   final filenamePointer = stringToPointerChar(modelPath);
-  final eosTokenPointer = fllamaBindings.fllama_get_bos_token(filenamePointer);
+  final bosTokenPointer = fllamaBindings.fllama_get_bos_token(filenamePointer);
   calloc.free(filenamePointer);
-  if (eosTokenPointer == nullptr) {
+  if (bosTokenPointer == nullptr) {
     return '';
   }
-  return pointerCharToString(eosTokenPointer);
+  final bosToken = pointerCharToString(bosTokenPointer);
+  calloc.free(bosTokenPointer);
+  return bosToken;
 }
 
 /// Run chat inference. On native platforms this uses the native fllama backend.

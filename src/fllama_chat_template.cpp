@@ -1,9 +1,9 @@
 
 #include "fllama_chat_template.h"
+#include "dart_alloc.h"
 
 #include <iostream>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #ifdef __APPLE__
@@ -25,7 +25,9 @@ const char *fllama_get_chat_template(const char *fname) {
   struct gguf_context *ctx = gguf_init_from_file(fname, params);
   if (!ctx) {
     fprintf(stderr, "Unable to load model to get chat template: %s\n", fname);
-    return ""; // Return NULL to indicate failure to load or find the value.
+    char *empty = dart_malloc<char>(1);
+    empty[0] = '\0';
+    return empty;
   }
 
   const char *result = "";
@@ -56,9 +58,8 @@ const char *fllama_get_chat_template(const char *fname) {
   // gets corrupted at the end. On native, it's observed as the length being
   // 0 yet somehow it still can display the proper string.
   size_t len = strlen(result);
-  char *safeCopy = (char *)malloc(len + 1); // +1 for null terminator
-  memcpy(safeCopy, result, len);
-  safeCopy[len] = '\0'; // Explicitly null-terminate
+  char *safeCopy = dart_malloc<char>(len + 1); // +1 for null terminator
+  memcpy(safeCopy, result, len + 1);
   // Assuming gguf_free(ctx) should be called regardless of the conditional
   // branches above.
   ggml_free(meta);

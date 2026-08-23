@@ -30,12 +30,14 @@ Future<String> fllamaChatTemplateGet(String modelPath) {
 /// files that don't have an EOS token or have incorrect EOS tokens.
 Future<String> fllamaBosTokenGet(String modelPath) async {
   final filenamePointer = stringToPointerChar(modelPath);
-  final eosTokenPointer = fllamaBindings.fllama_get_bos_token(filenamePointer);
+  final bosTokenPointer = fllamaBindings.fllama_get_bos_token(filenamePointer);
   calloc.free(filenamePointer);
-  if (eosTokenPointer == nullptr) {
+  if (bosTokenPointer == nullptr) {
     return '';
   }
-  return pointerCharToString(eosTokenPointer);
+  final bosToken = pointerCharToString(bosTokenPointer);
+  calloc.free(bosTokenPointer);
+  return bosToken;
 }
 
 /// Returns the EOS token embedded in the .gguf file.

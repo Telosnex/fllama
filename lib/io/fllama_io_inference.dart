@@ -374,6 +374,12 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
           if (nativeRequest.model_mmproj_path != nullptr) {
             calloc.free(nativeRequest.model_mmproj_path);
           }
+          if (nativeRequest.eos_token != nullptr) {
+            calloc.free(nativeRequest.eos_token);
+          }
+          if (nativeRequest.openai_request_json_string != nullptr) {
+            calloc.free(nativeRequest.openai_request_json_string);
+          }
           if (nativeRequest.draft_model_path != nullptr) {
             calloc.free(nativeRequest.draft_model_path);
           }

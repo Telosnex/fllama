@@ -16,6 +16,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+// Caller owns non-null results from both functions: free() on POSIX,
+// CoTaskMemFree() on Windows.
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char *fllama_get_bos_token(const char *fname);
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char *fllama_get_eos_token(const char *fname);

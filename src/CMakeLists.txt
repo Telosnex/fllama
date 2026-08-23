@@ -142,6 +142,10 @@ target_include_directories(fllama PRIVATE
 )
 target_link_libraries(fllama PUBLIC llama llama-common mtmd server-context)
 
+if(WIN32)
+  target_link_libraries(fllama PRIVATE ole32)
+endif()
+
 # Apple: link system frameworks for Metal, Accelerate, etc.
 # These are needed because we statically link ggml-metal into this shared lib.
 if(APPLE)

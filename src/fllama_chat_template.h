@@ -18,6 +18,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+// Caller owns non-null results: free() on POSIX, CoTaskMemFree() on Windows.
 FFI_PLUGIN_EXPORT const char *fllama_get_chat_template(const char *fname);
 #ifdef __cplusplus
 }
