@@ -27,15 +27,15 @@ android {
     compileSdkVersion flutter.compileSdkVersion
     // 2025-04-08:
     // Avoid Your project is configured with Android NDK 26.3.11579264, but the following plugin(s) depend on a different Android NDK version:...(8 or so)
-    ndkVersion "27.0.12077973"
+    ndkVersion "28.2.13676358"
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '17'
     }
 
     sourceSets {
@@ -47,7 +47,7 @@ android {
         applicationId "com.example.fllama_example"
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
-        minSdkVersion 23
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
