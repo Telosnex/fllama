@@ -43,7 +43,8 @@ definitions:
     flutter: stable
     xcode: latest
     cocoapods: 1.15.2
-    java: 17
+    # AGP 9.x / Android Lint uses Java 21 APIs (for example List.removeLast).
+    java: 21
   trigger_on_push: &trigger_on_push
     events:
       - push
