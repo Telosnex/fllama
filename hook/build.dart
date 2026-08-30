@@ -87,6 +87,7 @@ import 'package:path/path.dart' as p;
 import 'cache_key.dart';
 
 void main(List<String> args) async {
+  final hookLog = _HookLogBuffer('fllama');
   await build(args, (input, output) async {
     // Bail out early if the consumer doesn't need native code (e.g. dart
     // analyze, or a platform that doesn't support code assets).
@@ -96,7 +97,7 @@ void main(List<String> args) async {
 
     final logger = Logger('')
       ..level = Level.ALL
-      ..onRecord.listen((record) => stderr.writeln(record.message));
+      ..onRecord.listen((record) => hookLog.add(record.message));
 
     final sourceDir = input.packageRoot.resolve('src/');
     final targetOS = input.config.code.targetOS;
@@ -125,8 +126,8 @@ void main(List<String> args) async {
     final libFileName = _libraryFileName(targetOS);
     final cachedLib = File(p.join(cacheDir.path, libFileName));
 
-    logger.info('fllama build key: $buildKey');
-    logger.info('fllama cache: ${cacheDir.path}');
+    logger.info('Build key: $buildKey');
+    logger.info('Cache: ${cacheDir.path}');
 
     // ── Declare dependencies (always, regardless of cache hit/miss) ────
     // Even if we never invoke cmake, declaring these helps consumers that
@@ -149,7 +150,7 @@ void main(List<String> args) async {
         logger: logger,
       );
       logger.info(
-        'fllama hook completed from cache in '
+        'Hook completed from cache in '
         '${_formatDuration(hookStopwatch.elapsed)} '
         '(publish/register ${_formatDuration(cacheHitStopwatch.elapsed)})',
       );
@@ -230,7 +231,7 @@ void main(List<String> args) async {
     );
 
     logger.info(
-      'fllama cache miss resolved in '
+      'Cache miss resolved in '
       '${_formatDuration(lockAndBuildStopwatch.elapsed)}',
     );
 
@@ -248,11 +249,34 @@ void main(List<String> args) async {
       logger: logger,
     );
     logger.info(
-      'fllama hook completed after build in '
+      'Hook completed after build in '
       '${_formatDuration(hookStopwatch.elapsed)} '
       '(publish/register ${_formatDuration(publishStopwatch.elapsed)})',
     );
-  });
+  }).whenComplete(hookLog.flush);
+}
+
+/// Collects logger records so hooks_runner receives one newline-normalized
+/// stderr message instead of adding a blank line after every streamed chunk.
+final class _HookLogBuffer {
+  _HookLogBuffer(this.tag);
+
+  final String tag;
+  final List<String> _lines = [];
+
+  void add(String message) {
+    final normalized = message.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    for (final line in normalized.split('\n')) {
+      if (line.trim().isEmpty) continue;
+      _lines.add('[$tag] $line');
+    }
+  }
+
+  void flush() {
+    if (_lines.isEmpty) return;
+    // hooks_runner adds the terminating newline while capturing this chunk.
+    stderr.write(_lines.join('\n'));
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -464,9 +488,7 @@ Future<void> _withExclusiveLock(
     final sw = Stopwatch()..start();
     await raf.lock(FileLock.blockingExclusive);
     if (sw.elapsedMilliseconds > 100) {
-      logger.info(
-        'Waited ${sw.elapsedMilliseconds}ms for fllama build lock',
-      );
+      logger.info('Waited ${sw.elapsedMilliseconds}ms for build lock');
     }
     try {
       await body();
