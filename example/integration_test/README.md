@@ -58,6 +58,7 @@ fresh `PATH`, so every native-assets step sources
 `scripts/configure_windows_ci.ps1` to prepend and validate CMake and NuGet in
 that step's own PowerShell process.
 
-The web smoke suite checks correctness rather than imposing a development-Mac
-throughput floor. Its CPU-only CI configuration allows up to ten minutes per
-request. See `dev/web_smoke/README.md` for optional benchmark settings.
+The web smoke suite checks correctness rather than imposing a throughput floor.
+It runs through WebGPU on an Apple-silicon macOS worker and allows up to ten
+minutes per request. See `dev/web_smoke/README.md` for optional benchmark
+settings.

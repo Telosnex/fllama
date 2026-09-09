@@ -406,7 +406,9 @@ workflows:
       <<: *cache_paths
   web-build:
     name: Web Build + Integration Tests
-    <<: *instance_linux_release_build
+    # WebGPU vision inference is prohibitively slow on Codemagic's Linux CPU
+    # workers. Run the existing web build/test workflow on Apple silicon.
+    <<: *instance_mac_release_combo_build
     triggering:
       <<: *trigger_on_push
     environment:
@@ -415,9 +417,10 @@ workflows:
         <<: *model_cache_vars
         FLLAMA_SMOKE_MODEL: $CM_BUILD_DIR/.model_cache/Qwen3.5-0.8B-Q4_K_M.gguf
         FLLAMA_SMOKE_MMPROJ: $CM_BUILD_DIR/.model_cache/Qwen3.5-0.8B-mmproj-F16.gguf
-        # CPU-only CI is slower than local GPU benchmarks, especially vision.
+        # Exercise WebGPU on the Apple-silicon worker; CPU-only Linux took more
+        # than ten minutes for the solid-red vision case.
         FLLAMA_SMOKE_TIMEOUT_MS: "600000"
-        FLLAMA_SMOKE_NUM_GPU_LAYERS: "0"
+        FLLAMA_SMOKE_NUM_GPU_LAYERS: "99999"
         FLLAMA_SMOKE_N_PARALLEL: "1"
     scripts:
       - <<: *script_pub_get

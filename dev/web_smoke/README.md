@@ -79,14 +79,15 @@ Override with `FLLAMA_SMOKE_MMPROJ=/path/to/mmproj.gguf` or `--mmproj=/path/to/m
 
 ## CI correctness versus local benchmarks
 
-The Codemagic web workflow runs `bare_hi` and `solid_red` on CPU, with one
-inference slot and a bounded ten-minute request timeout (including model load
-and image encoding). Both cases disable thinking through
+The Codemagic web workflow runs `bare_hi` and `solid_red` through WebGPU on an
+Apple-silicon macOS worker, with one inference slot and a bounded ten-minute
+request timeout (including model load and image encoding). Both cases disable
+thinking through
 `chat_template_kwargs.enable_thinking=false` and check actual answer content.
 The red-image case must still answer `red` (optional trailing punctuation).
 
-Throughput is recorded but is **not** a correctness assertion: CI CPUs are much
-slower than the development Mac. To opt into the old benchmark floor, use
+Throughput is recorded but is **not** a correctness assertion because shared CI
+performance varies. To opt into the old benchmark floor, use
 `--min-tokens-per-second=20` or `FLLAMA_SMOKE_MIN_TOKENS_PER_SECOND=20`.
 
 Additional overrides (environment variables also apply to `smoke:suite`):
