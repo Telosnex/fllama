@@ -109,6 +109,27 @@ definitions:
         done
       }
 
+      # Reproduced 26-09-09: Codemagic's preconfigured Google Chrome APT repo
+      # served a Packages.gz whose hashes did not match its Release file, making
+      # `apt-get update` fail before lld/xvfb could be installed. This repository
+      # is unrelated to the native Linux build, so disable only that source;
+      # Chrome itself remains installed on the image.
+      while IFS= read -r chrome_source; do
+        echo "Disabling unrelated Chrome APT source: $chrome_source"
+        if [ "$chrome_source" = "/etc/apt/sources.list" ]; then
+          sudo sed -i \
+            '\|dl\.google\.com/linux/chrome/deb|s|^|# disabled by fllama CI: |' \
+            "$chrome_source"
+        else
+          sudo mv "$chrome_source" \
+            "/tmp/$(basename "$chrome_source").fllama-disabled"
+        fi
+      done < <(
+        sudo grep -IlR 'dl\.google\.com/linux/chrome/deb' \
+          /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null || true
+      )
+      sudo rm -f /var/lib/apt/lists/dl.google.com_linux_chrome_deb_dists_*
+
       # Flutter native assets expects ld.lld in the LLVM bin dir.
       apt_get update
       apt_get install -y lld xvfb
