@@ -50,10 +50,13 @@ mobile tests copy them over localhost into their app sandboxes; the Playwright
 web smoke test selects the cached host files in Chrome.
 
 Mobile model transfer uses the Dart-only `scripts/serve_test_models.dart` HTTP
-server. iOS selects an available iPhone with `scripts/boot_ios_simulator.dart`
-and waits for `simctl bootstatus` before starting Flutter tests; no Python or
-pre-booted simulator is required. Windows exports CMake and NuGet paths through
-Codemagic's `CM_ENV` so subsequent download, test, and build steps inherit them.
+server. iOS uses `scripts/boot_ios_simulator.dart --fresh` to create a pristine
+temporary iPhone, waits for `simctl bootstatus`, falls back across installed iOS
+runtimes if data migration fails, and deletes the simulator afterward; no Python
+or pre-booted simulator is required. Codemagic starts each Windows step with a
+fresh `PATH`, so every native-assets step sources
+`scripts/configure_windows_ci.ps1` to prepend and validate CMake and NuGet in
+that step's own PowerShell process.
 
 The web smoke suite checks correctness rather than imposing a development-Mac
 throughput floor. Its CPU-only CI configuration allows up to ten minutes per

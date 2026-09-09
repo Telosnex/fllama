@@ -125,6 +125,8 @@ definitions:
   script_windows_build: &script_windows_build
     name: Windows build
     script: |
+      . "$env:CM_BUILD_DIR\scripts\configure_windows_ci.ps1" -RequireNuGet
+
       # Ensure NuGet executable exists and set its path
       $nugetExePath = "$env:DOTNET_PATH\nuget.exe"
       if (-not (Test-Path $nugetExePath)) {
@@ -153,7 +155,6 @@ definitions:
       Write-Host "Environment Variables just before CMake call:"
       Get-ChildItem env:
       Write-Host "Building with Flutter..."
-      $env:PATH = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;" + $env:PATH
       cd example
       flutter build windows --verbose --no-tree-shake-icons *>&1 | Tee-Object -FilePath flutter_build_output.txt
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -183,8 +184,8 @@ definitions:
         Write-Host "Adding $env:DOTNET_PATH to PATH"
         $env:PATH = "$env:DOTNET_PATH;$env:PATH"
         
-        Add-Content -Path $env:CM_ENV -Value "PATH=$env:PATH"
         Add-Content -Path $env:CM_ENV -Value "NUGET_EXE=$nugetExePath"
+        . "$env:CM_BUILD_DIR\scripts\configure_windows_ci.ps1" -RequireNuGet
 
         Write-Host "Verifying NuGet installation..."
         & "$nugetExePath" help | Out-Null
@@ -305,9 +306,19 @@ workflows:
             "$MODEL_CACHE_DIR" 127.0.0.1 8765 \
             > test-results/model_server_ios.log 2>&1 &
           MODEL_SERVER_PID=$!
-          trap 'kill "$MODEL_SERVER_PID" 2>/dev/null || true' EXIT
+          DEVICE_ID=''
+          cleanup() {
+            kill "$MODEL_SERVER_PID" 2>/dev/null || true
+            if [ -n "${DEVICE_ID:-}" ]; then
+              xcrun simctl shutdown "$DEVICE_ID" >/dev/null 2>&1 || true
+              xcrun simctl delete "$DEVICE_ID" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
 
-          DEVICE_ID=$(dart scripts/boot_ios_simulator.dart)
+          # Never trust a preinstalled simulator's migrated data on a reusable
+          # CI image. Create a pristine device, with runtime fallback.
+          DEVICE_ID=$(dart scripts/boot_ios_simulator.dart --fresh)
 
           cd example
           flutter test \
@@ -452,16 +463,18 @@ workflows:
             Remove-Item -Recurse -Force $vs2017cmake
             Write-Host "Removed VS 2017 CMake 3.12 directory"
           }
-          cmake --version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # Each Codemagic step gets a new shell. Registry/process PATH updates
-          # alone do not reach dart run / flutter test in subsequent steps.
-          Add-Content -Path $env:CM_ENV -Value "PATH=$env:PATH"
+          . "$env:CM_BUILD_DIR\scripts\configure_windows_ci.ps1"
       - <<: *script_windows_install_nuget
       - <<: *script_pub_get
-      - <<: *script_download_test_models
+      - name: Download cached Qwen test models
+        script: |
+          . "$env:CM_BUILD_DIR\scripts\configure_windows_ci.ps1" -RequireNuGet
+          cd example
+          dart run integration_test/test/download_test_models.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Qwen Windows integration tests
         script: |
+          . "$env:CM_BUILD_DIR\scripts\configure_windows_ci.ps1" -RequireNuGet
           New-Item -ItemType Directory -Force -Path test-results | Out-Null
           cd example
           flutter test `

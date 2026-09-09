@@ -3,9 +3,15 @@
 import 'dart:convert';
 import 'dart:io';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   try {
-    stdout.writeln(await bootSimulator());
+    final unsupported = args
+        .where((argument) => argument != '--fresh')
+        .toList();
+    if (unsupported.isNotEmpty) {
+      throw ArgumentError('Unsupported arguments: ${unsupported.join(' ')}');
+    }
+    stdout.writeln(await bootSimulator(fresh: args.contains('--fresh')));
   } catch (error) {
     stderr.writeln('Failed to boot iOS simulator: $error');
     exitCode = 1;
@@ -13,6 +19,7 @@ Future<void> main() async {
 }
 
 typedef Simctl = Future<String> Function(List<String> args, Duration timeout);
+typedef SimulatorCandidate = ({String runtime, Map<String, dynamic> device});
 
 Future<String> runSimctl(List<String> args, Duration timeout) async {
   final process = await Process.start('xcrun', ['simctl', ...args]);
@@ -41,8 +48,11 @@ Future<String> runSimctl(List<String> args, Duration timeout) async {
   return result;
 }
 
-Map<String, dynamic> selectDevice(Map<String, dynamic> inventory) {
-  final candidates = <({String runtime, Map<String, dynamic> device})>[];
+List<SimulatorCandidate> simulatorCandidates(
+  Map<String, dynamic> inventory, {
+  bool fresh = false,
+}) {
+  final candidates = <SimulatorCandidate>[];
   final runtimes = inventory['devices'] as Map<String, dynamic>;
   for (final entry in runtimes.entries) {
     if (!entry.key.contains('.iOS-')) continue;
@@ -67,25 +77,54 @@ Map<String, dynamic> selectDevice(Map<String, dynamic> inventory) {
   };
   List<int> version(String runtime) =>
       runtime.split('.iOS-').last.split('-').map(int.parse).toList();
+  int devicePriority(Map<String, dynamic> device) {
+    final name = device['name'] as String;
+    if (name.contains('Pro')) return 2;
+    if (name.contains('Air')) return 0;
+    return 1;
+  }
 
-  candidates.sort((a, b) {
-    // Reuse a booted/booting iPhone; otherwise prefer the newest installed iOS.
-    final state = statePriority(b.device).compareTo(statePriority(a.device));
-    if (state != 0) return state;
-    final av = version(a.runtime);
-    final bv = version(b.runtime);
+  int compareVersion(String a, String b) {
+    final av = version(a);
+    final bv = version(b);
     for (var i = 0; i < av.length || i < bv.length; i++) {
       final comparison = (i < bv.length ? bv[i] : 0).compareTo(
         i < av.length ? av[i] : 0,
       );
       if (comparison != 0) return comparison;
     }
+    return 0;
+  }
+
+  candidates.sort((a, b) {
+    // Existing-device mode reuses a booted phone. Fresh CI mode tries the
+    // newest runtime first regardless of stale preinstalled simulator state.
+    if (!fresh) {
+      final state = statePriority(b.device).compareTo(statePriority(a.device));
+      if (state != 0) return state;
+    }
+    final runtime = compareVersion(a.runtime, b.runtime);
+    if (runtime != 0) return runtime;
+    if (fresh) {
+      // iPhone Air currently fails first-boot data migration on the Codemagic
+      // image (and reproduced locally); prefer a Pro simulator in that runtime.
+      final device = devicePriority(
+        b.device,
+      ).compareTo(devicePriority(a.device));
+      if (device != 0) return device;
+    }
     return (b.device['name'] as String).compareTo(a.device['name'] as String);
   });
-  return candidates.first.device;
+  return candidates;
 }
 
-Future<String> bootSimulator({Simctl simctl = runSimctl}) async {
+Map<String, dynamic> selectDevice(Map<String, dynamic> inventory) =>
+    simulatorCandidates(inventory).first.device;
+
+Future<String> bootSimulator({
+  Simctl simctl = runSimctl,
+  bool fresh = false,
+}) async {
   final inventory =
       jsonDecode(
             await simctl([
@@ -96,23 +135,91 @@ Future<String> bootSimulator({Simctl simctl = runSimctl}) async {
             ], const Duration(minutes: 1)),
           )
           as Map<String, dynamic>;
-  final device = selectDevice(inventory);
+  final candidates = simulatorCandidates(inventory, fresh: fresh);
+  if (!fresh) return _bootExisting(candidates.first.device, simctl);
+
+  final errors = <String>[];
+  final attemptedTargets = <String>{};
+  for (final candidate in candidates) {
+    final deviceType = candidate.device['deviceTypeIdentifier'] as String?;
+    if (deviceType == null) continue;
+    // A runtime often has many preinstalled phones of one type. One fresh
+    // attempt per runtime/type pair is enough before trying another target.
+    if (!attemptedTargets.add('${candidate.runtime}|$deviceType')) continue;
+
+    String? udid;
+    try {
+      final name = 'fllama CI ${DateTime.now().microsecondsSinceEpoch}';
+      udid = (await simctl([
+        'create',
+        name,
+        deviceType,
+        candidate.runtime,
+      ], const Duration(minutes: 1))).trim();
+      if (udid.isEmpty) {
+        throw StateError('simctl create returned an empty UDID.');
+      }
+      stderr.writeln(
+        'Created $name ($udid) using ${candidate.runtime} / $deviceType',
+      );
+      return await _boot(udid, name, simctl);
+    } catch (error) {
+      errors.add('${candidate.runtime} / $deviceType: $error');
+      stderr.writeln(
+        'Fresh simulator failed for ${candidate.runtime} / $deviceType: $error',
+      );
+      if (udid != null && udid.isNotEmpty) {
+        await _deleteBestEffort(udid, simctl);
+      }
+    }
+  }
+  throw StateError(
+    'Could not boot a fresh iPhone simulator from any installed runtime:\n'
+    '${errors.join('\n')}',
+  );
+}
+
+Future<String> _bootExisting(Map<String, dynamic> device, Simctl simctl) async {
   final udid = device['udid'] as String;
-  stderr.writeln('Using ${device['name']} ($udid), state=${device['state']}');
-  if (device['state'] != 'Booted' && device['state'] != 'Booting') {
+  final state = device['state'];
+  final name = device['name'] as String;
+  stderr.writeln('Using $name ($udid), state=$state');
+  if (state != 'Booted' && state != 'Booting') {
     await simctl(['boot', udid], const Duration(minutes: 1));
   }
-  // Launching Simulator.app does not guarantee a device has booted. Wait for
-  // this specific device, with a deadline instead of polling an empty list.
+  return _waitForBoot(udid, name, simctl);
+}
+
+Future<String> _boot(String udid, String name, Simctl simctl) async {
+  await simctl(['boot', udid], const Duration(minutes: 1));
+  return _waitForBoot(udid, name, simctl);
+}
+
+Future<String> _waitForBoot(String udid, String name, Simctl simctl) async {
+  // Wait for this specific device, with a deadline instead of polling an empty
+  // list. Some simctl versions exit zero even for terminal migration failures.
   final status = await simctl([
     'bootstatus',
     udid,
     '-b',
   ], const Duration(minutes: 5));
   stderr.writeln(status);
-  // Some simctl versions exit zero even for terminal migration failures.
   if (status.contains('Data Migration Failed')) {
     throw StateError('Simulator $udid failed data migration:\n$status');
   }
+  stderr.writeln('$name ($udid) is ready.');
   return udid;
+}
+
+Future<void> _deleteBestEffort(String udid, Simctl simctl) async {
+  try {
+    await simctl(['shutdown', udid], const Duration(minutes: 1));
+  } catch (_) {
+    // It may already have stopped after a terminal boot failure.
+  }
+  try {
+    await simctl(['delete', udid], const Duration(minutes: 1));
+  } catch (error) {
+    stderr.writeln('Could not delete failed simulator $udid: $error');
+  }
 }

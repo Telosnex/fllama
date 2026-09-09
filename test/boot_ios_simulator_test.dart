@@ -10,7 +10,14 @@ Map<String, dynamic> device(
   String state = 'Shutdown',
   String name = 'iPhone 16',
   bool available = true,
-}) => {'udid': udid, 'state': state, 'name': name, 'isAvailable': available};
+  String type = 'com.apple.CoreSimulator.SimDeviceType.iPhone-16',
+}) => {
+  'udid': udid,
+  'state': state,
+  'name': name,
+  'isAvailable': available,
+  'deviceTypeIdentifier': type,
+};
 
 void main() {
   test('selects newest available iPhone when nothing is booted', () {
@@ -42,6 +49,33 @@ void main() {
     );
   });
 
+  test('fresh mode orders candidates by newest runtime, not state', () {
+    final candidates = simulatorCandidates({
+      'devices': {
+        'com.apple.CoreSimulator.SimRuntime.iOS-18-6': [
+          device('booted', state: 'Booted'),
+        ],
+        'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [device('new')],
+      },
+    }, fresh: true);
+    expect(candidates.first.device['udid'], 'new');
+  });
+
+  test('fresh mode prefers Pro over Air in the same runtime', () {
+    final candidates = simulatorCandidates({
+      'devices': {
+        'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [
+          device('air', name: 'iPhone Air', type: 'air-type'),
+          device('pro', name: 'iPhone 17 Pro Max', type: 'pro-type'),
+        ],
+      },
+    }, fresh: true);
+    expect(candidates.map((candidate) => candidate.device['udid']), [
+      'pro',
+      'air',
+    ]);
+  });
+
   test('missing simulator has actionable error', () {
     expect(
       () => selectDevice({'devices': <String, dynamic>{}}),
@@ -55,7 +89,7 @@ void main() {
     );
   });
 
-  test('cold boot waits for selected device', () async {
+  test('cold boot waits for selected existing device', () async {
     final calls = <List<String>>[];
     final udid = await bootSimulator(
       simctl: (args, timeout) async {
@@ -82,56 +116,102 @@ void main() {
   });
 
   test(
-    'zero-exit bootstatus migration failure is not accepted as ready',
+    'fresh mode creates rather than migrating a preinstalled device',
     () async {
-      await expectLater(
-        bootSimulator(
-          simctl: (args, timeout) async {
-            if (args.first == 'list') {
-              return jsonEncode({
-                'devices': {
-                  'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [
-                    device('broken', state: 'Booting'),
-                  ],
-                },
-              });
-            }
-            return 'Status=3, isTerminal=YES\nData Migration Failed';
-          },
-        ),
-        throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            contains('failed data migration'),
-          ),
-        ),
+      final calls = <List<String>>[];
+      final udid = await bootSimulator(
+        fresh: true,
+        simctl: (args, timeout) async {
+          calls.add(args);
+          return switch (args.first) {
+            'list' => jsonEncode({
+              'devices': {
+                'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [
+                  device('stale'),
+                ],
+              },
+            }),
+            'create' => 'fresh-id\n',
+            _ => '',
+          };
+        },
       );
+      expect(udid, 'fresh-id');
+      expect(calls, [
+        ['list', 'devices', 'available', '--json'],
+        [
+          'create',
+          startsWith('fllama CI '),
+          'com.apple.CoreSimulator.SimDeviceType.iPhone-16',
+          'com.apple.CoreSimulator.SimRuntime.iOS-26-0',
+        ],
+        ['boot', 'fresh-id'],
+        ['bootstatus', 'fresh-id', '-b'],
+      ]);
     },
   );
 
-  test('booting device is not booted again and timeout propagates', () async {
-    final calls = <List<String>>[];
-    await expectLater(
-      bootSimulator(
+  test(
+    'fresh mode falls back after migration failure and deletes failure',
+    () async {
+      final calls = <List<String>>[];
+      final udid = await bootSimulator(
+        fresh: true,
         simctl: (args, timeout) async {
           calls.add(args);
           if (args.first == 'list') {
             return jsonEncode({
               'devices': {
                 'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [
-                  device('starting', state: 'Booting'),
+                  device('new', type: 'new-type'),
+                ],
+                'com.apple.CoreSimulator.SimRuntime.iOS-18-6': [
+                  device('old', type: 'old-type'),
                 ],
               },
             });
           }
-          expect(timeout, const Duration(minutes: 5));
-          throw TimeoutException('bootstatus');
+          if (args.first == 'create') {
+            return args.last.contains('26-0') ? 'failed-id' : 'working-id';
+          }
+          if (args.first == 'bootstatus' && args[1] == 'failed-id') {
+            return 'Status=3, isTerminal=YES\nData Migration Failed';
+          }
+          return '';
         },
-      ),
-      throwsA(isA<TimeoutException>()),
-    );
-    expect(calls.last, ['bootstatus', 'starting', '-b']);
-    expect(calls, hasLength(2));
-  });
+      );
+      expect(udid, 'working-id');
+      expect(calls, contains(equals(['shutdown', 'failed-id'])));
+      expect(calls, contains(equals(['delete', 'failed-id'])));
+      expect(calls, contains(equals(['bootstatus', 'working-id', '-b'])));
+    },
+  );
+
+  test(
+    'booting existing device is not booted again and timeout propagates',
+    () async {
+      final calls = <List<String>>[];
+      await expectLater(
+        bootSimulator(
+          simctl: (args, timeout) async {
+            calls.add(args);
+            if (args.first == 'list') {
+              return jsonEncode({
+                'devices': {
+                  'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [
+                    device('starting', state: 'Booting'),
+                  ],
+                },
+              });
+            }
+            expect(timeout, const Duration(minutes: 5));
+            throw TimeoutException('bootstatus');
+          },
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(calls.last, ['bootstatus', 'starting', '-b']);
+      expect(calls, hasLength(2));
+    },
+  );
 }
