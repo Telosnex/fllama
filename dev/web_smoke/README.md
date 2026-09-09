@@ -77,6 +77,30 @@ test/assets/test_orange.png
 
 Override with `FLLAMA_SMOKE_MMPROJ=/path/to/mmproj.gguf` or `--mmproj=/path/to/mmproj.gguf`. Passing `--mmproj=default` uses the default mmproj path above. Override single-image input with `FLLAMA_SMOKE_IMAGE=/path/to/image.png` or `--image=/path/to/image.png`; `--image=default` uses `fllama_header.png`. Override multi-image input with comma-separated `FLLAMA_SMOKE_IMAGES=/path/a.png,/path/b.png` or `--images=/path/a.png,/path/b.png`; `--images=default` uses the apple/orange test assets.
 
+## CI correctness versus local benchmarks
+
+The Codemagic web workflow runs `bare_hi` and `solid_red` on CPU, with one
+inference slot and a bounded ten-minute request timeout (including model load
+and image encoding). Both cases disable thinking through
+`chat_template_kwargs.enable_thinking=false` and check actual answer content.
+The red-image case must still answer `red` (optional trailing punctuation).
+
+Throughput is recorded but is **not** a correctness assertion: CI CPUs are much
+slower than the development Mac. To opt into the old benchmark floor, use
+`--min-tokens-per-second=20` or `FLLAMA_SMOKE_MIN_TOKENS_PER_SECOND=20`.
+
+Additional overrides (environment variables also apply to `smoke:suite`):
+
+- `--timeout-ms=600000` / `FLLAMA_SMOKE_TIMEOUT_MS` (default: 180000)
+- `--gpu-layers=0` / `FLLAMA_SMOKE_NUM_GPU_LAYERS` (default: 99999)
+- `--no-think` / `FLLAMA_SMOKE_NO_THINK=1`
+
+Run the harness regression tests without models or a browser:
+
+```bash
+node --test dev/web_smoke/smoke_checks.test.mjs
+```
+
 ## Compare against legacy packaged runtime
 
 ```bash

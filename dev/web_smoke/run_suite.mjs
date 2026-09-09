@@ -82,7 +82,7 @@ const tests = [
   {
     id: 'bare_hi',
     description: 'bare model asked to respond to hi',
-    args: ['--prompt=hi', '--max-tokens=100', '--mmproj=none'],
+    args: ['--prompt=hi', '--max-tokens=24', '--mmproj=none', '--no-think', '--expect-content-regex=.'],
   },
   {
     id: 'concurrent_hi',
@@ -118,12 +118,13 @@ const tests = [
     id: 'solid_red',
     description: 'model + mmproj identifies a solid-red image',
     args: [
-      '--prompt=What single color fills this image? Answer with only the color name. /no_think',
+      '--prompt=What single color fills this image? Answer with only the color name.',
       '--temperature=0',
-      '--max-tokens=128',
+      '--max-tokens=16',
+      '--no-think',
       `--mmproj=${process.env.FLLAMA_SMOKE_MMPROJ || 'default'}`,
       `--image=${path.join(repoRoot, 'test/assets/test_red.png')}`,
-      '--expect-content-regex=^red$',
+      '--expect-content-regex=^red[.!]?$',
     ],
   },
   {

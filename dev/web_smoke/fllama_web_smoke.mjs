@@ -5,6 +5,7 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { checkSmokeResult, smokeOptions } from './smoke_checks.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -128,6 +129,7 @@ async function overlayLegacyReeseAssets(ref) {
   }
 }
 
+const options = smokeOptions();
 const modelPath = path.resolve(argValue('--model', process.env.FLLAMA_SMOKE_MODEL || defaultModel));
 const mmprojArg = argValue('--mmproj', process.env.FLLAMA_SMOKE_MMPROJ || '');
 const mmprojPath = mmprojArg && mmprojArg !== 'none'
@@ -251,6 +253,7 @@ console.log(`Using runtime=${runtime}${runtime === 'legacy' || runtime === 'rees
 
 const server = spawnServer();
 let browser;
+let heartbeat;
 try {
   await waitForHttp(url);
 
@@ -329,7 +332,11 @@ try {
   const modelToken = await pickLocalModelFile(modelPath, 'model');
   const mmprojToken = mmprojPath ? await pickLocalModelFile(mmprojPath, 'mmproj') : null;
 
-  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, mixedJinja }) => {
+  const requestStartedAt = Date.now();
+  heartbeat = setInterval(() => {
+    console.log(`[smoke] Waiting for inference: ${Math.round((Date.now() - requestStartedAt) / 1000)}s / ${options.timeoutMs / 1000}s`);
+  }, 15000);
+  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, mixedJinja, options }) => {
     const imageTags = images
       .map((image) => `<img src="data:${image.mimeType};base64,${image.base64}">`)
       .join('\n');
@@ -339,6 +346,7 @@ try {
     const messages = [{ role: 'user', content }];
     const openAiRequestObject = {
       messages,
+      ...(options.noThinking ? { chat_template_kwargs: { enable_thinking: false } } : {}),
       tools: [],
       temperature,
       max_tokens: maxTokens,
@@ -359,7 +367,7 @@ try {
       penaltyRepeat: 1.1,
       topP: 1,
       numThreads: Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4)),
-      numGpuLayers: 99999,
+      numGpuLayers: options.numGpuLayers,
       ...(nParallel === null ? {} : { nParallel }),
     };
 
@@ -406,9 +414,6 @@ try {
                   if (typeof chunk?.choices?.[0]?.message?.content === 'string') {
                     localFinalContent += chunk.choices[0].message.content;
                   }
-                  if (typeof chunk?.choices?.[0]?.message?.reasoning_content === 'string') {
-                    localFinalContent += chunk.choices[0].message.reasoning_content;
-                  }
                   if (chunk?.timings) localFinalTimings = chunk.timings;
                 }
               } catch (error) {
@@ -423,7 +428,7 @@ try {
           },
         );
 
-        const deadline = performance.now() + 180000;
+        const deadline = localStartedAt + options.timeoutMs;
         while (performance.now() < deadline) {
           if (localChunks.some((chunk) => chunk.type === 'inference' && chunk.done)) break;
           await new Promise((resolve) => setTimeout(resolve, 50));
@@ -497,7 +502,7 @@ try {
                 finalContent += chunk.choices[0].message.content;
               }
               if (typeof chunk?.choices?.[0]?.message?.reasoning_content === 'string') {
-                finalContent += chunk.choices[0].message.reasoning_content;
+                finalReasoning += chunk.choices[0].message.reasoning_content;
               }
               if (chunk?.timings) finalTimings = chunk.timings;
             }
@@ -509,7 +514,7 @@ try {
       },
     );
 
-    const deadline = performance.now() + 180000;
+    const deadline = startedAt + options.timeoutMs;
     while (performance.now() < deadline) {
       if (chunks.some((chunk) => chunk.type === 'inference' && chunk.done)) break;
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -534,7 +539,8 @@ try {
         hardwareConcurrency: navigator.hardwareConcurrency,
       },
     };
-  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, mixedJinja });
+  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, mixedJinja, options });
+  clearInterval(heartbeat);
 
   await writeFile(path.join(outputDir, 'console.log'), logs.join('\n') + '\n');
   await writeFile(path.join(outputDir, 'result.json'), JSON.stringify(result, null, 2));
@@ -555,43 +561,14 @@ try {
     imageCount: imagePaths.length,
     nParallel,
     mixedJinja,
+    ...options,
     support: result.support,
     outputDir,
   }, null, 2));
 
-  if (!result.done) throw new Error('Inference did not complete before timeout');
-  if (!result.finalTextLength) throw new Error('Inference completed with empty output');
-  if (result.concurrent && result.concurrentRequests > 1 && result.interleavingTransitions <= 0) {
-    throw new Error('Concurrent inference completed without interleaved deltas');
-  }
-  if (expectRegex) {
-    const regex = new RegExp(expectRegex, 'i');
-    const textToCheck = result.finalContent || result.finalText || '';
-    if (!regex.test(textToCheck)) {
-      throw new Error(`Expected ${JSON.stringify(textToCheck)} to match /${expectRegex}/i`);
-    }
-  }
-  if (expectContentRegex) {
-    const regex = new RegExp(expectContentRegex, 'i');
-    const contentToCheck = result.finalContent || '';
-    if (!regex.test(contentToCheck.trim())) {
-      throw new Error(
-        `Expected final content ${JSON.stringify(contentToCheck)} to match /${expectContentRegex}/i`,
-      );
-    }
-  }
-  if (result.finalTimings?.predicted_per_second && result.finalTimings.predicted_per_second < 20) {
-    const aggregateTokensPerSecond = result.concurrent
-      ? result.finalTimings.predicted_per_second * (result.concurrentRequests || 1)
-      : result.finalTimings.predicted_per_second;
-    if (aggregateTokensPerSecond < 20) {
-      throw new Error(
-        `Very slow inference: ${result.finalTimings.predicted_per_second} tok/s` +
-        (result.concurrent ? ` (${aggregateTokensPerSecond} aggregate tok/s)` : '')
-      );
-    }
-  }
+  checkSmokeResult(result, { ...options, expectRegex, expectContentRegex });
 } finally {
+  clearInterval(heartbeat);
   if (browser) await browser.close();
   server.kill('SIGTERM');
 }

@@ -40,11 +40,21 @@ model paths documented in that test file.
 ## Codemagic
 
 The integration coverage runs inside the existing Android, iOS, Linux, macOS,
-web, and Windows workflows, before each workflow's app build. There is no
+web, and Windows workflows, alongside each workflow's app build. There is no
 separate integration-test workflow.
 
-All platform workflows cache `$CM_BUILD_DIR/.model_cache` and
-`$HOME/.cache/fllama`. A small Dart setup command validates/downloads Qwen and
+All platform workflows cache `$CM_BUILD_DIR/.model_cache`. Native-build caches
+use `$HOME/.cache/fllama` on Unix and `$LOCALAPPDATA/fllama/Cache` on Windows. A small Dart setup command validates/downloads Qwen and
 its projector into the host cache. Desktop tests read those files directly;
 mobile tests copy them over localhost into their app sandboxes; the Playwright
 web smoke test selects the cached host files in Chrome.
+
+Mobile model transfer uses the Dart-only `scripts/serve_test_models.dart` HTTP
+server. iOS selects an available iPhone with `scripts/boot_ios_simulator.dart`
+and waits for `simctl bootstatus` before starting Flutter tests; no Python or
+pre-booted simulator is required. Windows exports CMake and NuGet paths through
+Codemagic's `CM_ENV` so subsequent download, test, and build steps inherit them.
+
+The web smoke suite checks correctness rather than imposing a development-Mac
+throughput floor. Its CPU-only CI configuration allows up to ten minutes per
+request. See `dev/web_smoke/README.md` for optional benchmark settings.

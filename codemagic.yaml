@@ -183,7 +183,8 @@ definitions:
         Write-Host "Adding $env:DOTNET_PATH to PATH"
         $env:PATH = "$env:DOTNET_PATH;$env:PATH"
         
-        [Environment]::SetEnvironmentVariable("PATH", $env:PATH + ";$env:DOTNET_PATH", [EnvironmentVariableTarget]::User)
+        Add-Content -Path $env:CM_ENV -Value "PATH=$env:PATH"
+        Add-Content -Path $env:CM_ENV -Value "NUGET_EXE=$nugetExePath"
 
         Write-Host "Verifying NuGet installation..."
         & "$nugetExePath" help | Out-Null
@@ -246,9 +247,8 @@ workflows:
         script: |
           set -euo pipefail
           mkdir -p test-results
-          python3 -m http.server 8765 \
-            --bind 0.0.0.0 \
-            --directory "$MODEL_CACHE_DIR" \
+          dart scripts/serve_test_models.dart \
+            "$MODEL_CACHE_DIR" 0.0.0.0 8765 \
             > test-results/model_server_android.log 2>&1 &
           MODEL_SERVER_PID=$!
           trap 'kill "$MODEL_SERVER_PID" 2>/dev/null || true' EXIT
@@ -301,15 +301,13 @@ workflows:
         script: |
           set -euo pipefail
           mkdir -p test-results
-          python3 -m http.server 8765 \
-            --bind 127.0.0.1 \
-            --directory "$MODEL_CACHE_DIR" \
+          dart scripts/serve_test_models.dart \
+            "$MODEL_CACHE_DIR" 127.0.0.1 8765 \
             > test-results/model_server_ios.log 2>&1 &
           MODEL_SERVER_PID=$!
           trap 'kill "$MODEL_SERVER_PID" 2>/dev/null || true' EXIT
 
-          flutter emulators --launch apple_ios_simulator
-          DEVICE_ID=$(xcrun simctl list devices booted --json | python3 -c 'import json,sys; runtimes=json.load(sys.stdin)["devices"].values(); print(next(device["udid"] for devices in runtimes for device in devices))')
+          DEVICE_ID=$(dart scripts/boot_ios_simulator.dart)
 
           cd example
           flutter test \
@@ -406,6 +404,10 @@ workflows:
         <<: *model_cache_vars
         FLLAMA_SMOKE_MODEL: $CM_BUILD_DIR/.model_cache/Qwen3.5-0.8B-Q4_K_M.gguf
         FLLAMA_SMOKE_MMPROJ: $CM_BUILD_DIR/.model_cache/Qwen3.5-0.8B-mmproj-F16.gguf
+        # CPU-only CI is slower than local GPU benchmarks, especially vision.
+        FLLAMA_SMOKE_TIMEOUT_MS: "600000"
+        FLLAMA_SMOKE_NUM_GPU_LAYERS: "0"
+        FLLAMA_SMOKE_N_PARALLEL: "1"
     scripts:
       - <<: *script_pub_get
       - <<: *script_download_test_models
@@ -437,18 +439,24 @@ workflows:
     scripts:
       - name: Install modern CMake
         script: |
+          $ErrorActionPreference = 'Stop'
           # VS 2017 BuildTools ships CMake 3.12 which lacks -S/-B flags (added 3.13).
           # native_toolchain_cmake runs vcvars internally which puts VS 2017's paths
           # on PATH, shadowing any system cmake. Fix: delete VS 2017's cmake dir
           # entirely so vcvars can't shadow the choco-installed modern cmake.
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
-          $env:PATH = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;" + $env:PATH
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:PATH = "C:\Program Files\CMake\bin;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;" + $env:PATH
           $vs2017cmake = "C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake"
           if (Test-Path $vs2017cmake) {
             Remove-Item -Recurse -Force $vs2017cmake
             Write-Host "Removed VS 2017 CMake 3.12 directory"
           }
           cmake --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Each Codemagic step gets a new shell. Registry/process PATH updates
+          # alone do not reach dart run / flutter test in subsequent steps.
+          Add-Content -Path $env:CM_ENV -Value "PATH=$env:PATH"
       - <<: *script_windows_install_nuget
       - <<: *script_pub_get
       - <<: *script_download_test_models
@@ -467,6 +475,9 @@ workflows:
     artifacts:
       - test-results/flutter_integration_windows.json
     cache:
-      <<: *cache_paths
+      cache_paths:
+        - ~/.pub-cache
+        - $CM_BUILD_DIR/.model_cache
+        - $LOCALAPPDATA/fllama/Cache
     publishing:
       <<: *email_notifications
