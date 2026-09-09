@@ -8,6 +8,14 @@ definitions:
       - ~/.gradle/caches
       - $HOME/Library/Caches/CocoaPods
       - $CM_BUILD_DIR/node_modules
+      - $CM_BUILD_DIR/dev/web_smoke/node_modules
+      # Native-assets compilation and the Qwen model/projector are expensive
+      # enough to preserve between every per-platform build/test run.
+      - $HOME/.cache/fllama
+      - $CM_BUILD_DIR/.model_cache
+  model_cache_vars: &model_cache_vars
+    MODEL_CACHE_DIR: $CM_BUILD_DIR/.model_cache
+    FLLAMA_TEST_NUM_GPU_LAYERS: "0"
   email_notifications: &email_notifications
     email:
       recipients:
@@ -51,6 +59,11 @@ definitions:
     branch_patterns:
       - pattern: "*"
     cancel_previous_builds: true
+  script_download_test_models: &script_download_test_models
+    name: Download cached Qwen test models
+    script: |
+      cd example
+      dart run integration_test/test/download_test_models.dart
   script_android_build: &script_android_build
     name: Build AAB
     script:  |
@@ -98,7 +111,7 @@ definitions:
 
       # Flutter native assets expects ld.lld in the LLVM bin dir.
       apt_get update
-      apt_get install -y lld
+      apt_get install -y lld xvfb
   script_macos_build: &script_macos_build
     name: macOS build
     script: |
@@ -187,7 +200,10 @@ definitions:
     script: xcode-project use-profiles
   script_pub_get: &script_pub_get
     name: flutter pub get
-    script: flutter pub get
+    script: |
+      flutter pub get
+      cd example
+      flutter pub get
   flutter_test_artifacts: &flutter_test_artifacts
     - flutter_drive.log
     - test-results/flutter.json
@@ -213,28 +229,64 @@ workflows:
           done
           wait
   android-build:
-    name: Android Build
-    <<: *instance_mac_release_build # 31m vs. linux_x2 57m on 2023 12 22. (for Telosnex)
+    name: Android Build + Integration Tests
+    # Android emulators cannot run nested on Codemagic's Apple-silicon hosts.
+    <<: *instance_linux_release_build
     triggering:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
+      vars:
+        <<: *model_cache_vars
     scripts:
       - <<: *script_pub_get
       - <<: *script_android_setup
+      - <<: *script_download_test_models
+      - name: Qwen Android integration tests
+        script: |
+          set -euo pipefail
+          mkdir -p test-results
+          python3 -m http.server 8765 \
+            --bind 0.0.0.0 \
+            --directory "$MODEL_CACHE_DIR" \
+            > test-results/model_server_android.log 2>&1 &
+          MODEL_SERVER_PID=$!
+          trap 'kill "$MODEL_SERVER_PID" 2>/dev/null || true' EXIT
+
+          flutter emulators --launch emulator
+          adb wait-for-device
+          until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do
+            sleep 2
+          done
+
+          cd example
+          flutter test \
+            --reporter expanded \
+            --file-reporter json:../test-results/flutter_integration_android.json \
+            --dart-define=FLLAMA_TEST_MODEL_BASE_URL=http://10.0.2.2:8765 \
+            --dart-define=FLLAMA_TEST_NUM_GPU_LAYERS=0 \
+            -d emulator-5554 \
+            integration_test/local_llm_integration_test.dart
+        test_report: test-results/flutter_integration_android.json
       - <<: *script_android_build
     artifacts:
       - build/**/outputs/**/mapping.txt
+      - test-results/flutter_integration_android.json
+      - test-results/model_server_android.log
+    cache:
+      <<: *cache_paths
     publishing:
       <<: *email_notifications
   ios-build:
-    name: iOS Build
-    <<: *instance_mac_release_build
+    name: iOS Build + Integration Tests
+    <<: *instance_mac_release_combo_build
     triggering:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
       <<: *env_keys
+      vars:
+        <<: *model_cache_vars
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.telosnex.telosnex
@@ -244,67 +296,142 @@ workflows:
       - <<: *script_ios_codesign_setup
       - <<: *script_pub_get
       - <<: *script_install_pods
+      - <<: *script_download_test_models
+      - name: Qwen iOS integration tests
+        script: |
+          set -euo pipefail
+          mkdir -p test-results
+          python3 -m http.server 8765 \
+            --bind 127.0.0.1 \
+            --directory "$MODEL_CACHE_DIR" \
+            > test-results/model_server_ios.log 2>&1 &
+          MODEL_SERVER_PID=$!
+          trap 'kill "$MODEL_SERVER_PID" 2>/dev/null || true' EXIT
+
+          flutter emulators --launch apple_ios_simulator
+          DEVICE_ID=$(xcrun simctl list devices booted --json | python3 -c 'import json,sys; runtimes=json.load(sys.stdin)["devices"].values(); print(next(device["udid"] for devices in runtimes for device in devices))')
+
+          cd example
+          flutter test \
+            --reporter expanded \
+            --file-reporter json:../test-results/flutter_integration_ios.json \
+            --dart-define=FLLAMA_TEST_MODEL_BASE_URL=http://127.0.0.1:8765 \
+            --dart-define=FLLAMA_TEST_NUM_GPU_LAYERS=0 \
+            -d "$DEVICE_ID" \
+            integration_test/local_llm_integration_test.dart
+        test_report: test-results/flutter_integration_ios.json
       - <<: *script_ios_build
     artifacts:
       - /tmp/xcodebuild_logs/*.log
+      - test-results/flutter_integration_ios.json
+      - test-results/model_server_ios.log
+    cache:
+      <<: *cache_paths
     publishing:
       <<: *email_notifications
   linux-build:
-    name: Linux Build
+    name: Linux Build + Integration Tests
     <<: *instance_linux_release_build
     triggering:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
+      vars:
+        <<: *model_cache_vars
     scripts:
       - <<: *script_linux_install_lld
       - <<: *script_pub_get
+      - <<: *script_download_test_models
+      - name: Qwen Linux integration tests
+        script: |
+          set -euo pipefail
+          mkdir -p test-results
+          cd example
+          xvfb-run -a flutter test \
+            --reporter expanded \
+            --file-reporter json:../test-results/flutter_integration_linux.json \
+            -d linux \
+            integration_test/local_llm_integration_test.dart
+        test_report: test-results/flutter_integration_linux.json
       - <<: *script_linux_build
     artifacts:
       - build/linux/**/*.zip
+      - test-results/flutter_integration_linux.json
+    cache:
+      <<: *cache_paths
     publishing:
       <<: *email_notifications
   macos-build:
-    name: macOS Build
-    <<: *instance_mac_release_build
-    triggering:
-      <<: *trigger_on_push
-    environment:
-      <<: *env_versions
-    scripts:
-      - <<: *script_pub_get
-      - <<: *script_install_pods
-      - <<: *script_macos_build
-    artifacts:
-      - build/macos/**/*.app
-      - /tmp/xcodebuild_logs/*.log
-      - build/macos/Build/Products/Release/*
-    publishing:
-      <<: *email_notifications
-    cache:
-      <<: *cache_paths
-  web-build:
-    name: Web Build
-    <<: *instance_linux # No particular rationale here, other than Linux is probably worst case for web compat
-    triggering:
-      <<: *trigger_on_push
-    environment:
-      <<: *env_versions
-    scripts:
-      - <<: *script_pub_get
-      - <<: *script_web_build
-    cache:
-      <<: *cache_paths
-    publishing:
-      <<: *email_notifications
-  windows-build:
-    name: Windows Build
-    <<: *instance_windows_build
+    name: macOS Build + Integration Tests
+    <<: *instance_mac_release_combo_build
     triggering:
       <<: *trigger_on_push
     environment:
       <<: *env_versions
       vars:
+        <<: *model_cache_vars
+    scripts:
+      - <<: *script_pub_get
+      - <<: *script_install_pods
+      - <<: *script_download_test_models
+      - name: Qwen macOS integration tests
+        script: |
+          set -euo pipefail
+          mkdir -p test-results
+          cd example
+          flutter test \
+            --reporter expanded \
+            --file-reporter json:../test-results/flutter_integration_macos.json \
+            -d macos \
+            integration_test/local_llm_integration_test.dart
+        test_report: test-results/flutter_integration_macos.json
+      - <<: *script_macos_build
+    artifacts:
+      - build/macos/**/*.app
+      - /tmp/xcodebuild_logs/*.log
+      - build/macos/Build/Products/Release/*
+      - test-results/flutter_integration_macos.json
+    publishing:
+      <<: *email_notifications
+    cache:
+      <<: *cache_paths
+  web-build:
+    name: Web Build + Integration Tests
+    <<: *instance_linux_release_build
+    triggering:
+      <<: *trigger_on_push
+    environment:
+      <<: *env_versions
+      vars:
+        <<: *model_cache_vars
+        FLLAMA_SMOKE_MODEL: $CM_BUILD_DIR/.model_cache/Qwen3.5-0.8B-Q4_K_M.gguf
+        FLLAMA_SMOKE_MMPROJ: $CM_BUILD_DIR/.model_cache/Qwen3.5-0.8B-mmproj-F16.gguf
+    scripts:
+      - <<: *script_pub_get
+      - <<: *script_download_test_models
+      - <<: *script_web_build
+      - name: Qwen web integration tests
+        script: |
+          set -euo pipefail
+          cd dev/web_smoke
+          npm ci
+          HEADLESS=1 npm run smoke:suite -- --only=bare_hi,solid_red
+    artifacts:
+      - tmp/web_smoke_suite/**
+    cache:
+      <<: *cache_paths
+    publishing:
+      <<: *email_notifications
+  windows-build:
+    name: Windows Build + Integration Tests
+    instance_type: windows_x2
+    max_build_duration: 120
+    triggering:
+      <<: *trigger_on_push
+    environment:
+      <<: *env_versions
+      vars:
+        <<: *model_cache_vars
         DOTNET_PATH: $CM_BUILD_DIR\dotnet
         DOTNET: $CM_BUILD_DIR\dotnet\dotnet
     scripts:
@@ -324,6 +451,22 @@ workflows:
           cmake --version
       - <<: *script_windows_install_nuget
       - <<: *script_pub_get
+      - <<: *script_download_test_models
+      - name: Qwen Windows integration tests
+        script: |
+          New-Item -ItemType Directory -Force -Path test-results | Out-Null
+          cd example
+          flutter test `
+            --reporter expanded `
+            --file-reporter json:../test-results/flutter_integration_windows.json `
+            -d windows `
+            integration_test/local_llm_integration_test.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        test_report: test-results/flutter_integration_windows.json
       - <<: *script_windows_build
+    artifacts:
+      - test-results/flutter_integration_windows.json
+    cache:
+      <<: *cache_paths
     publishing:
       <<: *email_notifications

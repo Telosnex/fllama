@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,9 +22,10 @@ function hasFlag(name) {
   return process.argv.includes(name);
 }
 
-function runSmoke(test, extraArgs = []) {
+async function runSmoke(test, extraArgs = []) {
+  const outDir = path.join(outputRoot, test.id);
+  await rm(outDir, { recursive: true, force: true });
   return new Promise((resolve) => {
-    const outDir = path.join(outputRoot, test.id);
     const args = [
       'fllama_web_smoke.mjs',
       '--runtime=current',
@@ -81,7 +82,7 @@ const tests = [
   {
     id: 'bare_hi',
     description: 'bare model asked to respond to hi',
-    args: ['--prompt=hi', '--max-tokens=100'],
+    args: ['--prompt=hi', '--max-tokens=100', '--mmproj=none'],
   },
   {
     id: 'concurrent_hi',
@@ -90,6 +91,7 @@ const tests = [
       '--prompt=Respond with a short friendly greeting.',
       '--max-tokens=100',
       '--concurrent=2',
+      '--mmproj=none',
     ],
   },
   {
@@ -99,13 +101,30 @@ const tests = [
       '--prompt=Respond with a short friendly greeting.',
       '--max-tokens=100',
       '--concurrent=2',
+      '--mmproj=none',
       '--mixed-jinja',
     ],
   },
   {
     id: 'mmproj_hi',
     description: 'bare model + mmproj asked to respond to hi',
-    args: ['--prompt=hi', '--max-tokens=100', '--mmproj=default'],
+    args: [
+      '--prompt=hi',
+      '--max-tokens=100',
+      `--mmproj=${process.env.FLLAMA_SMOKE_MMPROJ || 'default'}`,
+    ],
+  },
+  {
+    id: 'solid_red',
+    description: 'model + mmproj identifies a solid-red image',
+    args: [
+      '--prompt=What single color fills this image? Answer with only the color name. /no_think',
+      '--temperature=0',
+      '--max-tokens=128',
+      `--mmproj=${process.env.FLLAMA_SMOKE_MMPROJ || 'default'}`,
+      `--image=${path.join(repoRoot, 'test/assets/test_red.png')}`,
+      '--expect-content-regex=^red$',
+    ],
   },
   {
     id: 'image_title',
@@ -114,7 +133,7 @@ const tests = [
       '--prompt=Do not think. Respond with one word only, the title in the image.',
       '--temperature=0',
       '--max-tokens=128',
-      '--mmproj=default',
+      `--mmproj=${process.env.FLLAMA_SMOKE_MMPROJ || 'default'}`,
       '--image=default',
       '--expect-regex=fll+ama',
     ],
@@ -126,7 +145,7 @@ const tests = [
       '--prompt=Two images are attached. Respond with exactly the two words shown, in order, separated by one space.',
       '--temperature=0',
       '--max-tokens=128',
-      '--mmproj=default',
+      `--mmproj=${process.env.FLLAMA_SMOKE_MMPROJ || 'default'}`,
       '--images=default',
       '--expect-regex=apple orange',
     ],

@@ -55,15 +55,34 @@ void main() {
     expect(await keyFor(firstSourceDirectory), isNot(originalKey));
   });
 
+  test('separates iOS device and simulator cache entries', () async {
+    final source = File('${firstSourceDirectory.path}/fllama.cpp');
+    await source.writeAsString('int fllama() { return 1; }\n');
+    final sourceFiles = await collectSourceFiles(firstSourceDirectory.uri);
+
+    String keyForSdk(String sdk) => computeBuildKey(
+      os: 'ios',
+      arch: 'arm64',
+      targetVariant: sdk,
+      defines: const {'CMAKE_BUILD_TYPE': 'Release'},
+      sourceFiles: sourceFiles,
+    );
+
+    expect(keyForSdk('iphoneos'), isNot(keyForSdk('iphonesimulator')));
+  });
+
   test('ignores generated build directories and unrelated files', () async {
-    await File('${firstSourceDirectory.path}/fllama.cpp')
-        .writeAsString('int fllama() { return 1; }\n');
+    await File(
+      '${firstSourceDirectory.path}/fllama.cpp',
+    ).writeAsString('int fllama() { return 1; }\n');
     final originalKey = await keyFor(firstSourceDirectory);
     await Directory('${firstSourceDirectory.path}/build').create();
-    await File('${firstSourceDirectory.path}/build/generated.cpp')
-        .writeAsString('generated output\n');
-    await File('${firstSourceDirectory.path}/README.md')
-        .writeAsString('documentation\n');
+    await File(
+      '${firstSourceDirectory.path}/build/generated.cpp',
+    ).writeAsString('generated output\n');
+    await File(
+      '${firstSourceDirectory.path}/README.md',
+    ).writeAsString('documentation\n');
 
     expect(await keyFor(firstSourceDirectory), originalKey);
   });

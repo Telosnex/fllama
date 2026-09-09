@@ -130,7 +130,9 @@ async function overlayLegacyReeseAssets(ref) {
 
 const modelPath = path.resolve(argValue('--model', process.env.FLLAMA_SMOKE_MODEL || defaultModel));
 const mmprojArg = argValue('--mmproj', process.env.FLLAMA_SMOKE_MMPROJ || '');
-const mmprojPath = mmprojArg ? path.resolve(mmprojArg === 'default' ? defaultMmproj : mmprojArg) : '';
+const mmprojPath = mmprojArg && mmprojArg !== 'none'
+  ? path.resolve(mmprojArg === 'default' ? defaultMmproj : mmprojArg)
+  : '';
 const imageArg = argValue('--image', process.env.FLLAMA_SMOKE_IMAGE || '');
 const imagesArg = argValue('--images', process.env.FLLAMA_SMOKE_IMAGES || '');
 const imagePaths = (() => {
@@ -149,6 +151,10 @@ const prompt = argValue('--prompt', process.env.FLLAMA_SMOKE_PROMPT || 'Write a 
 const maxTokens = Number(argValue('--max-tokens', process.env.FLLAMA_SMOKE_MAX_TOKENS || '100'));
 const temperature = Number(argValue('--temperature', process.env.FLLAMA_SMOKE_TEMPERATURE || '0.1'));
 const expectRegex = argValue('--expect-regex', process.env.FLLAMA_SMOKE_EXPECT_REGEX || '');
+const expectContentRegex = argValue(
+  '--expect-content-regex',
+  process.env.FLLAMA_SMOKE_EXPECT_CONTENT_REGEX || '',
+);
 const contextSize = Number(argValue('--ctx', process.env.FLLAMA_SMOKE_CTX || '4096'));
 const concurrentRequests = Number(argValue('--concurrent', process.env.FLLAMA_SMOKE_CONCURRENT || '1'));
 const nParallelArg = argValue('--n-parallel', process.env.FLLAMA_SMOKE_N_PARALLEL || '');
@@ -563,6 +569,15 @@ try {
     const textToCheck = result.finalContent || result.finalText || '';
     if (!regex.test(textToCheck)) {
       throw new Error(`Expected ${JSON.stringify(textToCheck)} to match /${expectRegex}/i`);
+    }
+  }
+  if (expectContentRegex) {
+    const regex = new RegExp(expectContentRegex, 'i');
+    const contentToCheck = result.finalContent || '';
+    if (!regex.test(contentToCheck.trim())) {
+      throw new Error(
+        `Expected final content ${JSON.stringify(contentToCheck)} to match /${expectContentRegex}/i`,
+      );
     }
   }
   if (result.finalTimings?.predicted_per_second && result.finalTimings.predicted_per_second < 20) {

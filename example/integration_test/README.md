@@ -1,80 +1,50 @@
-# FLLAMA Integration Tests
+# fllama integration tests
 
-Integration tests for the FLLAMA Flutter plugin that test local LLM inference capabilities.
+These tests exercise the native library through the public Dart API. The main
+suite verifies GGUF metadata/tokenization, streaming chat plus OpenAI-compatible
+JSON, multimodal image recognition, and native error callbacks.
 
-## Overview
+## Model
 
-These tests verify that FLLAMA can:
-- Load and run GGUF models
-- Handle chat conversations
-- Support tool/function calling
-- Generate responses with appropriate formatting
+The CI suite uses the 508 MiB `Qwen3.5-0.8B-Q4_K_M.gguf` from the
+[`telosnex/fllama`](https://huggingface.co/telosnex/fllama) Hugging Face repo.
+Its 196 MiB multimodal projector is downloaded for the image test. The revision
+and expected file sizes are pinned in `test/test_model_manager.dart`. Downloads
+are written to temporary files and only promoted into the cache after their
+sizes are validated.
 
-## Running the Tests
+The default cache is `example/.model_cache`. Override it with
+`MODEL_CACHE_DIR`. Local files can seed an empty cache with
+`QWEN_0_8B_MODEL_PATH` and `QWEN_0_8B_MMPROJ_PATH`; the corresponding
+`QWEN_0_8B_MODEL_URL` and `QWEN_0_8B_MMPROJ_URL` variables override download
+URLs.
 
-### Prerequisites
+## Run
 
-1. Install Flutter dependencies:
+From `example/`:
+
 ```bash
 flutter pub get
+flutter test -d macos integration_test/local_llm_integration_test.dart
 ```
 
-2. The tests will automatically download required models to `.model_cache/` directory.
-   Models are cached between runs to avoid re-downloading.
-
-### Run Tests
+Linux is also supported:
 
 ```bash
-# Run all integration tests
-flutter test integration_test/
-
-# Run specific test file
-flutter test integration_test/local_llm_integration_test.dart
-
-# With custom model cache directory
-MODEL_CACHE_DIR=/path/to/cache flutter test integration_test/
+flutter test -d linux integration_test/local_llm_integration_test.dart
 ```
 
-## Test Models
+The Gemma 4 MTP suite is a separate, opt-in benchmark that requires the local
+model paths documented in that test file.
 
-The tests use the following models by default:
-- **Phi-4 mini** (2.5GB) - Microsoft's efficient instruction model
-- **Gemma 2 2B** (1.7GB) - Google's small but capable model  
-- **SmolLM 3** (1.9GB) - Small language model
-- **Llama 3.2 1B** (1.3GB) - Meta's compact instruction model
+## Codemagic
 
-Models are automatically downloaded from HuggingFace on first run.
+The integration coverage runs inside the existing Android, iOS, Linux, macOS,
+web, and Windows workflows, before each workflow's app build. There is no
+separate integration-test workflow.
 
-## Platform Support
-
-Tests are currently supported on:
-- ✅ macOS
-- ✅ Linux (limited - only runs basic tests due to CI performance)
-- ❌ Windows (disabled due to CI limitations)
-- ❌ iOS/Android (disabled - requires proper app context)
-- ❌ Web (uses different inference engine)
-
-## Test Structure
-
-```
-integration_test/
-├── local_llm_integration_test.dart  # Main test file
-└── test/
-    ├── initialize.dart              # Test initialization helpers
-    ├── test_helpers.dart            # Common test utilities
-    └── test_model_manager.dart      # Model download/cache management
-```
-
-## Customization
-
-### Using Different Models
-
-Edit `integration_test/test/test_model_manager.dart` to add new models:
-
-```dart
-TestModel.myModel: ModelMetadata(
-  sizeBytes: 1024 * 1024 * 1000, // Size in bytes
-  repoId: 'username/repo',        // HuggingFace repo
-  filename: 'model.gguf',          // GGUF filename
-),
-```
+All platform workflows cache `$CM_BUILD_DIR/.model_cache` and
+`$HOME/.cache/fllama`. A small Dart setup command validates/downloads Qwen and
+its projector into the host cache. Desktop tests read those files directly;
+mobile tests copy them over localhost into their app sandboxes; the Playwright
+web smoke test selects the cached host files in Chrome.

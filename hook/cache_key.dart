@@ -91,13 +91,15 @@ Future<List<SourceFileFingerprint>> collectSourceFiles(Uri sourceDir) async {
 String computeBuildKey({
   required String os,
   required String arch,
+  String targetVariant = '',
   required Map<String, String> defines,
   required List<SourceFileFingerprint> sourceFiles,
 }) {
   final buffer = StringBuffer();
-  buffer.writeln('v2'); // v2 uses content digests instead of unstable mtimes.
+  buffer.writeln('v3'); // v3 separates platform SDK variants.
   buffer.writeln('os=$os');
   buffer.writeln('arch=$arch');
+  buffer.writeln('target_variant=$targetVariant');
 
   final sortedDefines = defines.entries.toList()
     ..sort((a, b) => a.key.compareTo(b.key));

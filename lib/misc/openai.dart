@@ -90,6 +90,10 @@ class OpenAiRequest {
   final Function(String)? logger;
   final ToolChoice? toolChoice;
 
+  /// Whether templates that support reasoning should start a thinking block.
+  /// null preserves the backend default.
+  final bool? enableThinking;
+
   /// Optional: path to an MTP assistant/drafter GGUF to enable Multi-Token
   /// Prediction speculative decoding. Native-only; ignored on web.
   final String? draftModelPath;
@@ -135,6 +139,7 @@ class OpenAiRequest {
       'presence_penalty': presencePenalty,
       if (toolChoice != null) 'tool_choice': toolChoice?.jsonName,
       if (jinjaTemplate != null) 'jinja_template': jinjaTemplate,
+      if (enableThinking != null) 'enable_thinking': enableThinking,
     };
     return jsonEncode(json);
   }
@@ -177,6 +182,7 @@ class OpenAiRequest {
     // Optional logger.
     this.logger,
     this.jinjaTemplate,
+    this.enableThinking,
     // Optional MTP/speculative drafter GGUF (native-only).
     this.draftModelPath,
     this.draftNMax,

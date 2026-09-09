@@ -1,377 +1,288 @@
 // ignore_for_file: avoid_print
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:fllama/fllama.dart' as fllama;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:integration_test/integration_test.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 
 import 'test/initialize.dart';
-import 'test/test_helpers.dart';
 import 'test/test_model_manager.dart';
 
 void main() {
-  const kIterations = 1;
-  
-  // Skip on web - these are llama.cpp tests
-  if (kIsWeb) {
-    print('Skipping local LLM integration tests on web');
-    return;
-  }
-  
-  // Skip on certain platforms due to limitations
-  const skipPlatforms = {
-    TargetPlatform.android,
-    TargetPlatform.iOS,
-    TargetPlatform.windows,
-  };
-  
-  if (skipPlatforms.contains(defaultTargetPlatform)) {
-    print('Skipping local LLM integration tests on $defaultTargetPlatform');
-    return;
-  }
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  group('Local LLM Integration Test', () {
-    setUp(() {
+  final supportedPlatform = !kIsWeb;
+
+  group('native Qwen 3.5 0.8B integration', () {
+    late File modelFile;
+    late File mmprojFile;
+
+    setUpAll(() async {
       prepareAllowNetworkRequests();
-      prepareSharedPreferences();
+      if (!supportedPlatform) return;
+
+      final modelManager = TestModelManager(
+        cacheDirectory: await _modelCacheDirectory(),
+      );
+      final files = await Future.wait([
+        modelManager.getModel(TestModel.qwen35_08b),
+        modelManager.getModel(TestModel.qwen35_08bMmproj),
+      ]);
+      modelFile = files[0];
+      mmprojFile = files[1];
+      print('[fllama integration] model: ${modelFile.absolute.path}');
+      print('[fllama integration] mmproj: ${mmprojFile.absolute.path}');
     });
 
-    // Define a reusable test function for model inference tests
-    void runInferenceTests(TestModel testModel, String modelName, {bool skipAll = false}) {
-      group('$modelName Inference', skip: skipAll ? 'Skipping for GPU debugging' : null, () {
-        late File modelFile;
-        
-        setUpAll(() async {
-          prepareAllowNetworkRequests();
-          prepareTestBindings();
-          await preparePathProviderAsync();
-          prepareSharedPreferences();
-
-          final modelManager = TestModelManager();
-          logTest('Model manager created. Await model download...');
-          try {
-            modelFile = await modelManager.getModel(testModel);
-            logTest('Model downloaded to ${modelFile.absolute.path}');
-          } catch (e) {
-            logTest('Failed to download model: $e');
-            logTest('Skipping test - model download failed');
-            logTest('Try downloading the model manually to: ${modelManager.getModelStoragePath(testModel)}');
-            throw TestFailure('Model download failed - check network connection or download manually');
-          }
-          return Future.value();
-        });
-
-        // Skip additional tests on Linux CI due to performance
-        final shouldSkipAnythingPastOneChat =
-            defaultTargetPlatform == TargetPlatform.linux;
-
-        test(
-          'raw chat works',
-          skip: shouldSkipAnythingPastOneChat,
-          () async {
-            try {
-              logTest('Running raw chat test for $modelName');
-              final (handler, completionCompleter) = createLlmResponseHandler();
-              final sw = Stopwatch()..start();
-              logTest('Created response handler, starting raw chat...');
-              
-              await fllama.fllamaChat(
-                fllama.OpenAiRequest(
-                  modelPath: modelFile.absolute.path,
-                  maxTokens: 10,
-                  numGpuLayers: 99,  // Enable GPU acceleration
-                  messages: [
-                    fllama.Message(fllama.Role.user, 'Hello, how are you?'),
-                  ],
-                  logger: (p0) {
-                    print('[llama.cpp log]: $p0');
-                  },
-                ),
-                handler,
-              );
-              
-              logTest('Raw chat completed, awaiting response...');
-              await completionCompleter.future.timeout(Duration(minutes: 5));
-              logTest(
-                'Raw chat completed in ${sw.elapsedMilliseconds} ms',
-              );
-            } catch (e) {
-              fail('Error during raw chat: $e');
-            }
-          },
-          timeout: Timeout(Duration(minutes: 10)),
+    test(
+      'reads GGUF metadata and tokenizes text',
+      () async {
+        final modelPath = modelFile.absolute.path;
+        final template = await fllama.fllamaChatTemplateGet(modelPath);
+        final eosToken = await fllama.fllamaEosTokenGet(modelPath);
+        final tokenCount = await fllama.fllamaTokenize(
+          fllama.FllamaTokenizeRequest(
+            input: 'Hello from the fllama integration suite.',
+            modelPath: modelPath,
+          ),
         );
 
-        test('simple chat request', () async {
-          try {
-            final sw = Stopwatch()..start();
-            final (handler, completionCompleter) = createLlmResponseHandler();
-            
-            await fllama.fllamaChat(
-              fllama.OpenAiRequest(
-                messages: [
-                  fllama.Message(fllama.Role.user, 'Hello'),
-                ],
-                modelPath: modelFile.absolute.path,
-                maxTokens: 200,
-                numGpuLayers: 99,  // Enable GPU acceleration
-                temperature: 1.0,
-                topP: 1.0,
-                contextSize: 4096,
-              ),
-              handler,
-            );
-            
-            logTest('Awaiting final answer...');
-            final answer = await completionCompleter.future.timeout(Duration(minutes: 5));
-            logTest('Answer received, took ${sw.elapsedMilliseconds} ms');
-            await Future.delayed(Duration(seconds: 1));
-            expect(answer, isNotEmpty);
-          } catch (e) {
-            logTest('Error: $e');
-            rethrow;
-          }
-        }, timeout: Timeout(Duration(minutes: 10)));
+        expect(template, isNotEmpty);
+        expect(eosToken, isNotEmpty);
+        expect(tokenCount, greaterThan(0));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 5)),
+    );
 
-        test(
-          'force tool call',
-          skip: shouldSkipAnythingPastOneChat,
-          () async {
-            try {
-              const trials = kIterations;
-              final answers = <String>[];
-              
-              for (var i = 0; i < trials; i++) {
-                logTest('Answer #${i + 1} start...');
-                final sw = Stopwatch()..start();
-                final (handler, completionCompleter) = createLlmResponseHandler();
-                
-                final tool = fllama.Tool(
-                  name: 'search_queries',
-                  description: 'Perform a search query',
-                  jsonSchema: jsonEncode({
-                    'type': 'object',
-                    'properties': {
-                      'query': {
-                        'type': 'string',
-                        'description': 'The search query',
-                      },
-                    },
-                    'required': ['query'],
-                  }),
-                );
-                
-                await fllama.fllamaChat(
-                  fllama.OpenAiRequest(
-                    messages: [
-                      fllama.Message(
-                        fllama.Role.user,
-                        'Hello search for 2days weather in w/e the china capital is',
-                      ),
-                    ],
-                    tools: [tool],
-                    toolChoice: fllama.ToolChoice.required,
-                    modelPath: modelFile.absolute.path,
-                    maxTokens: 200,
-                    numGpuLayers: 99,  // Enable GPU acceleration
-                    temperature: 0.5,
-                    topP: 1.0,
-                    contextSize: 4096,
-                    logger: null,  // Disable logging for tool tests to avoid massive output
-                  ),
-                  handler,
-                );
-                
-                final answer = await completionCompleter.future.timeout(Duration(minutes: 5));
-                logTest(
-                  'Answer #${i + 1} done) $answer, duration: ${sw.elapsedMilliseconds} ms',
-                );
-                await Future.delayed(Duration(seconds: 1));
-                expect(answer, isNotEmpty);
-                answers.add(answer);
-              }
-
-              final expectedContent = 'Beijing';
-              expect(
-                answers,
-                everyElement(contains(expectedContent)),
-                reason: 'Expected content: $expectedContent. Answers: $answers',
-              );
-            } catch (e) {
-              logTest('Error: $e');
-              rethrow;
-            }
-          },
-          timeout: Timeout(Duration(minutes: 10)),
+    test(
+      'streams a chat response and OpenAI-compatible JSON',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(
+              fllama.Role.user,
+              'Reply with a short greeting.',
+            ),
+          ],
+          maxTokens: 24,
         );
 
-        test(
-          'unforced tool call',
-          skip: shouldSkipAnythingPastOneChat,
-          () async {
-            try {
-              const trials = kIterations;
-              final answers = <String>[];
-              
-              for (var i = 0; i < trials; i++) {
-                logTest('Answer #${i + 1} start...');
-                final sw = Stopwatch()..start();
-                final (handler, completionCompleter) = createLlmResponseHandler();
-                
-                final tool = fllama.Tool(
-                  name: 'search_queries',
-                  description: 'Perform a search query',
-                  jsonSchema: jsonEncode({
-                    'type': 'object',
-                    'properties': {
-                      'query': {
-                        'type': 'string',
-                        'description': 'The search query',
-                      },
-                    },
-                    'required': ['query'],
-                  }),
-                );
-                
-                await fllama.fllamaChat(
-                  fllama.OpenAiRequest(
-                    messages: [
-                      fllama.Message(
-                        fllama.Role.user,
-                        'Hello search for 2days weather in w/e the china capital is',
-                      ),
-                    ],
-                    tools: [tool],
-                    toolChoice: fllama.ToolChoice.auto,
-                    modelPath: modelFile.absolute.path,
-                    maxTokens: 200,
-                    numGpuLayers: 99,  // Enable GPU acceleration
-                    temperature: 0.5,
-                    topP: 1.0,
-                    contextSize: 4096,
-                    logger: null,  // Disable logging for tool tests
-                  ),
-                  handler,
-                );
-                
-                final answer = await completionCompleter.future.timeout(Duration(minutes: 5));
-                logTest(
-                  'Answer #${i + 1} done) $answer, duration: ${sw.elapsedMilliseconds} ms',
-                );
-                await Future.delayed(Duration(seconds: 1));
-                expect(answer, isNotEmpty);
-                answers.add(answer);
-              }
+        expect(run.events, isNotEmpty);
+        expect(run.events.last.done, isTrue);
+        expect(run.output.trim(), isNotEmpty);
+        expect(run.output, isNot(contains('Error:')));
 
-              final expectedContent = 'Beijing';
-              expect(
-                answers,
-                everyElement(contains(expectedContent)),
-                reason: 'Expected content: $expectedContent. Answers: $answers',
-              );
-            } catch (e) {
-              logTest('Error: $e');
-              rethrow;
-            }
-          },
-          timeout: Timeout(Duration(minutes: 10)),
+        final jsonChunks = run.decodedJsonChunks;
+        expect(jsonChunks, isNotEmpty);
+        expect(
+          jsonChunks.any((chunk) => chunk['choices'] is List),
+          isTrue,
+          reason: 'Expected at least one OpenAI-style choices payload.',
+        );
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'identifies a solid red image',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          mmprojPath: mmprojFile.absolute.path,
+          messages: [
+            fllama.Message(
+              fllama.Role.user,
+              '<img src="data:image/png;base64,$_solidRedPngBase64">\n\n'
+              'What single color fills this image? Answer with only the color name.',
+            ),
+          ],
+          maxTokens: 16,
+          temperature: 0,
+          enableThinking: false,
         );
 
-        test(
-          'verify tool call JSON format',
-          skip: shouldSkipAnythingPastOneChat,
-          () async {
-            try {
-              const trials = kIterations;
-              final answers = <String>[];
-              
-              for (var i = 0; i < trials; i++) {
-                logTest('Answer #${i + 1} start...');
-                final sw = Stopwatch()..start();
-                final (handler, completionCompleter) = createLlmResponseHandler();
-                
-                final tool = fllama.Tool(
-                  name: 'search_queries',
-                  description: 'Perform a search query',
-                  jsonSchema: jsonEncode({
-                    'type': 'object',
-                    'properties': {
-                      'query': {
-                        'type': 'string',
-                        'description': 'The search query',
-                      },
-                    },
-                    'required': ['query'],
-                  }),
-                );
-                
-                await fllama.fllamaChat(
-                  fllama.OpenAiRequest(
-                    messages: [
-                      fllama.Message(
-                        fllama.Role.user,
-                        'Hello search for 2days weather in Beijing',
-                      ),
-                    ],
-                    tools: [tool],
-                    toolChoice: fllama.ToolChoice.required,
-                    modelPath: modelFile.absolute.path,
-                    maxTokens: 200,
-                    numGpuLayers: 99,  // Enable GPU acceleration
-                    temperature: 0.5,
-                    topP: 1.0,
-                    contextSize: 4096,
-                    logger: null,  // Disable logging for tool tests
-                  ),
-                  handler,
-                );
-                
-                final answer = await completionCompleter.future.timeout(Duration(minutes: 5));
-                logTest(
-                  'Answer #${i + 1} done) $answer, duration: ${sw.elapsedMilliseconds} ms',
-                );
-                answers.add(answer);
-              }
-
-              for (final response in answers) {
-                // Try to parse as JSON
-                try {
-                  final json = jsonDecode(response);
-                  expect(json, isA<Map<String, dynamic>>());
-                  expect(json['name'], 'search_queries');
-                  expect(json['arguments'], isNotNull);
-                  expect(json['arguments']['query'], isNotNull);
-                  expect(
-                    json['arguments']['query'].toString().toLowerCase(),
-                    contains('beijing'),
-                    reason:
-                        'Expected query to contain "beijing", but got: ${json['arguments']['query']}',
-                  );
-                } catch (e) {
-                  // If not valid JSON, check if it's in the expected format
-                  expect(response, contains('search_queries'));
-                  expect(response.toLowerCase(), contains('beijing'));
-                }
-              }
-            } catch (e) {
-              logTest('Error: $e');
-              rethrow;
-            }
-          },
-          timeout: Timeout(Duration(minutes: 10)),
+        print('[fllama integration] vision output: ${run.output}');
+        print(
+          '[fllama integration] vision content: ${run.responseContent}',
         );
-      });
-    }
+        expect(run.events, isNotEmpty);
+        expect(run.events.last.done, isTrue);
+        expect(run.output, isNot(contains('Error:')));
+        expect(
+          run.responseContent.toLowerCase().trim(),
+          matches(RegExp(r'^red[.!]?$')),
+          reason: 'The vision model should answer with only "red".',
+        );
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
 
-    // Run the inference tests on Phi-4 mini
-    runInferenceTests(TestModel.tinyStories, 'Phi-4 mini');
-    
-    // Optionally run tests on other models
-    // runInferenceTests(TestModel.gemma2_2b, 'Gemma 2 2B');
-    // runInferenceTests(TestModel.smolLm3, 'SmolLM 3');
-    // runInferenceTests(TestModel.llama3_2_1b, 'Llama 3.2 1B');
+    test(
+      'relays an OpenAI parser error through the callback',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(fllama.Role.user, 'Hello.'),
+            fllama.Message(
+              fllama.Role.system,
+              'This intentionally comes after the user message.',
+            ),
+          ],
+          maxTokens: 8,
+        );
+
+        expect(run.events, isNotEmpty);
+        expect(run.events.last.done, isTrue);
+        expect(run.events.last.openAiResponseJsonString, isEmpty);
+        expect(
+          run.output,
+          allOf(
+            contains('Error:'),
+            contains('OAI parse error'),
+            contains('System message must be at the beginning'),
+          ),
+        );
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
   });
 }
+
+Future<Directory> _modelCacheDirectory() async {
+  // Mobile apps cannot access Codemagic's host filesystem even if the simulator
+  // happens to inherit MODEL_CACHE_DIR. They receive the cached files from the
+  // host's local model server and keep their copies in the app sandbox.
+  if (defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS) {
+    final supportDirectory = await getApplicationSupportDirectory();
+    return Directory(path.join(supportDirectory.path, '.model_cache'));
+  }
+
+  final configuredPath = Platform.environment['MODEL_CACHE_DIR'];
+  if (configuredPath != null && configuredPath.isNotEmpty) {
+    return Directory(configuredPath);
+  }
+  return Directory(path.join(Directory.current.path, '.model_cache'));
+}
+
+int get _testGpuLayers {
+  const configuredAtBuild = String.fromEnvironment(
+    'FLLAMA_TEST_NUM_GPU_LAYERS',
+  );
+  return int.tryParse(
+        Platform.environment['FLLAMA_TEST_NUM_GPU_LAYERS'] ?? configuredAtBuild,
+      ) ??
+      99;
+}
+
+Future<_ChatRun> _runChat({
+  required String modelPath,
+  String? mmprojPath,
+  required List<fllama.Message> messages,
+  required int maxTokens,
+  double temperature = 0.1,
+  bool? enableThinking,
+}) async {
+  final events = <_CallbackEvent>[];
+  final done = Completer<void>();
+
+  await fllama.fllamaChat(
+    fllama.OpenAiRequest(
+      modelPath: modelPath,
+      mmprojPath: mmprojPath,
+      messages: messages,
+      contextSize: 2048,
+      maxTokens: maxTokens,
+      numGpuLayers: _testGpuLayers,
+      temperature: temperature,
+      topP: 1.0,
+      enableThinking: enableThinking,
+      logger: (message) => print('[llama.cpp] $message'),
+    ),
+    (result, openAiResponseJsonString, doneFlag) {
+      events.add(
+        _CallbackEvent(
+          result: result,
+          openAiResponseJsonString: openAiResponseJsonString,
+          done: doneFlag,
+        ),
+      );
+      if (doneFlag && !done.isCompleted) done.complete();
+    },
+  );
+
+  await done.future.timeout(const Duration(minutes: 8));
+  return _ChatRun(events);
+}
+
+class _ChatRun {
+  final List<_CallbackEvent> events;
+
+  const _ChatRun(this.events);
+
+  String get output => events.last.result;
+
+  String get responseContent {
+    final buffer = StringBuffer();
+    for (final chunk in decodedJsonChunks) {
+      final choices = chunk['choices'];
+      if (choices is! List) continue;
+      for (final choice in choices) {
+        if (choice is! Map) continue;
+        final delta = choice['delta'];
+        final message = choice['message'];
+        final content = delta is Map && delta['content'] is String
+            ? delta['content'] as String
+            : message is Map && message['content'] is String
+                ? message['content'] as String
+                : null;
+        if (content != null) buffer.write(content);
+      }
+    }
+    return buffer.toString();
+  }
+
+  List<Map<String, dynamic>> get decodedJsonChunks {
+    final chunks = <Map<String, dynamic>>[];
+    for (final event in events) {
+      if (event.openAiResponseJsonString.isEmpty) continue;
+      final decoded = jsonDecode(event.openAiResponseJsonString);
+      final values = decoded is List ? decoded : [decoded];
+      for (final value in values) {
+        if (value is Map) chunks.add(Map<String, dynamic>.from(value));
+      }
+    }
+    return chunks;
+  }
+}
+
+class _CallbackEvent {
+  final String result;
+  final String openAiResponseJsonString;
+  final bool done;
+
+  const _CallbackEvent({
+    required this.result,
+    required this.openAiResponseJsonString,
+    required this.done,
+  });
+}
+
+// A 64x64 RGB PNG whose every pixel is #ff0000. Keeping it inline makes the
+// multimodal integration input deterministic and avoids asset-bundle setup.
+const _solidRedPngBase64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAS0lEQVR42u3PQQkA'
+    'AAgAsetfWiP4FgYrsKZeS0BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBA'
+    'QEBAQEBAQEBAQEBAQEDgsqnc8OJg6Ln3AAAAAElFTkSuQmCC';

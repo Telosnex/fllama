@@ -305,7 +305,7 @@ static void run_inference(fllama_inference_request request,
           // channel-based templates (Qwen, GPT-OSS/Harmony, etc). Allow the
           // request body to override explicitly.
           inputs.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
-          inputs.enable_thinking = true;
+          inputs.enable_thinking = body.value("enable_thinking", true);
           if (body.contains("reasoning_format") && body["reasoning_format"].is_string()) {
             inputs.reasoning_format = common_reasoning_format_from_name(
                 body["reasoning_format"].get<std::string>());

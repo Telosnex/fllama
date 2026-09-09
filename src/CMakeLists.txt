@@ -59,10 +59,14 @@ if(WIN32)
 endif()
 
 if(APPLE)
-  # Metal GPU acceleration — previously set by podspec/shell scripts.
-  # Now handled here so the CMake build is self-contained.
-  set(GGML_METAL ON CACHE BOOL "Enable Metal" FORCE)
-  set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "Embed Metal shader library" FORCE)
+  # Metal defaults on for Apple targets, but callers can disable it (notably
+  # for iOS simulators, whose Metal shim rejects llama.cpp external buffers).
+  if(NOT DEFINED GGML_METAL)
+    set(GGML_METAL ON CACHE BOOL "Enable Metal")
+  endif()
+  if(GGML_METAL AND NOT DEFINED GGML_METAL_EMBED_LIBRARY)
+    set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "Embed Metal shader library")
+  endif()
 endif()
 
 # Provide fallback build metadata so llama.cpp's generated build-info.cpp
@@ -146,19 +150,22 @@ if(WIN32)
   target_link_libraries(fllama PRIVATE ole32)
 endif()
 
-# Apple: link system frameworks for Metal, Accelerate, etc.
-# These are needed because we statically link ggml-metal into this shared lib.
+# Apple: link the system frameworks used by the enabled ggml backends.
 if(APPLE)
   find_library(FOUNDATION_LIBRARY Foundation REQUIRED)
-  find_library(METAL_LIBRARY Metal REQUIRED)
-  find_library(METALKIT_LIBRARY MetalKit REQUIRED)
   find_library(ACCELERATE_LIBRARY Accelerate REQUIRED)
   target_link_libraries(fllama PUBLIC
     ${FOUNDATION_LIBRARY}
-    ${METAL_LIBRARY}
-    ${METALKIT_LIBRARY}
     ${ACCELERATE_LIBRARY}
   )
+  if(GGML_METAL)
+    find_library(METAL_LIBRARY Metal REQUIRED)
+    find_library(METALKIT_LIBRARY MetalKit REQUIRED)
+    target_link_libraries(fllama PUBLIC
+      ${METAL_LIBRARY}
+      ${METALKIT_LIBRARY}
+    )
+  endif()
 endif()
 
 if(ANDROID)

@@ -8,6 +8,7 @@ import 'package:fllama/fllama_io.dart';
 import 'package:fllama/fllama_universal.dart';
 import 'package:fllama/io/fllama_bindings_generated.dart';
 import 'package:fllama/io/fllama_io_helpers.dart';
+import 'package:fllama/io/fllama_io_isolate.dart';
 
 typedef NativeInferenceCallback =
     Void Function(
@@ -31,7 +32,7 @@ Future<int> fllamaInference(
   FllamaInferenceRequest request,
   FllamaInferenceCallback callback,
 ) async {
-  final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
+  final SendPort helperIsolateSendPort = await _getHelperIsolateSendPort();
   final int requestId = _nextInferenceRequestId++;
   final _IsolateInferenceRequest isolateRequest = _IsolateInferenceRequest(
     requestId,
@@ -45,9 +46,16 @@ Future<int> fllamaInference(
   }
   try {
     helperIsolateSendPort.send(isolateRequest);
-  } catch (e) {
-    // ignore: avoid_print
-    print('[fllama] ERROR sending request to helper isolate: $e');
+  } catch (error, stackTrace) {
+    _isolateInferenceCallbacks.remove(requestId);
+    _loggerCallbacks.remove(requestId);
+    Error.throwWithStackTrace(
+      StateError(
+        'Could not send inference request $requestId to the fllama helper '
+        'isolate: $error',
+      ),
+      stackTrace,
+    );
   }
   return requestId;
 }
@@ -173,55 +181,82 @@ Pointer<fllama_inference_request> _toNative(
   return requestPointer;
 }
 
-/// The SendPort belonging to the helper isolate.
-Future<SendPort> _helperIsolateSendPort = () async {
-  // The helper isolate is going to send us back a SendPort, which we want to
-  // wait for.
-  final Completer<SendPort> completer = Completer<SendPort>();
+/// The SendPort belonging to the current helper isolate.
+Future<SendPort>? _helperIsolateSendPort;
 
-  // Receive port on the main isolate to receive messages from the helper.
-  // We receive two types of messages:
-  // 1. A port to send messages on.
-  // 2. Responses to requests we sent.
-  final ReceivePort receivePort = ReceivePort()
-    ..listen((dynamic data) {
-      if (data is SendPort) {
-        // The helper isolate sent us the port on which we can sent it requests.
-        completer.complete(data);
-        return;
-      }
-      if (data is _IsolateLogMessage) {
-        // Call the original logger callback with the message from the isolate
-        final logger = _loggerCallbacks[data.id];
-        if (logger != null && data.message.trim().isNotEmpty) {
-          logger(data.message);
-        }
-        return;
-      }
-      if (data is _IsolateInferenceResponse) {
-        final callback = _isolateInferenceCallbacks[data.id];
-        if (callback != null) {
-          callback(data.response, data.openaiResponseJsonString, data.done);
-        }
-        if (data.done) {
-          _isolateInferenceCallbacks.remove(data.id);
-          _loggerCallbacks.remove(data.id); // Clean up the logger callback
-          // Note: NativeCallable cleanup happens in the isolate when inference is done
-          return;
-        } else {
-          return;
-        }
-      }
-      throw UnsupportedError('Unsupported message type: ${data.runtimeType}');
-    });
+Future<SendPort> _getHelperIsolateSendPort() async {
+  final existing = _helperIsolateSendPort;
+  if (existing != null) return existing;
 
-  // Start the helper isolate.
-  await Isolate.spawn(_fllamaInferenceIsolate, receivePort.sendPort);
+  late final Future<SendPort> startup;
+  startup = startFllamaHelperIsolate(
+    debugName: 'fllama inference',
+    entryPoint: _fllamaInferenceIsolate,
+    onMessage: _handleInferenceIsolateMessage,
+    onTerminated: (error, stackTrace) {
+      if (identical(_helperIsolateSendPort, startup)) {
+        _helperIsolateSendPort = null;
+      }
+      _failPendingInferenceRequests(error, stackTrace);
+    },
+  );
+  _helperIsolateSendPort = startup;
 
-  // Wait until the helper isolate has sent us back the SendPort on which we
-  // can start sending requests.
-  return completer.future;
-}();
+  try {
+    return await startup;
+  } catch (_) {
+    if (identical(_helperIsolateSendPort, startup)) {
+      _helperIsolateSendPort = null;
+    }
+    rethrow;
+  }
+}
+
+void _handleInferenceIsolateMessage(dynamic data) {
+  if (data is _IsolateLogMessage) {
+    final logger = _loggerCallbacks[data.id];
+    if (logger != null && data.message.trim().isNotEmpty) {
+      logger(data.message);
+    }
+    return;
+  }
+  if (data is _IsolateInferenceResponse) {
+    final callback = _isolateInferenceCallbacks[data.id];
+    if (callback != null) {
+      callback(data.response, data.openaiResponseJsonString, data.done);
+    }
+    if (data.done) {
+      _isolateInferenceCallbacks.remove(data.id);
+      _loggerCallbacks.remove(data.id);
+    }
+    return;
+  }
+
+  // ignore: avoid_print
+  print(
+    '[fllama] inference helper sent unsupported message type: '
+    '${data.runtimeType}',
+  );
+}
+
+void _failPendingInferenceRequests(Object error, StackTrace stackTrace) {
+  final callbacks = _isolateInferenceCallbacks.values.toList(growable: false);
+  _isolateInferenceCallbacks.clear();
+  _loggerCallbacks.clear();
+  final message = 'Error: $error';
+
+  for (final callback in callbacks) {
+    try {
+      callback(message, '', true);
+    } catch (callbackError) {
+      // ignore: avoid_print
+      print(
+        '[fllama] inference callback threw while reporting helper isolate '
+        'failure: $callbackError\n$stackTrace',
+      );
+    }
+  }
+}
 
 /// Cancels the inference with the given [requestId].
 ///
@@ -234,7 +269,7 @@ Future<SendPort> _helperIsolateSendPort = () async {
 /// - Inferences that have started will call their callback with `done` set to
 /// `true` and the final output of the inference.
 void fllamaCancelInference(int requestId) async {
-  final SendPort helperIsolateSendPort = await _helperIsolateSendPort;
+  final SendPort helperIsolateSendPort = await _getHelperIsolateSendPort();
   final _IsolateInferenceCancel isolateCancel = _IsolateInferenceCancel(
     requestId,
   );
@@ -394,9 +429,19 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
       // DON'T clean up logger callback here - inference hasn't happened yet!
       // Logger cleanup is now deferred to avoid race conditions where C++
       // continues logging after signaling done=1
-    } catch (e, s) {
+    } catch (error, stackTrace) {
       // ignore: avoid_print
-      print('[fllama inference isolate] ERROR: $e. STACK: $s');
+      print('[fllama inference isolate] ERROR: $error. STACK: $stackTrace');
+      if (data is _IsolateInferenceRequest) {
+        sendPort.send(
+          _IsolateInferenceResponse(
+            id: data.id,
+            response: 'Error: fllama inference helper failed: $error',
+            openaiResponseJsonString: '',
+            done: true,
+          ),
+        );
+      }
     }
   });
 

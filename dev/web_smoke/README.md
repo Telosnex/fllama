@@ -60,9 +60,11 @@ HEADLESS=1 npm run smoke:multiimage-title
 Cases:
 
 1. bare model asked to respond to `hi`
-2. bare model + bare mmproj asked to respond to `hi`
-3. model + mmproj + `fllama_header.png` image, prompted: `Do not think. Respond with one word only, the title in the image.` at temperature `0`; expects an OCR-like `FLLAMA` / `FLLLAMA` match
-4. model + mmproj + `test/assets/test_apple.png` and `test/assets/test_orange.png`, prompted to read both words in order; expects `apple ... orange`
+2. two concurrent bare-model chat variants
+3. bare model + bare mmproj asked to respond to `hi`
+4. model + mmproj + a solid-red image; expects `red`
+5. model + mmproj + `fllama_header.png` image, prompted: `Do not think. Respond with one word only, the title in the image.` at temperature `0`; expects an OCR-like `FLLAMA` / `FLLLAMA` match
+6. model + mmproj + `test/assets/test_apple.png` and `test/assets/test_orange.png`, prompted to read both words in order; expects `apple ... orange`
 
 The mmproj/image scripts use these defaults:
 

@@ -23,8 +23,10 @@ migrate_working_dir/
 **/doc/api/
 .dart_tool/
 build/
+/test-results/
 
-# Example app caches
+# Integration-test model caches
+/.model_cache/
 example/.model_cache/
 example/android/app/.cxx/
 

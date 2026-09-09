@@ -3,298 +3,185 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
-
 import 'package:path/path.dart' as path;
-import 'package:synchronized/synchronized.dart';
 
-enum TestModel { tinyStories, phi4Mini, gemma3_12b, smolLm3 }
+enum TestModel { qwen35_08b, qwen35_08bMmproj }
 
-/// A singleton manager for downloading and caching large model files
-/// for use in tests. This allows multiple tests to share the same model
-/// files without having to include them in the repository or download
-/// them for each test.
+/// Downloads and caches the small GGUF used by the native integration suite.
 class TestModelManager {
-  // Singleton pattern implementation
-  static final TestModelManager _instance = TestModelManager._internal();
-  factory TestModelManager() => _instance;
-  TestModelManager._internal();
+  static const _qwenFilename = 'Qwen3.5-0.8B-Q4_K_M.gguf';
+  static const _qwenRevision = 'fb22ecba24c0b7f51525f5124febd84aa5003cd5';
+  static const _qwenSizeBytes = 532517120;
+  static const _qwenMmprojFilename = 'Qwen3.5-0.8B-mmproj-F16.gguf';
+  static const _qwenMmprojSizeBytes = 204987232;
 
-  // Configuration
-  static final String _cacheDir =
-      Platform.environment['MODEL_CACHE_DIR'] ??
-      (Platform.isMacOS
-          ? '/Users/jpo/Library/Containers/com.example.fllamaExample/Data/.model_cache'
-          : path.join(Directory.current.path, '.model_cache'));
-
-  static String pathForModel(TestModel model) {
-    final metadata = _modelRegistry[model]!;
-    return path.join(_cacheDir, metadata.filename);
-  }
-
-  // Map of model metadata (version, hash, etc)
-  static final Map<TestModel, ModelMetadata> _modelRegistry = {
-    TestModel.phi4Mini: ModelMetadata(
-      sizeBytes: 1024 * 1024 * 2500, // 2.5GB
+  static final _modelRegistry = <TestModel, ModelMetadata>{
+    TestModel.qwen35_08b: const ModelMetadata(
+      sizeBytes: _qwenSizeBytes,
       repoId: 'telosnex/fllama',
-      filename: 'microsoft_Phi-4-mini-instruct-Q4_0.gguf',
+      revision: _qwenRevision,
+      filename: _qwenFilename,
+      seedPathEnvironmentVariable: 'QWEN_0_8B_MODEL_PATH',
+      urlEnvironmentVariable: 'QWEN_0_8B_MODEL_URL',
     ),
-    TestModel.tinyStories: ModelMetadata(
-      sizeBytes: 1024 * 1024 * 74, // 74MB
+    TestModel.qwen35_08bMmproj: const ModelMetadata(
+      sizeBytes: _qwenMmprojSizeBytes,
       repoId: 'telosnex/fllama',
-      filename: 'DistilGPT2-TinyStories.IQ3_M.gguf',
-    ),
-    TestModel.gemma3_12b: ModelMetadata(
-      sizeBytes: 1024 * 1024 * 6800, // 6.8GB
-      repoId: 'telosnex/fllama',
-      filename: 'google_gemma-3-12b-it-qat-Q4_0.gguf',
-    ),
-    TestModel.smolLm3: ModelMetadata(
-      sizeBytes: 1024 * 1024 * 1900, // 1.9GB
-      repoId: 'telosnex/fllama',
-      filename: 'HuggingFaceTB_SmolLM3-3B-Q4_0.gguf',
+      revision: _qwenRevision,
+      filename: _qwenMmprojFilename,
+      seedPathEnvironmentVariable: 'QWEN_0_8B_MMPROJ_PATH',
+      urlEnvironmentVariable: 'QWEN_0_8B_MMPROJ_URL',
     ),
   };
 
-  // Synchronization locks for each model
-  final Map<TestModel, Lock> _fileLocks = {};
+  final Directory cacheDirectory;
+
+  TestModelManager({Directory? cacheDirectory})
+      : cacheDirectory = cacheDirectory ??
+            Directory(
+              Platform.environment['MODEL_CACHE_DIR'] ??
+                  path.join(Directory.current.path, '.model_cache'),
+            );
 
   String getModelStoragePath(TestModel model) {
-    final metadata = _modelRegistry[model]!;
-    return path.join(_cacheDir, metadata.filename);
+    return path.join(cacheDirectory.path, _modelRegistry[model]!.filename);
   }
 
-  /// Gets a model file, downloading it if necessary.
-  ///
-  /// [model] is the [TestModel] (must be in the model registry)
-  /// [forceDownload] if true, will re-download even if the file exists
-  ///
-  /// Returns a [File] pointing to the downloaded model
-  Future<File> getModel(TestModel model, {bool forceDownload = false}) async {
-    // Validate model name
-    if (!_modelRegistry.containsKey(model)) {
-      throw ArgumentError(
-        'Unknown model: $model. Available models: ${_modelRegistry.keys.join(', ')}',
+  Future<File> getModel(TestModel model) async {
+    final metadata = _modelRegistry[model]!;
+    await cacheDirectory.create(recursive: true);
+
+    final modelFile = File(getModelStoragePath(model));
+    if (await _isComplete(modelFile, metadata)) {
+      print(
+        '[model cache] hit: ${modelFile.absolute.path} '
+        '(${_formatSize(metadata.sizeBytes)})',
       );
+      return modelFile;
     }
 
-    final metadata = _modelRegistry[model]!;
-    final modelPath = getModelStoragePath(model);
-    print('Current directory: ${Directory.current.path}');
-    print('Cache directory: $_cacheDir');
-    print('Model path: $modelPath');
-    final lockPath = '$modelPath.lock';
-    final modelFile = File(modelPath);
+    if (await modelFile.exists()) {
+      print('[model cache] deleting incomplete model: ${modelFile.path}');
+      await modelFile.delete();
+    }
 
-    // Create a lock for this specific model if it doesn't exist
-    _fileLocks[model] ??= Lock();
-
-    // Use the lock to synchronize access
-    return await _fileLocks[model]!.synchronized(() async {
-      // Check if model exists after acquiring the lock
-      if (!forceDownload && await modelFile.exists()) {
-        print(
-          'Model $model already exists in cache folder, no need to download.',
-        );
+    final seedPath = Platform.environment[metadata.seedPathEnvironmentVariable];
+    if (seedPath != null && seedPath.isNotEmpty) {
+      final seedFile = File(seedPath);
+      if (await _isComplete(seedFile, metadata)) {
+        print('[model cache] seeding from ${seedFile.absolute.path}');
+        await _copyAtomically(seedFile, modelFile);
         return modelFile;
       }
+      print('[model cache] ignoring missing or incomplete seed: $seedPath');
+    }
 
-      // Check for lock file (another process downloading)
-      final lockFile = File(lockPath);
-      if (await lockFile.exists()) {
-        print('Another process is downloading $model. Waiting...');
-        // Another process is downloading, wait and check periodically
-        int attempts = 0;
-        while (await lockFile.exists() && attempts < 30) {
-          // 1 minute timeout
-          await Future.delayed(Duration(seconds: 2));
-          attempts++;
-
-          if (await modelFile.exists()) {
-            return modelFile;
-          }
-        }
-
-        // If we timed out waiting and the lock still exists, it might be stale
-        // rationale: necessary for algo.
-        // ignore: no-equal-nested-conditions
-        if (await lockFile.exists()) {
-          await lockFile.delete();
-        }
-      }
-
-      try {
-        // Create lock file to signal download in progress
-        await Directory(path.dirname(lockPath)).create(recursive: true);
-        await lockFile.create();
-
-        // Ensure cache directory exists
-        await Directory(path.dirname(modelPath)).create(recursive: true);
-
-        // Perform the actual download
-        print(
-          'Downloading model $modelFile (${_formatSize(metadata.sizeBytes)})...',
-        );
-        final downloadedFile = await _downloadModel(
-          model,
-          modelPath,
-          onProgress: (received, total) {
-            final percent = (received / total * 100).toStringAsFixed(1);
-            final downloadedSize = _formatSize(received);
-            final totalSize = _formatSize(total);
-            print(
-              'Downloading $model: $percent% ($downloadedSize / $totalSize)',
-            );
-          },
-        );
-
-        return downloadedFile;
-      } catch (e) {
-        print('Error downloading model $model: $e');
-        rethrow; // Let the caller handle the error
-      } finally {
-        // Remove lock file when done (success or error)
-        if (await lockFile.exists()) {
-          await lockFile.delete();
-        }
-      }
-    });
+    final configuredUrl = Platform.environment[metadata.urlEnvironmentVariable];
+    final url = configuredUrl ?? _modelUrl(metadata);
+    print(
+      '[model cache] downloading ${metadata.filename} '
+      '(${_formatSize(metadata.sizeBytes)}) from $url',
+    );
+    await _download(Uri.parse(url), modelFile, metadata);
+    return modelFile;
   }
 
-  /// Downloads a model from HuggingFace
-  Future<File> _downloadModel(
-    TestModel model,
-    String destPath, {
-    void Function(int received, int total)? onProgress,
-  }) async {
-    final metadata = _modelRegistry[model]!;
-    // Use the HuggingFace URL construction
-    final url = _getHuggingFaceUrl(
-      repoId: metadata.repoId,
-      filename: metadata.filename,
-      revision: 'main',
+  Future<void> _download(
+    Uri uri,
+    File destination,
+    ModelMetadata metadata,
+  ) async {
+    final temporary = File('${destination.path}.tmp');
+    if (await temporary.exists()) await temporary.delete();
+
+    final dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(minutes: 30),
+      ),
     );
-    print('Downloading model from URL: $url');
-    final file = File(destPath);
-    final tempFile = File('$destPath.tmp');
 
+    var lastLoggedPercent = -10;
     try {
-      // Use Dio for downloading, which has built-in progress tracking
-      final dio = Dio(
-        BaseOptions(
-          receiveTimeout: const Duration(minutes: 30),
-          connectTimeout: const Duration(seconds: 30),
-          sendTimeout: const Duration(seconds: 30),
-        ),
-      );
-      (dio.httpClientAdapter as IOHttpClientAdapter)
-          .createHttpClient = () => HttpClient()
-        ..badCertificateCallback = (X509Certificate cert, String host, int port) {
-          print(
-            '[TestModelManager._download] Bad certificate for $host:$port. Cert: $cert',
-          );
-          // huggingface.co was added initially, sometime Q2-Q3 2024
-          // cdn-lfs.hf.co added 23-10-2024
-          if (host.endsWith('huggingface.co') || host.endsWith('hf.co')) {
-            return true;
+      await dio.download(
+        uri.toString(),
+        temporary.path,
+        onReceiveProgress: (received, total) {
+          if (total <= 0) return;
+          final percent = received * 100 ~/ total;
+          if (percent >= lastLoggedPercent + 10 || received == total) {
+            lastLoggedPercent = percent;
+            print(
+              '[model cache] download $percent% '
+              '(${_formatSize(received)} / ${_formatSize(total)})',
+            );
           }
-          print(
-            '[ERROR] [TestModelManager._download] Bad certificate for $host:$port. Cert: $cert',
-          );
-          return false;
-        };
-
-      await dio.download(url, tempFile.path, onReceiveProgress: onProgress);
-      print('Attempting move from ${tempFile.path} to $destPath');
-      // Move temp file to final destination
-      await tempFile.rename(destPath);
-      print('Model moved to final destination: $destPath');
-      return file;
-    } on DioException catch (dioError, s) {
-      print('Dio error downloading model: ${dioError.message}. $dioError. Stack: $s');
-      if (dioError.response != null) {
-        print('Status code: ${dioError.response?.statusCode}');
-        print('Response data: ${dioError.response?.data}');
-      }
-      // Clean up incomplete file
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
-      if (await file.exists()) {
-        await file.delete();
-      }
-      Error.throwWithStackTrace(
-        Exception('Failed to download model: ${dioError.message}'),
-        s,
+        },
       );
-    } catch (e) {
-      // Clean up incomplete file
-      if (await tempFile.exists()) {
-        await tempFile.delete();
+
+      if (!await _isComplete(temporary, metadata)) {
+        final actualSize = await temporary.length();
+        throw StateError(
+          'Downloaded ${metadata.filename} has $actualSize bytes; '
+          'expected ${metadata.sizeBytes}.',
+        );
       }
-      if (await file.exists()) {
-        await file.delete();
-      }
+      await temporary.rename(destination.path);
+      print('[model cache] stored ${destination.absolute.path}');
+    } catch (_) {
+      if (await temporary.exists()) await temporary.delete();
+      rethrow;
+    } finally {
+      dio.close(force: true);
+    }
+  }
+
+  Future<void> _copyAtomically(File source, File destination) async {
+    final temporary = File('${destination.path}.tmp');
+    if (await temporary.exists()) await temporary.delete();
+    try {
+      await source.copy(temporary.path);
+      await temporary.rename(destination.path);
+    } catch (_) {
+      if (await temporary.exists()) await temporary.delete();
       rethrow;
     }
   }
 
-  String _getHuggingFaceUrl({
-    required String repoId,
-    required String filename,
-    String revision = 'main',
-  }) {
-    return 'https://huggingface.co/$repoId/resolve/$revision/$filename';
+  Future<bool> _isComplete(File file, ModelMetadata metadata) async {
+    return await file.exists() && await file.length() == metadata.sizeBytes;
   }
 
-  /// Formats file size in human-readable format
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  static String _modelUrl(ModelMetadata metadata) {
+    const baseUrl = String.fromEnvironment('FLLAMA_TEST_MODEL_BASE_URL');
+    if (baseUrl.isNotEmpty) {
+      return '${baseUrl.replaceFirst(RegExp(r'/+$'), '')}/'
+          '${Uri.encodeComponent(metadata.filename)}';
     }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    return 'https://huggingface.co/${metadata.repoId}/resolve/'
+        '${metadata.revision}/${Uri.encodeComponent(metadata.filename)}';
   }
 
-  /// Cleans the cache directory, removing any unused or outdated models
-  Future<void> cleanCache() async {
-    final cacheDir = Directory(_cacheDir);
-    if (!await cacheDir.exists()) return;
-
-    // Get valid model filenames
-    final validFilenames = _modelRegistry.entries
-        .map((entry) => entry.value.filename)
-        .toSet();
-
-    // Delete any files that don't match our known models
-    await for (final entity in cacheDir.list()) {
-      if (entity is File) {
-        final filename = path.basename(entity.path);
-        if (filename.endsWith('.lock')) {
-          // Check if lock file is stale (older than 1 hour)
-          final stat = await entity.stat();
-          final now = DateTime.now();
-          if (now.difference(stat.modified).inHours > 1) {
-            await entity.delete();
-          }
-        } else if (!validFilenames.contains(filename)) {
-          await entity.delete();
-        }
-      }
-    }
+  static String _formatSize(int bytes) {
+    const mb = 1024 * 1024;
+    return '${(bytes / mb).toStringAsFixed(1)} MiB';
   }
 }
 
-/// Metadata about a specific model version
 class ModelMetadata {
   final int sizeBytes;
-  final String repoId; // HuggingFace repository ID
-  final String filename; // Actual filename in the HuggingFace repo
+  final String repoId;
+  final String revision;
+  final String filename;
+  final String seedPathEnvironmentVariable;
+  final String urlEnvironmentVariable;
 
   const ModelMetadata({
     required this.sizeBytes,
     required this.repoId,
+    required this.revision,
     required this.filename,
+    required this.seedPathEnvironmentVariable,
+    required this.urlEnvironmentVariable,
   });
 }

@@ -101,9 +101,10 @@ void main(List<String> args) async {
 
     final sourceDir = input.packageRoot.resolve('src/');
     final targetOS = input.config.code.targetOS;
+    final targetVariant = _targetVariant(input.config.code);
 
     // ── CMake defines ──────────────────────────────────────────────────
-    final defines = _computeDefines(targetOS);
+    final defines = _computeDefines(targetOS, targetVariant);
 
     // ── Enumerate source files (used for both key + dep declarations) ──
     final swStart = Stopwatch()..start();
@@ -117,6 +118,7 @@ void main(List<String> args) async {
     final buildKey = computeBuildKey(
       os: targetOS.name,
       arch: input.config.code.targetArchitecture.name,
+      targetVariant: targetVariant,
       defines: defines,
       sourceFiles: sourceFiles,
     );
@@ -300,7 +302,17 @@ String _formatDuration(Duration duration) {
 //   defines
 // ─────────────────────────────────────────────────────────────────────────
 
-Map<String, String> _computeDefines(OS targetOS) {
+String _targetVariant(CodeConfig config) {
+  if (config.targetOS == OS.iOS) {
+    // arm64 device and Apple-silicon simulator builds have the same OS and
+    // architecture but incompatible Mach-O platforms. They must never share a
+    // compiled-library cache entry.
+    return config.iOS.targetSdk.toString();
+  }
+  return '';
+}
+
+Map<String, String> _computeDefines(OS targetOS, String targetVariant) {
   final defines = <String, String>{
     'CMAKE_BUILD_TYPE': 'Release',
     // Static-link all llama sub-libraries (ggml, llama, common, etc.) into
@@ -319,12 +331,19 @@ Map<String, String> _computeDefines(OS targetOS) {
     'LLAMA_BUILD_COMMIT': 'unknown',
   };
 
-  // Apple (macOS + iOS): Metal GPU, no OpenMP.
-  if (targetOS == OS.macOS || targetOS == OS.iOS) {
+  // Apple devices and macOS use Metal. The iOS simulator's Metal shim aborts
+  // on llama.cpp's external-pointer buffers, so simulator integration tests
+  // intentionally use the CPU backend.
+  if (targetOS == OS.macOS ||
+      (targetOS == OS.iOS && targetVariant != 'iphonesimulator')) {
     defines['GGML_METAL'] = 'ON';
     // Embed the Metal shader library into the binary so we don't need
     // to ship a separate .metallib file.
     defines['GGML_METAL_EMBED_LIBRARY'] = 'ON';
+  } else if (targetOS == OS.iOS) {
+    defines['GGML_METAL'] = 'OFF';
+  }
+  if (targetOS == OS.macOS || targetOS == OS.iOS) {
     // Homebrew's libomp is arm64-only; linking fails on x86_64 / universal
     // builds. llama.cpp uses pthreads as a fallback, which is fine.
     defines['GGML_OPENMP'] = 'OFF';
@@ -402,7 +421,8 @@ Directory _cacheDirectory(String buildKey) {
     // Fall through to USERPROFILE\.cache as a last resort.
   }
 
-  final home = Platform.environment['HOME'] ??
+  final home =
+      Platform.environment['HOME'] ??
       Platform.environment['USERPROFILE'] ??
       (throw StateError(
         'Cannot locate user home: neither HOME, USERPROFILE, nor '
@@ -432,28 +452,26 @@ Future<bool> _normalizeBuiltLibraryIntoCache({
   final builtLib = await _findBuiltLibrary(cacheDir, libFileName);
   if (builtLib == null) return false;
 
-  logger.info(
-    'Normalizing CMake output ${builtLib.path} → ${cachedLib.path}',
-  );
+  logger.info('Normalizing CMake output ${builtLib.path} → ${cachedLib.path}');
   await cachedLib.parent.create(recursive: true);
   await builtLib.copy(cachedLib.path);
   return true;
 }
 
-Future<File?> _findBuiltLibrary(
-  Directory cacheDir,
-  String libFileName,
-) async {
+Future<File?> _findBuiltLibrary(Directory cacheDir, String libFileName) async {
   final candidates = <File>[];
-  await for (final entity in cacheDir.list(recursive: true, followLinks: false)) {
+  await for (final entity in cacheDir.list(
+    recursive: true,
+    followLinks: false,
+  )) {
     if (entity is! File || p.basename(entity.path) != libFileName) continue;
     candidates.add(entity);
   }
   if (candidates.isEmpty) return null;
   candidates.sort((a, b) {
-    final score = _builtLibraryCandidateScore(a).compareTo(
-      _builtLibraryCandidateScore(b),
-    );
+    final score = _builtLibraryCandidateScore(
+      a,
+    ).compareTo(_builtLibraryCandidateScore(b));
     if (score != 0) return score;
     return a.path.compareTo(b.path);
   });
