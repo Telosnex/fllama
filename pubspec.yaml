@@ -37,6 +37,9 @@ dev_dependencies:
 
 flutter:
   assets:
-    - assets/web/fllama_web_init.js
-    - assets/web/wllama/index.js
-    - assets/web/wllama/wasm/
+    - path: assets/web/fllama_web_init.js
+      platforms: [web]
+    - path: assets/web/wllama/index.js
+      platforms: [web]
+    - path: assets/web/wllama/wasm/
+      platforms: [web]
