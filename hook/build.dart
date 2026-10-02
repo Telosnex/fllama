@@ -198,8 +198,7 @@ void main(List<String> args) async {
         );
 
         final cmakeStopwatch = Stopwatch()..start();
-        final builder = CMakeBuilder.create(
-          name: 'fllama',
+        final builder = createFllamaBuilder(
           sourceDir: sourceDir,
           // Redirect CMakeBuilder's output into OUR cache dir instead of
           // into hooks_runner's per-config `input.outputDirectory`. This
@@ -207,8 +206,6 @@ void main(List<String> args) async {
           // stable, shared location.
           outDir: cacheDir.uri,
           defines: defines,
-          targets: ['fllama'],
-          buildLocal: false,
           logger: logger,
         );
         await builder.run(input: input, output: output, logger: logger);
@@ -257,6 +254,25 @@ void main(List<String> args) async {
     );
   }).whenComplete(hookLog.flush);
 }
+
+/// Serial is native_toolchain_cmake's default. Use all available cores for
+/// cold llama.cpp builds on CI and developer machines; the cache lock still
+/// ensures that concurrent hooks compile each content key only once.
+CMakeBuilder createFllamaBuilder({
+  required Uri sourceDir,
+  required Uri outDir,
+  required Map<String, String> defines,
+  required Logger logger,
+}) => CMakeBuilder.create(
+  name: 'fllama',
+  sourceDir: sourceDir,
+  outDir: outDir,
+  defines: defines,
+  targets: ['fllama'],
+  buildLocal: false,
+  parallelUseAllProcessors: true,
+  logger: logger,
+);
 
 /// Collects logger records so hooks_runner receives one newline-normalized
 /// stderr message instead of adding a blank line after every streamed chunk.
