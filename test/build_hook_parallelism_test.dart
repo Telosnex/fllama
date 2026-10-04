@@ -50,4 +50,11 @@ void main() {
       ),
     });
   });
+
+  test('Windows builds never link an OpenMP runtime', () {
+    for (final arch in [Architecture.x64, Architecture.arm64]) {
+      final defines = hook.computeDefines(OS.windows, arch, '');
+      expect(defines['GGML_OPENMP'], 'OFF', reason: 'windows ${arch.name}');
+    }
+  });
 }

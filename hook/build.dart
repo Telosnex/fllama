@@ -108,7 +108,7 @@ void main(List<String> args) async {
     );
 
     // ── CMake defines ──────────────────────────────────────────────────
-    final defines = _computeDefines(
+    final defines = computeDefines(
       targetOS,
       input.config.code.targetArchitecture,
       targetVariant,
@@ -369,7 +369,7 @@ String _targetVariant(CodeConfig config) {
   return '';
 }
 
-Map<String, String> _computeDefines(
+Map<String, String> computeDefines(
   OS targetOS,
   Architecture targetArch,
   String targetVariant,
@@ -420,10 +420,13 @@ Map<String, String> _computeDefines(
   if (targetOS == OS.windows) {
     defines['LLAMA_VULKAN'] = 'ON';
   }
-  if (windowsToolset(targetOS, targetArch) == 'ClangCL') {
-    // clang-cl links OpenMP against libomp140.<arch>.dll, which ships with
-    // Visual Studio but not the VC++ redistributable, so the DLL fails to load
-    // on user machines. llama.cpp's own threadpool replaces it.
+  if (targetOS == OS.windows) {
+    // OpenMP adds a runtime DLL that the app package does not contain: MSVC
+    // links vcomp140.dll and clang-cl links libomp140.<arch>.dll. The msix
+    // package bundles only the core C++ runtime DLLs, and libomp140 is not
+    // redistributable, so fllama.dll fails to load on PCs without the
+    // Visual C++ Redistributable. llama.cpp's own threadpool replaces OpenMP.
+    // See docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D6.
     defines['GGML_OPENMP'] = 'OFF';
   }
 
