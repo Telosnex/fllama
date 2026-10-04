@@ -208,17 +208,20 @@ D13: A GPU pack is a set of backend libraries that the hook builds in the
      Instead of: a check of the fllama build key. An equal file hash also
      proves the same build (I5), and it is one check instead of two.
 
-D14: Telosnex downloads a GPU pack automatically when all of these are true:
-     the platform has a pack, the GPU is allowed, fllama_has_vulkan_gpu (or
-     a CUDA probe for D8) finds a device, and the user starts the first
-     local model download or local model load. Telosnex then calls
-     fllama_load_gpu_pack. If the download or the check fails, local AI runs
-     on the CPU, and Telosnex tries the download again at the next model
-     load.
-     Because: R2, R4, R8
+D14: Telosnex downloads a GPU pack when all of these are true: the
+     platform has a pack, the GPU is allowed, fllama_has_vulkan_gpu (or a
+     CUDA probe for D8) finds a device, and the user starts a local model
+     download or load. The model download screen states that GPU support is
+     part of the download, with its size. Starting the download is the
+     user consent. Telosnex then calls fllama_load_gpu_pack. If the download
+     or the check fails, local AI runs on the CPU, and Telosnex tries the
+     download again at the next model load.
+     Because: R2, R4, R8, Store Policy 10.1.5 (risk 3)
      Instead of: a download at app start. Users who never use local AI do not
-     need the pack.
-     Instead of: a setting that the user turns on. R2 requires no user action.
+     need the pack, and 10.1.5 requires user consent.
+     Instead of: a separate prompt or setting. R2 requires no extra user
+     action. Recovery if Store review asks for one: a prompt before the
+     first pack download.
 ```
 
 ## 4. Invariants
@@ -439,12 +442,16 @@ Ranked by irreversibility.
    the driver, and Telosnex calls it at the same time. If beta reports show this crash, add a marker file that
    turns off the GPU after a crash during initialization.
 2. **A CUDA pack with a different ABI.** I5 covers it.
-3. **Store policy does not permit downloaded GPU libraries.** Microsoft
-   Store Policy 10.2.2 limits code that the app gets after installation.
-   This now applies to Vulkan, not only to CUDA. Unknown. Step 4b checks it
-   before release work. Recovery: Vulkan in the package for the Store
-   (51.8 MB, R8 exception), packs for other channels. The NVIDIA license
-   for the CUDA download is checked in step 12. Recovery: drop D8.
+3. **Store review rejects the GPU pack download.** Microsoft Store
+   Policies 7.20 (effective 2026-10-22) do not forbid downloaded code.
+   10.2.2 forbids code that changes or extends the described function, or
+   adds functions that break the policies. A GPU pack only makes local AI
+   faster. 10.1.5 permits add-ons that enhance the product "with user
+   consent and after initial download". D14 gets that consent. 10.2.3
+   permits other software only if it enhances the product. Low. Recovery:
+   Vulkan in the package for the Store (51.8 MB, R8 exception), packs for
+   other channels. The NVIDIA license for the CUDA download is checked in
+   step 12. Recovery: drop D8.
 4. **B2 is not available, or a pack object is deleted.** Released apps then
    run on the CPU (I1). They do not fail. Recovery: upload the object again
    from the release artifacts. The release keeps the `gpu_pack_dir` output.
