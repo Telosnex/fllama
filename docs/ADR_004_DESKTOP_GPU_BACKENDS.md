@@ -299,8 +299,15 @@ Code asset IDs: `package:fllama/fllama_io.dart` for `fllama`.
 Vulkan SDK on Windows: `C:\VulkanSDK\1.4.357.0`. This is the version in the
 upstream release workflow at `ece963f41`. The SDK version is part of the
 build key. hooks_runner 1.5.0 does not pass `VULKAN_SDK` to hooks, so the
-hook finds the directory itself. On Linux, the distribution packages
-`libvulkan-dev` and `glslc` supply the SDK. The OpenCL headers and ICD
+hook finds the directory itself. It passes `SPIRV-Headers_DIR` from the
+SDK, because ggml-vulkan otherwise finds SPIRV-Headers through
+`VULKAN_SDK`. On Linux, the distribution packages `libvulkan-dev`, `glslc`
+and `spirv-headers` supply the SDK.
+
+ggml-vulkan builds its `vulkan-shaders-gen` helper as an ExternalProject.
+`src/CMakeLists.txt` sets its prefix to `<build>/vk`. The default prefix
+makes MSBuild try-compile directories under `%LOCALAPPDATA%\fllama\Cache`
+too long, and the build fails with MSB6003. The OpenCL headers and ICD
 loader for ARM64 come from fixed Khronos tags, as in the upstream workflow.
 
 `n_gpu_layers`: `-1` auto, `0` CPU only, `N > 0` that number of layers.

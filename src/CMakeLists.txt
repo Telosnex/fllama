@@ -95,6 +95,11 @@ if(NOT DEFINED LLAMA_BUILD_COMMIT OR LLAMA_BUILD_COMMIT STREQUAL "")
   set(LLAMA_BUILD_COMMIT "ece963f41")
 endif()
 
+# ggml-vulkan builds vulkan-shaders-gen as an ExternalProject. Its default
+# prefix, llama.cpp/ggml/src/ggml-vulkan/vulkan-shaders-gen-prefix, makes
+# MSBuild try-compile paths too long under %LOCALAPPDATA%\fllama\Cache\<key>
+# (MSB6003, DirectoryNotFoundException). A short prefix keeps them short.
+set_property(DIRECTORY PROPERTY EP_PREFIX "${CMAKE_BINARY_DIR}/vk")
 add_subdirectory("llama.cpp")
 if(NOT TARGET cpp-httplib)
   add_library(cpp-httplib INTERFACE)

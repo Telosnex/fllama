@@ -444,7 +444,7 @@ String vulkanSdkHint(OS targetOS) => targetOS == OS.windows
     ? 'Install the Vulkan SDK $windowsVulkanSdkVersion to '
           r'C:\VulkanSDK\'
           '$windowsVulkanSdkVersion for GPU support.'
-    : 'Install libvulkan-dev and glslc for GPU support.';
+    : 'Install libvulkan-dev, glslc and spirv-headers for GPU support.';
 
 /// Finds the Vulkan SDK for a split-library target, or returns null.
 ///
@@ -459,7 +459,13 @@ VulkanSdk? findVulkanSdk(OS targetOS, Architecture targetArch) {
     final header = File(p.join(sdk, 'Include', 'vulkan', 'vulkan_core.h'));
     final library = File(p.join(sdk, 'Lib', 'vulkan-1.lib'));
     final glslc = File(p.join(sdk, 'Bin', 'glslc.exe'));
-    if (!header.existsSync() || !library.existsSync() || !glslc.existsSync()) {
+    final spirvHeaders = Directory(
+      p.join(sdk, 'Lib', 'cmake', 'SPIRV-Headers'),
+    );
+    if (!header.existsSync() ||
+        !library.existsSync() ||
+        !glslc.existsSync() ||
+        !spirvHeaders.existsSync()) {
       return null;
     }
     final version = readVulkanHeaderVersion(header.readAsStringSync());
@@ -470,12 +476,18 @@ VulkanSdk? findVulkanSdk(OS targetOS, Architecture targetArch) {
         'Vulkan_INCLUDE_DIR': p.join(sdk, 'Include'),
         'Vulkan_LIBRARY': library.path,
         'Vulkan_GLSLC_EXECUTABLE': glslc.path,
+        // ggml-vulkan finds SPIRV-Headers through $VULKAN_SDK, which hooks
+        // do not receive.
+        'SPIRV-Headers_DIR': spirvHeaders.path,
       },
     );
   }
   if (targetOS == OS.linux) {
     final header = File('/usr/include/vulkan/vulkan_core.h');
     if (!header.existsSync()) return null;
+    if (!File('/usr/include/spirv/unified1/spirv.hpp').existsSync()) {
+      return null;
+    }
     final pathDirs = (Platform.environment['PATH'] ?? '').split(':');
     final hasGlslc = [
       ...pathDirs,
