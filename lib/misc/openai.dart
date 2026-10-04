@@ -107,6 +107,10 @@ class OpenAiRequest {
   /// llama.cpp's default 0.0 when [draftNMax] is large.
   final double? draftPMin;
 
+  /// Optional: [FllamaGpuMemoryInfo.deviceKey] of the GPU that the model may
+  /// use. null is Auto. Native-only; ignored on web.
+  final String? gpuDeviceKey;
+
   String toJsonString() {
     final Map<String, dynamic> json = {
       'messages': messages
@@ -168,8 +172,8 @@ class OpenAiRequest {
     required this.modelPath,
     // Path to mmproj's gguf. (optional, only used for multimodal models)
     this.mmprojPath,
-    // Number of layers to run on GPU. 0 means all layers on CPU. 99 means all
-    // layers on GPU.
+    // Number of layers to run on GPU. -1 means auto: llama.cpp fits the
+    // layers to free GPU memory. 0 means all layers on CPU.
     this.numGpuLayers = 0,
     // ultra-safe for mobile inference, but rather small: ChatGPT launched with
     // 4096, today it has 16384. 1000 tokens ~= 3 pages ~= 750 words ~= 3
@@ -187,5 +191,6 @@ class OpenAiRequest {
     this.draftModelPath,
     this.draftNMax,
     this.draftPMin,
+    this.gpuDeviceKey,
   });
 }

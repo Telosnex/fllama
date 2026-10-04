@@ -29,6 +29,10 @@ struct fllama_gpu_memory_info {
   char name[128];
   char description[256];
   char device_id[128];
+  char backend[64];      // ggml backend name, e.g. "Vulkan", "MTL" (Metal), "CUDA".
+  char device_type[16];  // "GPU" (discrete) or "IGPU" (integrated).
+  char device_key[512];  // Stable key for fllama_inference_request.gpu_device_key:
+                         // "<backend>|<description>|<n>".
 };
 
 struct fllama_inference_request {
@@ -38,8 +42,9 @@ struct fllama_inference_request {
   int max_tokens;          // Required: max tokens to generate
   char *model_path;        // Required: .ggml model file path
   char *model_mmproj_path; // Optional: .mmproj file for multimodal models.
-  int num_gpu_layers; // Required: number of GPU layers. 0 for CPU only. 99 for
-                      // all layers. Automatically 0 on iOS simulator.
+  int num_gpu_layers; // Required: number of GPU layers. -1 for auto: llama.cpp
+                      // fits the layers to free GPU memory. 0 for CPU only.
+                      // N > 0 for N layers. Automatically 0 on iOS simulator.
   int num_threads; // Required: 2 recommended. Platforms can be highly sensitive
                    // to this, ex. Android stopped working with 4 suddenly.
   float
@@ -68,6 +73,9 @@ struct fllama_inference_request {
                            // draft_model_path is set. <= 0 falls back to 3.
   float draft_p_min;       // Optional: minimum drafter top-token probability.
                            // < 0 uses llama.cpp default.
+  char * gpu_device_key;   // Optional: device_key from fllama_gpu_memory_info.
+                           // The model uses only that GPU. NULL/"" is Auto.
+                           // An unknown key is logged and treated as Auto.
 };
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,
@@ -76,8 +84,21 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_sync(struct fllama_
                            fllama_inference_callback callback);
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_cancel(int request_id);
 
+// Allows or forbids GPU backends for this process. Call before any other
+// fllama call. With 0, fllama never loads a GPU backend library.
+// Returns 0 on success, non-zero if backends are already loaded with a
+// different setting.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_set_gpu_allowed(uint8_t allowed);
+
+// Comma-separated file names of the ggml backend libraries that fllama
+// loaded, for example "ggml-vulkan.dll,ggml-cpu-haswell.dll". Empty on
+// platforms that link the backends into fllama. The string is owned by
+// fllama and stays valid for the life of the process.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char * fllama_get_loaded_backends(void);
+
 // GPU device information.
-// Returns the number of GPU devices visible to ggml/llama.cpp.
+// Returns the number of GPU devices (discrete and integrated) visible to
+// ggml/llama.cpp.
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_device_count(void);
 
 // Fills [out_info] for the GPU at [gpu_index].

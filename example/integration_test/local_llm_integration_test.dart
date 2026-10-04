@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:fllama/fllama.dart' as fllama;
@@ -56,6 +57,65 @@ void main() {
         expect(template, isNotEmpty);
         expect(eosToken, isNotEmpty);
         expect(tokenCount, greaterThan(0));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 5)),
+    );
+
+    test(
+      'reports loaded backends and unique GPU device keys',
+      () async {
+        final loaded = await fllama.fllamaLoadedBackendFiles();
+        final gpus = await fllama.fllamaGpuMemoryInfoGetAll();
+        print('[fllama integration] backends: $loaded');
+        for (final gpu in gpus) {
+          print(
+            '[fllama integration] gpu: ${gpu.deviceKey} '
+            'integrated=${gpu.isIntegrated} '
+            'free=${gpu.freeBytes} total=${gpu.totalBytes}',
+          );
+        }
+
+        final splitLibraries =
+            Platform.isWindows || Abi.current() == Abi.linuxX64;
+        if (splitLibraries) {
+          // Exactly one CPU variant, chosen for this CPU (ADR 004, I2).
+          expect(loaded.where((f) => f.contains('ggml-cpu')), hasLength(1));
+        } else {
+          expect(loaded, isEmpty);
+        }
+
+        final keys = [for (final gpu in gpus) gpu.deviceKey];
+        expect(keys.toSet(), hasLength(keys.length));
+        for (final gpu in gpus) {
+          expect(gpu.backend, isNotEmpty);
+          expect(
+            gpu.deviceKey,
+            matches(
+              RegExp('^${RegExp.escape('${gpu.backend}|${gpu.description}|')}'
+                  r'\d+$'),
+            ),
+          );
+        }
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
+
+    test(
+      'an unknown GPU device key falls back to Auto',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(fllama.Role.user, 'Reply with the word: ok'),
+          ],
+          maxTokens: 16,
+          enableThinking: false,
+          gpuDeviceKey: 'NoSuchBackend|No such GPU|0',
+        );
+        expect(run.events.last.done, isTrue);
+        expect(run.events.last.result, isNot(startsWith('Error')));
       },
       skip: supportedPlatform ? null : 'Native-platform test',
       timeout: const Timeout(Duration(minutes: 5)),
@@ -184,7 +244,7 @@ int get _testGpuLayers {
   return int.tryParse(
         Platform.environment['FLLAMA_TEST_NUM_GPU_LAYERS'] ?? configuredAtBuild,
       ) ??
-      99;
+      -1;
 }
 
 Future<_ChatRun> _runChat({
@@ -194,6 +254,7 @@ Future<_ChatRun> _runChat({
   required int maxTokens,
   double temperature = 0.1,
   bool? enableThinking,
+  String? gpuDeviceKey,
 }) async {
   final events = <_CallbackEvent>[];
   final done = Completer<void>();
@@ -209,6 +270,7 @@ Future<_ChatRun> _runChat({
       temperature: temperature,
       topP: 1.0,
       enableThinking: enableThinking,
+      gpuDeviceKey: gpuDeviceKey,
       logger: (message) => print('[llama.cpp] $message'),
     ),
     (result, openAiResponseJsonString, doneFlag) {

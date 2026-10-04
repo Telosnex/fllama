@@ -8,8 +8,27 @@ project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 # Include build info generation
 include("${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/cmake/build-info.cmake")
 
+# hook/build.dart sets BUILD_SHARED_LIBS=ON for Windows and Linux x64, which
+# ship ggml as separate libraries with run-time backend selection
+# (docs/ADR_004_DESKTOP_GPU_BACKENDS.md). Other targets link everything into
+# the one fllama library.
+if(NOT DEFINED BUILD_SHARED_LIBS)
+  set(BUILD_SHARED_LIBS OFF)
+endif()
 
-set(BUILD_SHARED_LIBS OFF)
+if(BUILD_SHARED_LIBS)
+  # Put every library in <build>/bin (plus a config subdirectory for Visual
+  # Studio). llama.cpp sets the same runtime directory for its own targets.
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+  if(UNIX AND NOT APPLE)
+    # Each library finds its sibling libraries in its own directory. The
+    # Linux app bundle puts all code assets in lib/, and flutter test uses
+    # another directory.
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN")
+  endif()
+endif()
 
 # Otherwise ex. Android build on macOS fails with `error: unknown target CPU 'cyclone'`
 set(LLAMA_NATIVE OFF CACHE BOOL "llama: disable -march=native flag" FORCE)
@@ -53,11 +72,6 @@ if(ANDROID)
     endif()
 endif()
 
-if(WIN32)
-  set(LLAMA_VULKAN ON CACHE BOOL "llama: enable Vulkan" FORCE)
-  message(STATUS "Windows detected, enabling LLAMA_VULKAN")
-endif()
-
 if(APPLE)
   # Metal defaults on for Apple targets, but callers can disable it (notably
   # for iOS simulators, whose Metal shim rejects llama.cpp external buffers).
@@ -85,7 +99,13 @@ add_subdirectory("llama.cpp")
 if(NOT TARGET cpp-httplib)
   add_library(cpp-httplib INTERFACE)
 endif()
+# llama-common is always static and links into fllama. fllama_download_stub.cpp
+# then replaces its download functions, so httplib is not needed. Shared
+# builds share only ggml, llama and mtmd.
+set(FLLAMA_SHARED_LIBS ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF)
 add_subdirectory("llama.cpp/common")
+set(BUILD_SHARED_LIBS ${FLLAMA_SHARED_LIBS})
 add_subdirectory("llama.cpp/tools/mtmd")
 
 # Build the server-context library directly from source files.
@@ -118,6 +138,7 @@ endif()
 target_link_libraries(server-context PUBLIC llama-common mtmd ${CMAKE_THREAD_LIBS_INIT})
 
 add_library(fllama SHARED
+  "fllama_backends.cpp"
   "fllama_chat_template.cpp"
   "fllama_download_stub.cpp"
   "fllama_eos.cpp"
@@ -145,6 +166,12 @@ target_include_directories(fllama PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/vendor
 )
 target_link_libraries(fllama PUBLIC llama llama-common mtmd server-context)
+
+if(GGML_BACKEND_DL)
+  # fllama loads the ggml backend libraries itself (src/fllama_backends.cpp).
+  target_compile_definitions(fllama PRIVATE FLLAMA_BACKEND_DL)
+  target_link_libraries(fllama PRIVATE ${CMAKE_DL_LIBS})
+endif()
 
 if(WIN32)
   target_link_libraries(fllama PRIVATE ole32)

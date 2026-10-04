@@ -73,8 +73,39 @@ class FllamaBindings {
   late final _fllama_inference_cancel = _fllama_inference_cancelPtr
       .asFunction<void Function(int)>();
 
+  /// Allows or forbids GPU backends for this process. Call before any other
+  /// fllama call. With 0, fllama never loads a GPU backend library.
+  /// Returns 0 on success, non-zero if backends are already loaded with a
+  /// different setting.
+  int fllama_set_gpu_allowed(int allowed) {
+    return _fllama_set_gpu_allowed(allowed);
+  }
+
+  late final _fllama_set_gpu_allowedPtr =
+      _lookup<ffi.NativeFunction<ffi.Int Function(ffi.Uint8)>>(
+        'fllama_set_gpu_allowed',
+      );
+  late final _fllama_set_gpu_allowed = _fllama_set_gpu_allowedPtr
+      .asFunction<int Function(int)>();
+
+  /// Comma-separated file names of the ggml backend libraries that fllama
+  /// loaded, for example "ggml-vulkan.dll,ggml-cpu-haswell.dll". Empty on
+  /// platforms that link the backends into fllama. The string is owned by
+  /// fllama and stays valid for the life of the process.
+  ffi.Pointer<ffi.Char> fllama_get_loaded_backends() {
+    return _fllama_get_loaded_backends();
+  }
+
+  late final _fllama_get_loaded_backendsPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'fllama_get_loaded_backends',
+      );
+  late final _fllama_get_loaded_backends = _fllama_get_loaded_backendsPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
   /// GPU device information.
-  /// Returns the number of GPU devices visible to ggml/llama.cpp.
+  /// Returns the number of GPU devices (discrete and integrated) visible to
+  /// ggml/llama.cpp.
   int fllama_get_gpu_device_count() {
     return _fllama_get_gpu_device_count();
   }
@@ -104,6 +135,7 @@ class FllamaBindings {
   late final _fllama_get_gpu_memory_info = _fllama_get_gpu_memory_infoPtr
       .asFunction<int Function(int, ffi.Pointer<fllama_gpu_memory_info>)>();
 
+  /// Caller owns non-null results: free() on POSIX, CoTaskMemFree() on Windows.
   ffi.Pointer<ffi.Char> fllama_get_chat_template(ffi.Pointer<ffi.Char> fname) {
     return _fllama_get_chat_template(fname);
   }
@@ -117,6 +149,8 @@ class FllamaBindings {
   late final _fllama_get_chat_template = _fllama_get_chat_templatePtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
+  /// Caller owns non-null results from both functions: free() on POSIX,
+  /// CoTaskMemFree() on Windows.
   ffi.Pointer<ffi.Char> fllama_get_bos_token(ffi.Pointer<ffi.Char> fname) {
     return _fllama_get_bos_token(fname);
   }
@@ -173,6 +207,19 @@ final class fllama_gpu_memory_info extends ffi.Struct {
 
   @ffi.Array.multi([128])
   external ffi.Array<ffi.Char> device_id;
+
+  /// ggml backend name, e.g. "Vulkan", "MTL" (Metal), "CUDA".
+  @ffi.Array.multi([64])
+  external ffi.Array<ffi.Char> backend;
+
+  /// "GPU" (discrete) or "IGPU" (integrated).
+  @ffi.Array.multi([16])
+  external ffi.Array<ffi.Char> device_type;
+
+  /// Stable key for fllama_inference_request.gpu_device_key:
+  /// "<backend>|<description>|<n>".
+  @ffi.Array.multi([512])
+  external ffi.Array<ffi.Char> device_key;
 }
 
 final class fllama_inference_request extends ffi.Struct {
@@ -197,8 +244,9 @@ final class fllama_inference_request extends ffi.Struct {
   /// Optional: .mmproj file for multimodal models.
   external ffi.Pointer<ffi.Char> model_mmproj_path;
 
-  /// Required: number of GPU layers. 0 for CPU only. 99 for
-  /// all layers. Automatically 0 on iOS simulator.
+  /// Required: number of GPU layers. -1 for auto: llama.cpp
+  /// fits the layers to free GPU memory. 0 for CPU only.
+  /// N > 0 for N layers. Automatically 0 on iOS simulator.
   @ffi.Int()
   external int num_gpu_layers;
 
@@ -242,12 +290,14 @@ final class fllama_inference_request extends ffi.Struct {
   /// Optional: OpenAI JSON string. Defaults to NULL.
   external ffi.Pointer<ffi.Char> openai_request_json_string;
 
-  /// Optional: MTP assistant/drafter GGUF for speculative decoding.
-  /// NULL/"" disables. Keep draft KV cache at F16.
+  /// Optional: MTP assistant/drafter GGUF for speculative
+  /// decoding (e.g. gemma-4-*-it-assistant). NULL/"" disables.
+  /// NOTE: keep draft KV cache at F16 (default); Q8 KV
+  /// destroys MTP draft acceptance.
   external ffi.Pointer<ffi.Char> draft_model_path;
 
-  /// Optional: tokens to draft per step when draft_model_path is set.
-  /// <= 0 falls back to 3.
+  /// Optional: tokens to draft per step when
+  /// draft_model_path is set. <= 0 falls back to 3.
   @ffi.Int()
   external int draft_n_max;
 
@@ -255,6 +305,11 @@ final class fllama_inference_request extends ffi.Struct {
   /// < 0 uses llama.cpp default.
   @ffi.Float()
   external double draft_p_min;
+
+  /// Optional: device_key from fllama_gpu_memory_info.
+  /// The model uses only that GPU. NULL/"" is Auto.
+  /// An unknown key is logged and treated as Auto.
+  external ffi.Pointer<ffi.Char> gpu_device_key;
 }
 
 typedef fllama_log_callback =

@@ -1,4 +1,5 @@
 #include "fllama_tokenize.h"
+#include "fllama_backends.h"
 
 #include <cstring>
 #include <iostream>
@@ -21,6 +22,9 @@ size_t fllama_tokenize(struct fllama_tokenize_request request) {
 /* DISABLED: Model load logs.
   auto start_time_model_load = std::chrono::high_resolution_clock::now();
 */
+  // Load backends first: their init installs fllama's log filter, which
+  // the silent logger below then replaces for tokenization.
+  fllama_backends_init_once();
   llama_log_set(
       [](enum ggml_log_level level, const char *text, void *user_data) {
         // do nothing. intent is to avoid ~50 lines of log spam with model
@@ -109,7 +113,7 @@ std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path) {
     mparams.vocab_only = true;
     mparams.load_mode = LLAMA_LOAD_MODE_MMAP;
     mparams.n_gpu_layers = 0;
-    llama_backend_init();
+    fllama_backends_init_once();
     // Using llama_model_load_from_file instead of llama_init_from_gpt_params
     // avoided a crash when tokenization was called in quick succession without
     // this caching mechanism in place.
@@ -128,7 +132,6 @@ std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path) {
         raw_model, [](llama_model *ptr) { llama_model_free(ptr); });
 
     model_cache[model_path] = {model, std::chrono::steady_clock::now()};
-    llama_backend_free();
     return model;
   }
 }

@@ -101,17 +101,27 @@ void main(List<String> args) async {
 
     final sourceDir = input.packageRoot.resolve('src/');
     final targetOS = input.config.code.targetOS;
+    final targetArch = input.config.code.targetArchitecture;
     final targetVariant = _targetVariant(input.config.code);
-    final toolset = windowsToolset(
-      targetOS,
-      input.config.code.targetArchitecture,
-    );
+    final toolset = windowsToolset(targetOS, targetArch);
+    final split = usesSplitLibraries(targetOS, targetArch);
+
+    // ── GPU SDK ────────────────────────────────────────────────────────
+    final vulkan = split ? findVulkanSdk(targetOS, targetArch) : null;
+    if (split && vulkan == null) {
+      logger.warning(
+        'WARNING: no Vulkan SDK found for ${targetOS.name} '
+        '${targetArch.name}. Building CPU backends only. '
+        '${vulkanSdkHint(targetOS)}',
+      );
+    }
 
     // ── CMake defines ──────────────────────────────────────────────────
     final defines = computeDefines(
       targetOS,
-      input.config.code.targetArchitecture,
+      targetArch,
       targetVariant,
+      vulkan: vulkan,
     );
 
     // ── Enumerate source files (used for both key + dep declarations) ──
@@ -125,18 +135,20 @@ void main(List<String> args) async {
     // ── Compute build key ──────────────────────────────────────────────
     final buildKey = computeBuildKey(
       os: targetOS.name,
-      arch: input.config.code.targetArchitecture.name,
+      arch: targetArch.name,
       targetVariant: targetVariant,
       toolset: toolset,
       defines: defines,
+      extra: {
+        if (vulkan != null) 'vulkan_header': '${vulkan.headerVersion}',
+        if (split && targetOS == OS.windows && targetArch == Architecture.arm64)
+          'arm64_cpu_variants': windowsArm64CpuVariants.keys.join(','),
+      },
       sourceFiles: sourceFiles,
     );
 
     // ── Resolve cache location ─────────────────────────────────────────
     final cacheDir = _cacheDirectory(buildKey);
-    final libFileName = _libraryFileName(targetOS);
-    final cachedLib = File(p.join(cacheDir.path, libFileName));
-
     logger.info('Build key: $buildKey');
     logger.info('Cache: ${cacheDir.path}');
 
@@ -145,124 +157,146 @@ void main(List<String> args) async {
     // have other cache layers (build_runner, Flutter's depfile, etc.).
     _declareDependencies(output, sourceFiles);
 
+    final layout = split
+        ? _SplitLayout(cacheDir, targetOS)
+        : _SingleLayout(cacheDir, _libraryFileName(targetOS));
+
     // ── Fast path: cache hit ───────────────────────────────────────────
-    if (await cachedLib.exists()) {
-      final cacheHitStopwatch = Stopwatch()..start();
-      await _publishFromCache(
-        cachedLib: cachedLib,
-        outputDirectory: input.outputDirectory,
-        libFileName: libFileName,
-        logger: logger,
-      );
-      await _registerAsset(
-        input: input,
-        output: output,
-        libFileName: libFileName,
+    var cached = await layout.cachedLibraries();
+    if (cached == null) {
+      // ── Slow path: build under flock ─────────────────────────────────
+      await cacheDir.create(recursive: true);
+      final lockAndBuildStopwatch = Stopwatch()..start();
+      await _withExclusiveLock(
+        File(p.join(cacheDir.path, '.build.lock')),
+        () async {
+          // Another process may have just finished the build while we were
+          // waiting for the lock. Re-check before spending 60s recompiling.
+          if (await layout.collect(logger) != null) {
+            logger.info(
+              'Build completed by another process while we waited for the '
+              'lock',
+            );
+            return;
+          }
+
+          final cmakeStopwatch = Stopwatch()..start();
+          for (final job in _buildJobs(
+            targetOS: targetOS,
+            targetArch: targetArch,
+            split: split,
+            cacheDir: cacheDir,
+            defines: defines,
+          )) {
+            final jobDir = Directory.fromUri(job.outDir);
+            await jobDir.create(recursive: true);
+            // Handle stale CMakeCache.txt. The content-addressed cache dir
+            // should make this rare (different source trees → different
+            // build key → different dir), but `LLAMA_BUILD_COMMIT` and
+            // friends aren't in the key yet, and future edits to
+            // computeDefines may introduce keys that aren't fingerprinted.
+            await _clearStaleCMakeCache(
+              cacheDir: jobDir,
+              sourceDir: sourceDir,
+              logger: logger,
+            );
+            final builder = createFllamaBuilder(
+              sourceDir: sourceDir,
+              // Redirect CMakeBuilder's output into OUR cache dir instead
+              // of into hooks_runner's per-config `input.outputDirectory`.
+              // This is the critical move — the expensive artifacts live in
+              // one stable, shared location.
+              outDir: job.outDir,
+              defines: job.defines,
+              toolset: toolset,
+              targets: job.targets,
+              logger: logger,
+            );
+            await builder.run(input: input, output: output, logger: logger);
+          }
+          logger.info(
+            'CMake build finished in '
+            '${_formatDuration(cmakeStopwatch.elapsed)}',
+          );
+
+          if (await layout.collect(logger) == null) {
+            throw StateError(
+              'CMake build reported success but the expected libraries are '
+              'missing. Contents of cache dir:\n'
+              '${await _listForDiagnostics(cacheDir)}',
+            );
+          }
+        },
         logger: logger,
       );
       logger.info(
-        'Hook completed from cache in '
-        '${_formatDuration(hookStopwatch.elapsed)} '
-        '(publish/register ${_formatDuration(cacheHitStopwatch.elapsed)})',
+        'Cache miss resolved in '
+        '${_formatDuration(lockAndBuildStopwatch.elapsed)}',
       );
-      return;
+      cached = await layout.cachedLibraries();
+      if (cached == null) {
+        throw StateError('Libraries missing from ${cacheDir.path}');
+      }
     }
 
-    // ── Slow path: build under flock ───────────────────────────────────
-    await cacheDir.create(recursive: true);
-    final lockAndBuildStopwatch = Stopwatch()..start();
-    await _withExclusiveLock(
-      File(p.join(cacheDir.path, '.build.lock')),
-      () async {
-        // Another process may have just finished the build while we were
-        // waiting for the lock. Re-check before spending 60s recompiling.
-        if (await cachedLib.exists()) {
-          logger.info(
-            'Build completed by another process while we waited for the lock',
-          );
-          return;
-        }
-        if (await _normalizeBuiltLibraryIntoCache(
-          cacheDir: cacheDir,
-          cachedLib: cachedLib,
-          libFileName: libFileName,
-          logger: logger,
-        )) {
-          logger.info(
-            'Found built library in a CMake configuration subdirectory while '
-            'we waited for the lock',
-          );
-          return;
-        }
-
-        // Handle stale CMakeCache.txt. The content-addressed cache dir
-        // should make this rare (different source trees → different build
-        // key → different dir), but `LLAMA_BUILD_COMMIT` and friends
-        // aren't in the key yet, and future edits to _computeDefines may
-        // introduce new keys that aren't fingerprinted.
-        await _clearStaleCMakeCache(
-          cacheDir: cacheDir,
-          sourceDir: sourceDir,
-          logger: logger,
-        );
-
-        final cmakeStopwatch = Stopwatch()..start();
-        final builder = createFllamaBuilder(
-          sourceDir: sourceDir,
-          // Redirect CMakeBuilder's output into OUR cache dir instead of
-          // into hooks_runner's per-config `input.outputDirectory`. This
-          // is the critical move — the expensive artifacts live in one
-          // stable, shared location.
-          outDir: cacheDir.uri,
-          defines: defines,
-          toolset: toolset,
-          logger: logger,
-        );
-        await builder.run(input: input, output: output, logger: logger);
-        logger.info(
-          'CMake build finished in ${_formatDuration(cmakeStopwatch.elapsed)}',
-        );
-
-        if (!await _normalizeBuiltLibraryIntoCache(
-          cacheDir: cacheDir,
-          cachedLib: cachedLib,
-          libFileName: libFileName,
-          logger: logger,
-        )) {
-          throw StateError(
-            'CMake build reported success but ${cachedLib.path} '
-            'is missing. Contents of cache dir:\n'
-            '${await _listForDiagnostics(cacheDir)}',
-          );
-        }
-      },
-      logger: logger,
-    );
-
-    logger.info(
-      'Cache miss resolved in '
-      '${_formatDuration(lockAndBuildStopwatch.elapsed)}',
-    );
-
     final publishStopwatch = Stopwatch()..start();
-    await _publishFromCache(
-      cachedLib: cachedLib,
-      outputDirectory: input.outputDirectory,
-      libFileName: libFileName,
-      logger: logger,
-    );
-    await _registerAsset(
+    for (final lib in cached) {
+      await _publishFromCache(
+        cachedLib: lib,
+        outputDirectory: input.outputDirectory,
+        libFileName: p.basename(lib.path),
+        logger: logger,
+      );
+    }
+    _registerAssets(
       input: input,
       output: output,
-      libFileName: libFileName,
+      libFileNames: [for (final lib in cached) p.basename(lib.path)],
       logger: logger,
     );
     logger.info(
-      'Hook completed after build in '
-      '${_formatDuration(hookStopwatch.elapsed)} '
-      '(publish/register ${_formatDuration(publishStopwatch.elapsed)})',
+      'Hook completed in ${_formatDuration(hookStopwatch.elapsed)} '
+      '(publish/register ${_formatDuration(publishStopwatch.elapsed)}, '
+      '${cached.length} libraries)',
     );
   }).whenComplete(hookLog.flush);
+}
+
+/// One CMake configure + build in the cache directory.
+final class _BuildJob {
+  const _BuildJob(this.outDir, this.defines, this.targets);
+
+  final Uri outDir;
+  final Map<String, String> defines;
+  final List<String> targets;
+}
+
+List<_BuildJob> _buildJobs({
+  required OS targetOS,
+  required Architecture targetArch,
+  required bool split,
+  required Directory cacheDir,
+  required Map<String, String> defines,
+}) {
+  final jobs = [
+    _BuildJob(cacheDir.uri, defines, const ['fllama']),
+  ];
+  if (split && targetOS == OS.windows && targetArch == Architecture.arm64) {
+    // ggml cannot build CPU variants for Windows ARM (ADR 004, D11). The
+    // main build makes the baseline CPU backend. Each other variant is a
+    // separate build of only ggml-cpu (and ggml-base, which it links) with
+    // the same options except GGML_CPU_ARM_ARCH.
+    for (final entry in windowsArm64CpuVariants.entries.skip(1)) {
+      jobs.add(
+        _BuildJob(
+          Directory(p.join(cacheDir.path, 'cpu-${entry.key}')).uri,
+          {...defines, 'GGML_CPU_ARM_ARCH': entry.value},
+          const ['ggml-cpu'],
+        ),
+      );
+    }
+  }
+  return jobs;
 }
 
 /// Serial is native_toolchain_cmake's default. Use all available cores for
@@ -273,20 +307,27 @@ CMakeBuilder createFllamaBuilder({
   required Uri outDir,
   required Map<String, String> defines,
   String? toolset,
+  List<String> targets = const ['fllama'],
   required Logger logger,
 }) => CMakeBuilder.create(
   name: 'fllama',
   sourceDir: sourceDir,
   outDir: outDir,
   // native_toolchain_cmake 0.2.7 does not forward `toolset` to `cmake -T`,
-  // so a toolchain file selects it. The absolute path is added after the
+  // so a toolchain file selects it. The absolute paths are added after the
   // cache key is computed, keeping keys checkout-path independent.
   defines: {
     ...defines,
     if (toolset != null)
       'CMAKE_TOOLCHAIN_FILE': _toolsetToolchainFile(sourceDir, toolset),
+    if (defines['GGML_VULKAN'] == 'ON')
+      'GGML_VULKAN_SHADERS_GEN_TOOLCHAIN': p.join(
+        Directory.fromUri(sourceDir).path,
+        'cmake',
+        'host.toolchain.cmake',
+      ),
   },
-  targets: ['fllama'],
+  targets: targets,
   buildLocal: false,
   parallelUseAllProcessors: true,
   logger: logger,
@@ -369,11 +410,100 @@ String _targetVariant(CodeConfig config) {
   return '';
 }
 
+/// Whether [targetOS] and [targetArch] ship ggml as separate libraries with
+/// run-time backend selection (ADR 004, D1). Other targets link everything
+/// into the one fllama library.
+bool usesSplitLibraries(OS targetOS, Architecture targetArch) =>
+    targetOS == OS.windows ||
+    (targetOS == OS.linux && targetArch == Architecture.x64);
+
+/// Windows ARM64 CPU backends: published file suffix → GGML_CPU_ARM_ARCH.
+/// The first entry is the baseline that every ARM64 CPU can run. The loader
+/// in src/fllama_backends.cpp selects among these names.
+const windowsArm64CpuVariants = <String, String>{
+  'armv8.0': 'armv8-a',
+  'armv8.2-dotprod': 'armv8.2-a+dotprod',
+};
+
+/// Pinned Windows Vulkan SDK. This is the version in the upstream llama.cpp
+/// release workflow at the vendored commit.
+const windowsVulkanSdkVersion = '1.4.357.0';
+
+/// A Vulkan SDK that the hook found on this machine.
+final class VulkanSdk {
+  const VulkanSdk({required this.headerVersion, this.defines = const {}});
+
+  /// `VK_HEADER_VERSION` from `vulkan_core.h`. Part of the build key.
+  final int headerVersion;
+
+  /// CMake defines that point FindVulkan at this SDK.
+  final Map<String, String> defines;
+}
+
+String vulkanSdkHint(OS targetOS) => targetOS == OS.windows
+    ? 'Install the Vulkan SDK $windowsVulkanSdkVersion to '
+          r'C:\VulkanSDK\'
+          '$windowsVulkanSdkVersion for GPU support.'
+    : 'Install libvulkan-dev and glslc for GPU support.';
+
+/// Finds the Vulkan SDK for a split-library target, or returns null.
+///
+/// hooks_runner does not pass VULKAN_SDK to hooks, so this looks in fixed
+/// locations. Windows uses only the pinned SDK version, so every machine
+/// builds the same backend. Linux uses the distribution packages.
+VulkanSdk? findVulkanSdk(OS targetOS, Architecture targetArch) {
+  if (targetOS == OS.windows) {
+    // Windows ARM64 GPU backend is chosen by benchmark (ADR 004, D12).
+    if (targetArch != Architecture.x64) return null;
+    final sdk = p.join(r'C:\VulkanSDK', windowsVulkanSdkVersion);
+    final header = File(p.join(sdk, 'Include', 'vulkan', 'vulkan_core.h'));
+    final library = File(p.join(sdk, 'Lib', 'vulkan-1.lib'));
+    final glslc = File(p.join(sdk, 'Bin', 'glslc.exe'));
+    if (!header.existsSync() || !library.existsSync() || !glslc.existsSync()) {
+      return null;
+    }
+    final version = readVulkanHeaderVersion(header.readAsStringSync());
+    if (version == null) return null;
+    return VulkanSdk(
+      headerVersion: version,
+      defines: {
+        'Vulkan_INCLUDE_DIR': p.join(sdk, 'Include'),
+        'Vulkan_LIBRARY': library.path,
+        'Vulkan_GLSLC_EXECUTABLE': glslc.path,
+      },
+    );
+  }
+  if (targetOS == OS.linux) {
+    final header = File('/usr/include/vulkan/vulkan_core.h');
+    if (!header.existsSync()) return null;
+    final pathDirs = (Platform.environment['PATH'] ?? '').split(':');
+    final hasGlslc = [
+      ...pathDirs,
+      '/usr/bin',
+    ].any((dir) => dir.isNotEmpty && File(p.join(dir, 'glslc')).existsSync());
+    if (!hasGlslc) return null;
+    final version = readVulkanHeaderVersion(header.readAsStringSync());
+    if (version == null) return null;
+    return VulkanSdk(headerVersion: version);
+  }
+  return null;
+}
+
+/// Reads `#define VK_HEADER_VERSION <n>` from `vulkan_core.h`.
+int? readVulkanHeaderVersion(String header) {
+  final match = RegExp(
+    r'^#define\s+VK_HEADER_VERSION\s+(\d+)',
+    multiLine: true,
+  ).firstMatch(header);
+  return match == null ? null : int.parse(match.group(1)!);
+}
+
 Map<String, String> computeDefines(
   OS targetOS,
   Architecture targetArch,
-  String targetVariant,
-) {
+  String targetVariant, {
+  VulkanSdk? vulkan,
+}) {
   final defines = <String, String>{
     'CMAKE_BUILD_TYPE': 'Release',
     // Static-link all llama sub-libraries (ggml, llama, common, etc.) into
@@ -416,10 +546,6 @@ Map<String, String> computeDefines(
     defines['CMAKE_OSX_DEPLOYMENT_TARGET'] = '13.0';
   }
 
-  // Windows: Vulkan GPU acceleration.
-  if (targetOS == OS.windows) {
-    defines['LLAMA_VULKAN'] = 'ON';
-  }
   if (targetOS == OS.windows) {
     // OpenMP adds a runtime DLL that the app package does not contain: MSVC
     // links vcomp140.dll and clang-cl links libomp140.<arch>.dll. The msix
@@ -434,6 +560,28 @@ Map<String, String> computeDefines(
   // a shared .so; without -fPIC the linker refuses to emit relocatable code.
   if (targetOS == OS.linux) {
     defines['CMAKE_POSITION_INDEPENDENT_CODE'] = 'ON';
+  }
+
+  if (usesSplitLibraries(targetOS, targetArch)) {
+    // One library per ggml component and backend. fllama selects the GPU
+    // and CPU backends at run time (ADR 004, D1 and D4).
+    defines['BUILD_SHARED_LIBS'] = 'ON';
+    defines['GGML_BACKEND_DL'] = 'ON';
+    defines['GGML_NATIVE'] = 'OFF';
+    if (targetArch == Architecture.x64) {
+      defines['GGML_CPU_ALL_VARIANTS'] = 'ON';
+    } else if (targetOS == OS.windows && targetArch == Architecture.arm64) {
+      defines['GGML_CPU_ARM_ARCH'] = windowsArm64CpuVariants.values.first;
+    }
+    if (targetOS == OS.linux) {
+      // Plain file names (libllama.so, not libllama.so.0), so the NEEDED
+      // entries match the files that the code assets publish.
+      defines['CMAKE_PLATFORM_NO_VERSIONED_SONAME'] = 'ON';
+    }
+    if (vulkan != null) {
+      defines['GGML_VULKAN'] = 'ON';
+      defines.addAll(vulkan.defines);
+    }
   }
 
   // Android: disable features incompatible with the NDK.
@@ -644,30 +792,157 @@ Future<void> _publishFromCache({
   }
 }
 
-Future<void> _registerAsset({
+/// Registers each published library as a code asset. Flutter bundles all of
+/// them next to each other: beside the executable on Windows and in `lib/`
+/// on Linux. ggml's backend libraries are not opened from Dart, but they
+/// must be registered to be bundled.
+void _registerAssets({
   required BuildInput input,
   required BuildOutputBuilder output,
-  required String libFileName,
+  required List<String> libFileNames,
   required Logger logger,
-}) async {
-  // Register the library that now lives in input.outputDirectory. Using
-  // the package's own helper guarantees we match the library-naming
-  // conventions that native_toolchain_cmake's own consumers rely on.
-  final added = await output.findAndAddCodeAssets(
-    input,
-    names: {r'(lib)?fllama\.(dll|so|dylib)': 'fllama_io.dart'},
-    outDir: input.outputDirectory,
-    logger: logger,
-    regExp: true,
-  );
-  if (added.isEmpty) {
-    throw StateError(
-      'Failed to register fllama as a code asset: no library matching '
-      r'"(lib)?fllama.(dll|so|dylib)" found under '
-      '${input.outputDirectory}. Expected $libFileName after publish.',
+}) {
+  for (final fileName in libFileNames) {
+    output.assets.code.add(
+      CodeAsset(
+        package: input.packageName,
+        name: codeAssetName(fileName),
+        linkMode: DynamicLoadingBundled(),
+        file: input.outputDirectory.resolve(fileName),
+      ),
     );
   }
-  logger.info('Registered ${added.length} code asset(s).');
+  logger.info('Registered ${libFileNames.length} code asset(s).');
+}
+
+/// Code asset name for a published library file. The fllama library keeps
+/// the name that `fllama_io.dart` resolves. Other libraries use
+/// `native/<file name without extension>`.
+String codeAssetName(String fileName) {
+  final stem = p.basenameWithoutExtension(fileName);
+  if (stem == 'fllama' || stem == 'libfllama') return 'fllama_io.dart';
+  return 'native/$stem';
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//   cache layouts
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Where a finished build keeps its libraries inside the cache directory.
+sealed class _CacheLayout {
+  /// The cached libraries, or null if the cache entry is incomplete.
+  Future<List<File>?> cachedLibraries();
+
+  /// Moves fresh CMake output into the cache layout. Returns the libraries,
+  /// or null if the CMake output is incomplete.
+  Future<List<File>?> collect(Logger logger);
+}
+
+/// One fllama library at the cache root (Apple, Android, Linux arm64).
+final class _SingleLayout extends _CacheLayout {
+  _SingleLayout(this.cacheDir, this.libFileName)
+    : cachedLib = File(p.join(cacheDir.path, libFileName));
+
+  final Directory cacheDir;
+  final String libFileName;
+  final File cachedLib;
+
+  @override
+  Future<List<File>?> cachedLibraries() async =>
+      await cachedLib.exists() ? [cachedLib] : null;
+
+  @override
+  Future<List<File>?> collect(Logger logger) async {
+    final ok = await _normalizeBuiltLibraryIntoCache(
+      cacheDir: cacheDir,
+      cachedLib: cachedLib,
+      libFileName: libFileName,
+      logger: logger,
+    );
+    return ok ? [cachedLib] : null;
+  }
+}
+
+/// All libraries in `<cache>/out/`, listed by `<cache>/out/manifest.txt`.
+/// The manifest is written last, so its presence marks a complete entry.
+final class _SplitLayout extends _CacheLayout {
+  _SplitLayout(this.cacheDir, this.targetOS)
+    : outDir = Directory(p.join(cacheDir.path, 'out'));
+
+  final Directory cacheDir;
+  final OS targetOS;
+  final Directory outDir;
+
+  File get _manifest => File(p.join(outDir.path, 'manifest.txt'));
+
+  String get _extension => targetOS == OS.windows ? '.dll' : '.so';
+
+  @override
+  Future<List<File>?> cachedLibraries() async {
+    if (!await _manifest.exists()) return null;
+    final names = (await _manifest.readAsLines())
+        .where((line) => line.trim().isNotEmpty)
+        .toList();
+    final files = [for (final name in names) File(p.join(outDir.path, name))];
+    for (final file in files) {
+      if (!await file.exists()) return null;
+    }
+    return files;
+  }
+
+  @override
+  Future<List<File>?> collect(Logger logger) async {
+    final existing = await cachedLibraries();
+    if (existing != null) return existing;
+
+    // CMake writes every runtime library to <build>/bin, plus a config
+    // subdirectory for Visual Studio generators.
+    final main = await _librariesIn(Directory(p.join(cacheDir.path, 'bin')));
+    if (!main.containsKey(_name('fllama'))) return null;
+
+    final published = <String, File>{...main};
+    if (targetOS == OS.windows && main.containsKey('ggml-cpu.dll')) {
+      // Windows ARM64: name each CPU build by its variant (ADR 004, D11).
+      final variants = windowsArm64CpuVariants.keys.toList();
+      published.remove('ggml-cpu.dll');
+      published['ggml-cpu-${variants.first}.dll'] = main['ggml-cpu.dll']!;
+      for (final variant in variants.skip(1)) {
+        final extra = await _librariesIn(
+          Directory(p.join(cacheDir.path, 'cpu-$variant', 'bin')),
+        );
+        final cpu = extra['ggml-cpu.dll'];
+        if (cpu == null) return null;
+        published['ggml-cpu-$variant.dll'] = cpu;
+      }
+    }
+
+    await outDir.create(recursive: true);
+    final names = published.keys.toList()..sort();
+    for (final name in names) {
+      await published[name]!.copy(p.join(outDir.path, name));
+    }
+    logger.info('Collected ${names.length} libraries: ${names.join(', ')}');
+    await _manifest.writeAsString('${names.join('\n')}\n');
+    return cachedLibraries();
+  }
+
+  String _name(String stem) =>
+      targetOS == OS.windows ? '$stem.dll' : 'lib$stem.so';
+
+  /// Libraries directly in [dir], or in its Release subdirectory.
+  Future<Map<String, File>> _librariesIn(Directory dir) async {
+    for (final candidate in [Directory(p.join(dir.path, 'Release')), dir]) {
+      if (!await candidate.exists()) continue;
+      final found = <String, File>{};
+      await for (final entity in candidate.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = p.basename(entity.path);
+        if (p.extension(name) == _extension) found[name] = entity;
+      }
+      if (found.isNotEmpty) return found;
+    }
+    return const {};
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

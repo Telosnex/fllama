@@ -267,10 +267,14 @@ Expected Windows x64 libraries (Linux uses `lib<name>.so`). Step 2 confirms
 the list:
 
 ```
-fllama.dll  llama.dll  llama-common.dll  mtmd.dll  ggml.dll  ggml-base.dll
+fllama.dll  llama.dll  mtmd.dll  ggml.dll  ggml-base.dll
 ggml-vulkan.dll
 ggml-cpu-{x64,sse42,sandybridge,haswell,skylakex,cannonlake,cascadelake,icelake,alderlake}.dll
 ```
+
+`llama-common` stays a static library inside `fllama.dll`. fllama replaces
+its download functions (`src/fllama_download_stub.cpp`), and a shared
+`llama-common` would need httplib.
 
 MSVC builds 9 of the 14 upstream x64 variants. ggml skips `ivybridge`,
 `piledriver`, `cooperlake`, `zen4` and `sapphirerapids` for MSVC.
@@ -278,7 +282,7 @@ MSVC builds 9 of the 14 upstream x64 variants. ggml skips `ivybridge`,
 Expected Windows ARM64 libraries. Step 8 confirms the list:
 
 ```
-fllama.dll  llama.dll  llama-common.dll  mtmd.dll  ggml.dll  ggml-base.dll
+fllama.dll  llama.dll  mtmd.dll  ggml.dll  ggml-base.dll
 ggml-cpu-armv8.0.dll  ggml-cpu-armv8.2-dotprod.dll
 ggml-opencl.dll  OpenCL.dll        # if D12 selects OpenCL
 ggml-vulkan.dll                    # if D12 selects Vulkan
@@ -306,7 +310,7 @@ New FFI:
 - `fllama_set_gpu_allowed(bool)`. Call it before the first fllama call that
   loads backends. A later call returns an error and changes nothing.
 - `fllama_gpu_memory_info` gets `device_type` (`GPU` or `IGPU`), `backend`
-  (for example `Vulkan`, `OpenCL`, `Metal` or `CUDA`) and `device_key`.
+  (for example `Vulkan`, `OpenCL`, `MTL` or `CUDA`) and `device_key`.
 - `fllama_inference_request` gets `gpu_device_key`. NULL or empty means Auto.
 
 Device key: `<backend>|<description>|<n>`. `n` is the position of the device

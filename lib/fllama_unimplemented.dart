@@ -14,6 +14,12 @@ Future<List<FllamaGpuMemoryInfo>> fllamaGpuMemoryInfoGetAll() async {
   return const [];
 }
 
+/// No GPU backends to allow or forbid on this platform.
+bool fllamaSetGpuAllowed(bool allowed) => true;
+
+/// No backend libraries on this platform.
+Future<List<String>> fllamaLoadedBackendFiles() async => const [];
+
 /// Returns the chat template embedded in the .gguf file.
 /// If none is found, returns an empty string.
 ///

@@ -5,6 +5,7 @@
 // are batched automatically by server_context::update_slots().
 
 #include "fllama.h"
+#include "fllama_backends.h"
 #include "fllama_inference_queue.h"
 #include "fllama_mtmd.h"
 
@@ -60,28 +61,6 @@ static void log_message(const std::string &m,
   log_message(m.c_str(), l);
 }
 
-static bool fllama_is_noisy_per_token_llama_log(const char *text) {
-  if (!text) {
-    return false;
-  }
-  std::string s(text);
-  while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
-    s.pop_back();
-  }
-  return s == "set_embeddings: value = 0" ||
-         s == "set_adapters_lora: adapters = 0" ||
-         s == "adapters_lora_are_same: adapters = 0";
-}
-
-static void fllama_filtered_llama_log_callback(enum ggml_log_level level,
-                                               const char *text,
-                                               void *user_data) {
-  if (fllama_is_noisy_per_token_llama_log(text)) {
-    return;
-  }
-  common_log_default_callback(level, text, user_data);
-}
-
 struct fllama_callback_payload {
   std::string response;
   std::string openai_json;
@@ -117,32 +96,6 @@ static void emit_inference_callback(fllama_inference_callback callback,
 // (ggml Metal statics may be destroyed before g_mgr's destructor runs,
 //  causing ggml_abort when server_context tries to free Metal resources.)
 static ServerManager &g_mgr = *new ServerManager();
-static std::once_flag  g_backend_init;
-
-static void fllama_backend_init_once() {
-  std::call_once(g_backend_init, [] {
-    ggml_backend_load_all();
-    llama_backend_init();
-    llama_log_set(fllama_filtered_llama_log_callback, nullptr);
-  });
-}
-
-static std::vector<ggml_backend_dev_t> fllama_get_gpu_devices() {
-  fllama_backend_init_once();
-
-  std::vector<ggml_backend_dev_t> devices;
-  for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-    auto * dev = ggml_backend_dev_get(i);
-    if (dev == nullptr) {
-      continue;
-    }
-    if (ggml_backend_dev_type(dev) != GGML_BACKEND_DEVICE_TYPE_GPU) {
-      continue;
-    }
-    devices.push_back(dev);
-  }
-  return devices;
-}
 
 static void fllama_copy_cstr(char * dst, size_t cap, const char * src) {
   if (dst == nullptr || cap == 0) {
@@ -173,7 +126,7 @@ static void run_inference(fllama_inference_request request,
     log_message("[fllama] Inference start", request.dart_logger);
 
     // One-time backend init.
-    fllama_backend_init_once();
+    fllama_backends_init_once();
 
     // ── 1. Build common_params ────────────────────────────────────────
 
@@ -207,6 +160,20 @@ static void run_inference(fllama_inference_request request,
     params.n_gpu_layers = request.num_gpu_layers;
 #endif
 
+    // GPU selection (ADR 004, D9). An unknown key falls back to Auto.
+    const std::string gpu_device_key =
+        request.gpu_device_key ? request.gpu_device_key : "";
+    if (!gpu_device_key.empty()) {
+      if (auto *dev = fllama_backends_find_device(gpu_device_key)) {
+        params.devices = {dev};
+        log_message("[fllama] GPU: " + gpu_device_key, request.dart_logger);
+      } else {
+        log_message("[fllama] WARNING: GPU not found, using Auto: " +
+                        gpu_device_key,
+                    request.dart_logger);
+      }
+    }
+
     if (request.model_mmproj_path && strlen(request.model_mmproj_path) > 0)
       params.mmproj.path = request.model_mmproj_path;
 
@@ -230,6 +197,7 @@ static void run_inference(fllama_inference_request request,
                   request.dart_logger);
       // Offload the (small) drafter alongside the target model.
       params.speculative.draft.n_gpu_layers = params.n_gpu_layers;
+      params.speculative.draft.devices = params.devices;
     }
 
     // common_params is normally finalized by common_params_parse(), but fllama
@@ -547,8 +515,19 @@ static void run_inference(fllama_inference_request request,
 
 extern "C" {
 
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_set_gpu_allowed(
+    uint8_t allowed) {
+  return fllama_backends_set_gpu_allowed(allowed != 0) ? 0 : 1;
+}
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char *
+fllama_get_loaded_backends(void) {
+  static const std::string loaded = fllama_backends_loaded_files();
+  return loaded.c_str();
+}
+
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_device_count(void) {
-  return static_cast<int>(fllama_get_gpu_devices().size());
+  return static_cast<int>(fllama_backends_gpu_devices().size());
 }
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_memory_info(
@@ -564,7 +543,7 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_memory_info(
     return 2;
   }
 
-  auto devices = fllama_get_gpu_devices();
+  auto devices = fllama_backends_gpu_devices();
   if (static_cast<size_t>(gpu_index) >= devices.size()) {
     return 3;
   }
@@ -597,6 +576,18 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_memory_info(
       out_info->device_id,
       sizeof(out_info->device_id),
       props.device_id);
+  fllama_copy_cstr(
+      out_info->backend,
+      sizeof(out_info->backend),
+      ggml_backend_reg_name(ggml_backend_dev_backend_reg(dev)));
+  fllama_copy_cstr(
+      out_info->device_type,
+      sizeof(out_info->device_type),
+      props.type == GGML_BACKEND_DEVICE_TYPE_IGPU ? "IGPU" : "GPU");
+  fllama_copy_cstr(
+      out_info->device_key,
+      sizeof(out_info->device_key),
+      fllama_backends_device_key(dev).c_str());
   return 0;
 }
 

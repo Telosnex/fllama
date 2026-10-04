@@ -158,6 +158,9 @@ Pointer<fllama_inference_request> _toNative(
     request.draft_n_max = dart.draftNMax ?? 0;
     request.draft_p_min = dart.draftPMin ?? -1;
   }
+  if (dart.gpuDeviceKey != null && dart.gpuDeviceKey!.isNotEmpty) {
+    request.gpu_device_key = dart.gpuDeviceKey!.toNativeUtf8().cast<Char>();
+  }
   if (dart.logger != null) {
     void onResponse(Pointer<Char> responsePointer) {
       final message = pointerCharToString(responsePointer);
@@ -414,6 +417,9 @@ void _fllamaInferenceIsolate(SendPort sendPort) async {
           }
           if (nativeRequest.openai_request_json_string != nullptr) {
             calloc.free(nativeRequest.openai_request_json_string);
+          }
+          if (nativeRequest.gpu_device_key != nullptr) {
+            calloc.free(nativeRequest.gpu_device_key);
           }
           if (nativeRequest.draft_model_path != nullptr) {
             calloc.free(nativeRequest.draft_model_path);

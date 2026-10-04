@@ -56,7 +56,8 @@ static bool params_match(const ServerResources &r,
          r.mmproj_path  == params.mmproj.path &&
          r.draft_path   == params.speculative.draft.mparams.path &&
          r.draft_n_max  == params.speculative.draft.n_max &&
-         r.draft_p_min  == params.speculative.draft.p_min;
+         r.draft_p_min  == params.speculative.draft.p_min &&
+         r.devices      == params.devices;
 }
 
 ServerResources *
@@ -153,6 +154,7 @@ ServerManager::get_or_create(const std::string &model_path,
   res->draft_path    = params.speculative.draft.mparams.path;
   res->draft_n_max   = params.speculative.draft.n_max;
   res->draft_p_min   = params.speculative.draft.p_min;
+  res->devices       = params.devices;
   res->last_used     = std::chrono::steady_clock::now();
   res->active_users.store(1);
 

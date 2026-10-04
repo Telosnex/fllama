@@ -68,6 +68,11 @@ class FllamaInferenceRequest {
   /// such as 0.95–0.99 when [draftNMax] is high.
   double? draftPMin;
 
+  /// Optional: [FllamaGpuMemoryInfo.deviceKey] of the GPU that the model may
+  /// use. null or empty is Auto: llama.cpp uses every GPU it supports. An
+  /// unknown key is logged and treated as Auto. Native-only.
+  String? gpuDeviceKey;
+
   FllamaInferenceRequest({
     required this.contextSize,
     required this.input,
@@ -87,6 +92,7 @@ class FllamaInferenceRequest {
     this.draftModelPath,
     this.draftNMax,
     this.draftPMin,
+    this.gpuDeviceKey,
   });
 }
 
@@ -109,6 +115,16 @@ class FllamaGpuMemoryInfo {
   final String description;
   final String deviceId;
 
+  /// ggml backend name, for example `Vulkan`, `MTL` (Metal) or `CUDA`.
+  final String backend;
+
+  /// Whether the device is an integrated GPU, which shares system memory.
+  final bool isIntegrated;
+
+  /// Stable identity of this GPU across app restarts. Pass it as
+  /// [OpenAiRequest.gpuDeviceKey] to run a model on only this GPU.
+  final String deviceKey;
+
   const FllamaGpuMemoryInfo({
     required this.deviceIndex,
     required this.totalBytes,
@@ -116,6 +132,9 @@ class FllamaGpuMemoryInfo {
     required this.name,
     required this.description,
     required this.deviceId,
+    this.backend = '',
+    this.isIntegrated = false,
+    this.deviceKey = '',
   });
 
   bool get hasKnownBudget => totalBytes > 0;
@@ -156,6 +175,7 @@ Future<int> fllamaChat(
     draftModelPath: request.draftModelPath,
     draftNMax: request.draftNMax,
     draftPMin: request.draftPMin,
+    gpuDeviceKey: request.gpuDeviceKey,
   );
 
   return fllamaInference(inferenceRequest, callback);

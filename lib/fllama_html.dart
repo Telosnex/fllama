@@ -17,6 +17,12 @@ Future<List<FllamaGpuMemoryInfo>> fllamaGpuMemoryInfoGetAll() async {
   return const [];
 }
 
+/// No GPU backends to allow or forbid on this platform.
+bool fllamaSetGpuAllowed(bool allowed) => true;
+
+/// No backend libraries on this platform.
+Future<List<String>> fllamaLoadedBackendFiles() async => const [];
+
 // Keep in sync with fllama_inference_request.dart to pass correctly from Dart to JS
 extension type _JSFllamaInferenceRequest._(JSObject _) implements JSObject {
   external factory _JSFllamaInferenceRequest({

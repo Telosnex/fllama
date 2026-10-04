@@ -94,6 +94,7 @@ String computeBuildKey({
   String targetVariant = '',
   String? toolset,
   required Map<String, String> defines,
+  Map<String, String> extra = const {},
   required List<SourceFileFingerprint> sourceFiles,
 }) {
   final buffer = StringBuffer();
@@ -108,6 +109,13 @@ String computeBuildKey({
     ..sort((a, b) => a.key.compareTo(b.key));
   for (final entry in sortedDefines) {
     buffer.writeln('D:${entry.key}=${entry.value}');
+  }
+  // Inputs that are not CMake defines, such as the GPU SDK version. Written
+  // only when set, so keys without them stay unchanged.
+  final sortedExtra = extra.entries.toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  for (final entry in sortedExtra) {
+    buffer.writeln('X:${entry.key}=${entry.value}');
   }
   for (final file in sourceFiles) {
     buffer.writeln('F:${file.relPath}|${file.size}|${file.contentDigest}');

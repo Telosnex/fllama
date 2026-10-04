@@ -17,6 +17,7 @@
 #include <vector>
 
 // Forward declarations.
+struct ggml_backend_device;
 struct server_context;
 struct common_params;
 
@@ -38,6 +39,7 @@ struct ServerResources {
   std::string draft_path; // MTP/speculative drafter model path ("" if none)
   int draft_n_max = 0;    // MTP/speculative max draft tokens; load-time param
   float draft_p_min = -1; // MTP/speculative min draft confidence; load-time param
+  std::vector<ggml_backend_device *> devices; // GPU selection; empty is Auto
 
   ServerResources() = default;
   ~ServerResources(); // terminates loop, joins thread
