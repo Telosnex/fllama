@@ -102,9 +102,17 @@ void main(List<String> args) async {
     final sourceDir = input.packageRoot.resolve('src/');
     final targetOS = input.config.code.targetOS;
     final targetVariant = _targetVariant(input.config.code);
+    final toolset = windowsToolset(
+      targetOS,
+      input.config.code.targetArchitecture,
+    );
 
     // ── CMake defines ──────────────────────────────────────────────────
-    final defines = _computeDefines(targetOS, targetVariant);
+    final defines = _computeDefines(
+      targetOS,
+      input.config.code.targetArchitecture,
+      targetVariant,
+    );
 
     // ── Enumerate source files (used for both key + dep declarations) ──
     final swStart = Stopwatch()..start();
@@ -119,6 +127,7 @@ void main(List<String> args) async {
       os: targetOS.name,
       arch: input.config.code.targetArchitecture.name,
       targetVariant: targetVariant,
+      toolset: toolset,
       defines: defines,
       sourceFiles: sourceFiles,
     );
@@ -206,6 +215,7 @@ void main(List<String> args) async {
           // stable, shared location.
           outDir: cacheDir.uri,
           defines: defines,
+          toolset: toolset,
           logger: logger,
         );
         await builder.run(input: input, output: output, logger: logger);
@@ -262,17 +272,48 @@ CMakeBuilder createFllamaBuilder({
   required Uri sourceDir,
   required Uri outDir,
   required Map<String, String> defines,
+  String? toolset,
   required Logger logger,
 }) => CMakeBuilder.create(
   name: 'fllama',
   sourceDir: sourceDir,
   outDir: outDir,
-  defines: defines,
+  // native_toolchain_cmake 0.2.7 does not forward `toolset` to `cmake -T`,
+  // so a toolchain file selects it. The absolute path is added after the
+  // cache key is computed, keeping keys checkout-path independent.
+  defines: {
+    ...defines,
+    if (toolset != null)
+      'CMAKE_TOOLCHAIN_FILE': _toolsetToolchainFile(sourceDir, toolset),
+  },
   targets: ['fllama'],
   buildLocal: false,
   parallelUseAllProcessors: true,
   logger: logger,
 );
+
+/// Visual Studio toolset (`cmake -T`) for [targetOS] and [arch], if not the
+/// default MSVC toolset.
+///
+/// llama.cpp rejects MSVC for ARM builds: its ARM kernels need clang's
+/// `-march` feature flags and GNU-style intrinsics. Visual Studio's ClangCL
+/// toolset keeps the Visual Studio generator, MSVC ABI, and Windows SDK, but
+/// compiles with clang-cl. It needs the Visual Studio components
+/// `Microsoft.VisualStudio.Component.VC.Llvm.Clang` and
+/// `Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset`.
+String? windowsToolset(OS targetOS, Architecture arch) =>
+    targetOS == OS.windows && arch == Architecture.arm64 ? 'ClangCL' : null;
+
+String _toolsetToolchainFile(Uri sourceDir, String toolset) {
+  if (toolset != 'ClangCL') {
+    throw ArgumentError.value(toolset, 'toolset', 'No toolchain file');
+  }
+  return p.join(
+    Directory.fromUri(sourceDir).path,
+    'cmake',
+    'windows-clangcl.toolchain.cmake',
+  );
+}
 
 /// Collects logger records so hooks_runner receives one newline-normalized
 /// stderr message instead of adding a blank line after every streamed chunk.
@@ -328,7 +369,11 @@ String _targetVariant(CodeConfig config) {
   return '';
 }
 
-Map<String, String> _computeDefines(OS targetOS, String targetVariant) {
+Map<String, String> _computeDefines(
+  OS targetOS,
+  Architecture targetArch,
+  String targetVariant,
+) {
   final defines = <String, String>{
     'CMAKE_BUILD_TYPE': 'Release',
     // Static-link all llama sub-libraries (ggml, llama, common, etc.) into
@@ -374,6 +419,12 @@ Map<String, String> _computeDefines(OS targetOS, String targetVariant) {
   // Windows: Vulkan GPU acceleration.
   if (targetOS == OS.windows) {
     defines['LLAMA_VULKAN'] = 'ON';
+  }
+  if (windowsToolset(targetOS, targetArch) == 'ClangCL') {
+    // clang-cl links OpenMP against libomp140.<arch>.dll, which ships with
+    // Visual Studio but not the VC++ redistributable, so the DLL fails to load
+    // on user machines. llama.cpp's own threadpool replaces it.
+    defines['GGML_OPENMP'] = 'OFF';
   }
 
   // Linux: position-independent code — the static .a libs get linked into

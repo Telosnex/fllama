@@ -71,6 +71,29 @@ void main() {
     expect(keyForSdk('iphoneos'), isNot(keyForSdk('iphonesimulator')));
   });
 
+  test('separates toolsets and keeps default-toolset keys unchanged', () async {
+    final source = File('${firstSourceDirectory.path}/fllama.cpp');
+    await source.writeAsString('int fllama() { return 1; }\n');
+    final sourceFiles = await collectSourceFiles(firstSourceDirectory.uri);
+
+    String keyForToolset(String? toolset) => computeBuildKey(
+      os: 'windows',
+      arch: 'arm64',
+      toolset: toolset,
+      defines: const {'CMAKE_BUILD_TYPE': 'Release'},
+      sourceFiles: sourceFiles,
+    );
+    final withoutToolsetArgument = computeBuildKey(
+      os: 'windows',
+      arch: 'arm64',
+      defines: const {'CMAKE_BUILD_TYPE': 'Release'},
+      sourceFiles: sourceFiles,
+    );
+
+    expect(keyForToolset('ClangCL'), isNot(keyForToolset(null)));
+    expect(keyForToolset(null), withoutToolsetArgument);
+  });
+
   test('ignores generated build directories and unrelated files', () async {
     await File(
       '${firstSourceDirectory.path}/fllama.cpp',

@@ -92,6 +92,7 @@ String computeBuildKey({
   required String os,
   required String arch,
   String targetVariant = '',
+  String? toolset,
   required Map<String, String> defines,
   required List<SourceFileFingerprint> sourceFiles,
 }) {
@@ -100,6 +101,8 @@ String computeBuildKey({
   buffer.writeln('os=$os');
   buffer.writeln('arch=$arch');
   buffer.writeln('target_variant=$targetVariant');
+  // Written only when set, so default-toolset keys stay unchanged.
+  if (toolset != null) buffer.writeln('toolset=$toolset');
 
   final sortedDefines = defines.entries.toList()
     ..sort((a, b) => a.key.compareTo(b.key));
