@@ -20,6 +20,16 @@ bool fllamaSetGpuAllowed(bool allowed) => true;
 /// No backend libraries on this platform.
 Future<List<String>> fllamaLoadedBackendFiles() async => const [];
 
+/// No GPU packs on this platform.
+List<FllamaGpuPackFile> fllamaGpuPackFiles() => const [];
+
+/// No GPU packs on this platform.
+Future<String?> fllamaLoadGpuPack(String pack, String directory) async =>
+    'This platform does not load GPU packs';
+
+/// No Vulkan on this platform.
+Future<bool> fllamaHasVulkanGpu() async => false;
+
 /// Returns the chat template embedded in the .gguf file.
 /// If none is found, returns an empty string.
 ///

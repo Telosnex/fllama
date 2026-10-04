@@ -96,6 +96,27 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_set_gpu_allowed(uint8_t allowe
 // fllama and stays valid for the life of the process.
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char * fllama_get_loaded_backends(void);
 
+// JSON array of the GPU pack files that this fllama build expects:
+// [{"pack":"vulkan","name":"ggml-vulkan.dll","sha256":"<64 hex>"}].
+// "[]" if the build has no packs. The app downloads each file and calls
+// fllama_load_gpu_pack. The string is owned by fllama and never changes.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char * fllama_get_gpu_pack_files(void);
+
+// Loads the GPU pack [pack] (for example "vulkan") from [directory] (UTF-8),
+// which contains its files, not gzipped. Checks the SHA-256 of every file
+// first. Unloads idle cached models, so the next request uses the new
+// backend. Returns NULL on success or if the pack is already loaded, else
+// an error message that stays valid until the next call on this thread.
+// Fails if GPU backends are disabled or a request runs.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char * fllama_load_gpu_pack(
+    const char * pack, const char * directory);
+
+// 1 if the Vulkan loader lists a GPU that supports Vulkan 1.2, else 0.
+// Does not need the Vulkan pack. 0 if GPU backends are disabled or this
+// build has no Vulkan pack. Computed once per process; it calls the GPU
+// driver.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT uint8_t fllama_has_vulkan_gpu(void);
+
 // GPU device information.
 // Returns the number of GPU devices (discrete and integrated) visible to
 // ggml/llama.cpp.

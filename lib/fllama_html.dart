@@ -23,6 +23,16 @@ bool fllamaSetGpuAllowed(bool allowed) => true;
 /// No backend libraries on this platform.
 Future<List<String>> fllamaLoadedBackendFiles() async => const [];
 
+/// No GPU packs on this platform.
+List<FllamaGpuPackFile> fllamaGpuPackFiles() => const [];
+
+/// No GPU packs on this platform.
+Future<String?> fllamaLoadGpuPack(String pack, String directory) async =>
+    'This platform does not load GPU packs';
+
+/// No Vulkan on this platform.
+Future<bool> fllamaHasVulkanGpu() async => false;
+
 // Keep in sync with fllama_inference_request.dart to pass correctly from Dart to JS
 extension type _JSFllamaInferenceRequest._(JSObject _) implements JSObject {
   external factory _JSFllamaInferenceRequest({

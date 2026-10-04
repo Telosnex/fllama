@@ -114,6 +114,7 @@ std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path) {
     mparams.load_mode = LLAMA_LOAD_MODE_MMAP;
     mparams.n_gpu_layers = 0;
     fllama_backends_init_once();
+    auto registry_lock = fllama_backends_registry_read_lock();
     // Using llama_model_load_from_file instead of llama_init_from_gpt_params
     // avoided a crash when tokenization was called in quick succession without
     // this caching mechanism in place.

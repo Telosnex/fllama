@@ -66,6 +66,13 @@ dev_dependencies:
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
+# fllama writes its GPU pack files here (ADR 004, D13). The integration
+# test loads them from this directory instead of downloading them.
+hooks:
+  user_defines:
+    fllama:
+      gpu_pack_dir: build/gpu_packs
+
 flutter:
 
   # The following line ensures that the Material Icons font is

@@ -76,9 +76,11 @@
 //   - No git hash / pub cache path in the key: updating fllama to a
 //     new commit that changed zero source bytes reuses the cache.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
+import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/logging.dart';
 import 'package:native_toolchain_cmake/native_toolchain_cmake.dart';
@@ -240,7 +242,16 @@ void main(List<String> args) async {
     }
 
     final publishStopwatch = Stopwatch()..start();
-    for (final lib in cached) {
+    // GPU packs are downloads, not code assets (ADR 004, D13).
+    final packs = layout is _SplitLayout
+        ? await layout.gpuPackFiles()
+        : const <GpuPackFile>[];
+    final packNames = {for (final pack in packs) pack.name};
+    final bundled = [
+      for (final lib in cached)
+        if (!packNames.contains(p.basename(lib.path))) lib,
+    ];
+    for (final lib in bundled) {
       await _publishFromCache(
         cachedLib: lib,
         outputDirectory: input.outputDirectory,
@@ -251,9 +262,29 @@ void main(List<String> args) async {
     _registerAssets(
       input: input,
       output: output,
-      libFileNames: [for (final lib in cached) p.basename(lib.path)],
+      libFileNames: [for (final lib in bundled) p.basename(lib.path)],
       logger: logger,
     );
+    if (packs.isNotEmpty) {
+      final packDir = input.userDefines.path('gpu_pack_dir');
+      for (final pack in packs) {
+        logger.info(
+          'GPU pack ${pack.pack}: ${pack.name} (${pack.sha256}) is not '
+          'bundled.',
+        );
+        if (packDir == null) continue;
+        await _writeGpuPackFile(
+          source: File(p.join(cacheDir.path, 'out', pack.name)),
+          destination: File(
+            p.join(
+              Directory.fromUri(packDir).path,
+              gpuPackRelativePath(targetOS, targetArch, pack),
+            ),
+          ),
+          logger: logger,
+        );
+      }
+    }
     logger.info(
       'Hook completed in ${_formatDuration(hookStopwatch.elapsed)} '
       '(publish/register ${_formatDuration(publishStopwatch.elapsed)}, '
@@ -837,6 +868,57 @@ String codeAssetName(String fileName) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+//   GPU packs (ADR 004, D13)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// One file of a GPU pack, as listed in the `gpu_packs.json` that
+/// src/cmake/gpu_packs.cmake writes.
+final class GpuPackFile {
+  const GpuPackFile({
+    required this.pack,
+    required this.name,
+    required this.sha256,
+  });
+
+  factory GpuPackFile.fromJson(Map<String, Object?> json) => GpuPackFile(
+    pack: json['pack']! as String,
+    name: json['name']! as String,
+    sha256: json['sha256']! as String,
+  );
+
+  final String pack;
+  final String name;
+  final String sha256;
+}
+
+List<GpuPackFile> parseGpuPackFiles(String json) => [
+  for (final entry in jsonDecode(json) as List<Object?>)
+    GpuPackFile.fromJson((entry! as Map).cast<String, Object?>()),
+];
+
+/// Path of a gzipped pack file below `gpu_pack_dir`, and below
+/// `fllama-gpu-packs/` in the B2 bucket (ADR 004, §5):
+/// `<os>-<arch>/<sha256>/<file name>.gz`. lib/io/fllama_io_gpu.dart builds
+/// the same path.
+String gpuPackRelativePath(OS os, Architecture arch, GpuPackFile file) =>
+    '${os.name}-${arch.name}/${file.sha256}/${file.name}.gz';
+
+/// Writes [source] gzipped to [destination] unless it exists. A pack path
+/// contains the file SHA-256, so an existing file is never stale.
+Future<void> _writeGpuPackFile({
+  required File source,
+  required File destination,
+  required Logger logger,
+}) async {
+  if (await destination.exists()) return;
+  await destination.parent.create(recursive: true);
+  final temp = File('${destination.path}.tmp$pid');
+  await temp.writeAsBytes(gzip.encode(await source.readAsBytes()));
+  await temp.rename(destination.path);
+  logger.info('Wrote GPU pack file ${destination.path}');
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 //   cache layouts
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -887,11 +969,18 @@ final class _SplitLayout extends _CacheLayout {
 
   File get _manifest => File(p.join(outDir.path, 'manifest.txt'));
 
+  File get _gpuPacks => File(p.join(outDir.path, 'gpu_packs.json'));
+
+  /// GPU pack files of a complete cache entry. Their libraries are in
+  /// [cachedLibraries] too.
+  Future<List<GpuPackFile>> gpuPackFiles() async =>
+      parseGpuPackFiles(await _gpuPacks.readAsString());
+
   String get _extension => targetOS == OS.windows ? '.dll' : '.so';
 
   @override
   Future<List<File>?> cachedLibraries() async {
-    if (!await _manifest.exists()) return null;
+    if (!await _manifest.exists() || !await _gpuPacks.exists()) return null;
     final names = (await _manifest.readAsLines())
         .where((line) => line.trim().isNotEmpty)
         .toList();
@@ -928,12 +1017,31 @@ final class _SplitLayout extends _CacheLayout {
       }
     }
 
+    // fllama contains these SHA-256 values. Check that the copies match,
+    // so a pack that fllama rejects never leaves the build.
+    final packsJson = File(p.join(cacheDir.path, 'gpu_packs.json'));
+    if (!await packsJson.exists()) return null;
+    final packs = parseGpuPackFiles(await packsJson.readAsString());
+    for (final pack in packs) {
+      final file = published[pack.name];
+      if (file == null) return null;
+      final actual = sha256.convert(await file.readAsBytes()).toString();
+      if (actual != pack.sha256) {
+        throw StateError(
+          'GPU pack file ${pack.name} has SHA-256 $actual, but fllama '
+          'expects ${pack.sha256}.',
+        );
+      }
+    }
+
     await outDir.create(recursive: true);
     final names = published.keys.toList()..sort();
     for (final name in names) {
       await published[name]!.copy(p.join(outDir.path, name));
     }
+    await packsJson.copy(_gpuPacks.path);
     logger.info('Collected ${names.length} libraries: ${names.join(', ')}');
+    // Written last: its presence marks a complete cache entry.
     await _manifest.writeAsString('${names.join('\n')}\n');
     return cachedLibraries();
   }

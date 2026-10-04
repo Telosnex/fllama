@@ -142,13 +142,40 @@ if (BUILD_SHARED_LIBS)
 endif()
 target_link_libraries(server-context PUBLIC llama-common mtmd ${CMAKE_THREAD_LIBS_INIT})
 
+# GPU packs (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D13): backend libraries
+# that the app downloads instead of bundling. fllama contains the SHA-256 of
+# each pack file and loads only files that match.
+set(FLLAMA_GPU_PACK_ARGS -DFILE_COUNT=0)
+set(FLLAMA_GPU_PACK_DEPENDS "")
+if(GGML_BACKEND_DL AND GGML_VULKAN)
+  set(FLLAMA_GPU_PACK_ARGS
+    -DFILE_COUNT=1
+    -DFILE_0_PACK=vulkan
+    "-DFILE_0_PATH=$<TARGET_FILE:ggml-vulkan>")
+  set(FLLAMA_GPU_PACK_DEPENDS ggml-vulkan "$<TARGET_FILE:ggml-vulkan>")
+endif()
+set(FLLAMA_GPU_PACKS_CPP "${CMAKE_BINARY_DIR}/fllama_gpu_packs.cpp")
+add_custom_command(
+  OUTPUT "${FLLAMA_GPU_PACKS_CPP}" "${CMAKE_BINARY_DIR}/gpu_packs.json"
+  COMMAND "${CMAKE_COMMAND}"
+    "-DOUT_CPP=${FLLAMA_GPU_PACKS_CPP}"
+    "-DOUT_JSON=${CMAKE_BINARY_DIR}/gpu_packs.json"
+    ${FLLAMA_GPU_PACK_ARGS}
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/gpu_packs.cmake"
+  DEPENDS ${FLLAMA_GPU_PACK_DEPENDS}
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/gpu_packs.cmake"
+  COMMENT "Recording GPU pack SHA-256 values"
+  VERBATIM)
+
 add_library(fllama SHARED
+  "${FLLAMA_GPU_PACKS_CPP}"
   "fllama_backends.cpp"
   "fllama_chat_template.cpp"
   "fllama_download_stub.cpp"
   "fllama_eos.cpp"
   "fllama_inference_queue.cpp"
   "fllama_mtmd.cpp"
+  "fllama_sha256.cpp"
   "fllama_tokenize.cpp"
   "fllama.cpp"
 )
@@ -176,6 +203,14 @@ if(GGML_BACKEND_DL)
   # fllama loads the ggml backend libraries itself (src/fllama_backends.cpp).
   target_compile_definitions(fllama PRIVATE FLLAMA_BACKEND_DL)
   target_link_libraries(fllama PRIVATE ${CMAKE_DL_LIBS})
+  if(GGML_VULKAN)
+    # fllama_has_vulkan_gpu() loads the Vulkan loader at run time. It needs
+    # only the headers, not vulkan-1.lib.
+    target_compile_definitions(fllama PRIVATE FLLAMA_VULKAN_PROBE)
+    if(Vulkan_INCLUDE_DIR)
+      target_include_directories(fllama PRIVATE "${Vulkan_INCLUDE_DIR}")
+    endif()
+  endif()
 endif()
 
 if(WIN32)

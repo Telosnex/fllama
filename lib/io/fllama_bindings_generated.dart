@@ -103,6 +103,66 @@ class FllamaBindings {
   late final _fllama_get_loaded_backends = _fllama_get_loaded_backendsPtr
       .asFunction<ffi.Pointer<ffi.Char> Function()>();
 
+  /// JSON array of the GPU pack files that this fllama build expects:
+  /// [{"pack":"vulkan","name":"ggml-vulkan.dll","sha256":"<64 hex>"}].
+  /// "[]" if the build has no packs. The app downloads each file and calls
+  /// fllama_load_gpu_pack. The string is owned by fllama and never changes.
+  ffi.Pointer<ffi.Char> fllama_get_gpu_pack_files() {
+    return _fllama_get_gpu_pack_files();
+  }
+
+  late final _fllama_get_gpu_pack_filesPtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
+        'fllama_get_gpu_pack_files',
+      );
+  late final _fllama_get_gpu_pack_files = _fllama_get_gpu_pack_filesPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function()>();
+
+  /// Loads the GPU pack [pack] (for example "vulkan") from [directory] (UTF-8),
+  /// which contains its files, not gzipped. Checks the SHA-256 of every file
+  /// first. Unloads idle cached models, so the next request uses the new
+  /// backend. Returns NULL on success or if the pack is already loaded, else
+  /// an error message that stays valid until the next call on this thread.
+  /// Fails if GPU backends are disabled or a request runs.
+  ffi.Pointer<ffi.Char> fllama_load_gpu_pack(
+    ffi.Pointer<ffi.Char> pack,
+    ffi.Pointer<ffi.Char> directory,
+  ) {
+    return _fllama_load_gpu_pack(pack, directory);
+  }
+
+  late final _fllama_load_gpu_packPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('fllama_load_gpu_pack');
+  late final _fllama_load_gpu_pack = _fllama_load_gpu_packPtr
+      .asFunction<
+        ffi.Pointer<ffi.Char> Function(
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
+
+  /// 1 if the Vulkan loader lists a GPU that supports Vulkan 1.2, else 0.
+  /// Does not need the Vulkan pack. 0 if GPU backends are disabled or this
+  /// build has no Vulkan pack. Computed once per process; it calls the GPU
+  /// driver.
+  int fllama_has_vulkan_gpu() {
+    return _fllama_has_vulkan_gpu();
+  }
+
+  late final _fllama_has_vulkan_gpuPtr =
+      _lookup<ffi.NativeFunction<ffi.Uint8 Function()>>(
+        'fllama_has_vulkan_gpu',
+      );
+  late final _fllama_has_vulkan_gpu = _fllama_has_vulkan_gpuPtr
+      .asFunction<int Function()>();
+
   /// GPU device information.
   /// Returns the number of GPU devices (discrete and integrated) visible to
   /// ggml/llama.cpp.

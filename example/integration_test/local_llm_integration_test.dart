@@ -102,6 +102,123 @@ void main() {
       timeout: const Timeout(Duration(minutes: 2)),
     );
 
+    // GPU packs (ADR 004, D13). These run before the chat tests, so the
+    // chat tests run on the pack backend when this PC can use it.
+    final packFiles = supportedPlatform
+        ? fllama.fllamaGpuPackFiles()
+        : const <fllama.FllamaGpuPackFile>[];
+    final packSkip = packFiles.isEmpty ? 'This build has no GPU pack' : null;
+
+    test(
+      'rejects GPU pack files that are missing or changed',
+      () async {
+        expect(
+          await fllama.fllamaLoadGpuPack('no-such-pack', 'unused'),
+          contains('no GPU pack named'),
+        );
+
+        final empty = await Directory.systemTemp.createTemp('fllama_pack');
+        final changed = await _unpackGpuPack(packFiles);
+        try {
+          final pack = packFiles.first.pack;
+          expect(
+            await fllama.fllamaLoadGpuPack(pack, empty.path),
+            contains('missing or unreadable'),
+          );
+
+          final file = File(path.join(changed.path, packFiles.first.name));
+          final bytes = await file.readAsBytes();
+          bytes[bytes.length ~/ 2] ^= 0xff;
+          await file.writeAsBytes(bytes);
+          expect(
+            await fllama.fllamaLoadGpuPack(pack, changed.path),
+            contains('different SHA-256'),
+          );
+          final loaded = await fllama.fllamaLoadedBackendFiles();
+          expect(loaded, isNot(contains(packFiles.first.name)));
+        } finally {
+          await _deleteTemp(empty);
+          await _deleteTemp(changed);
+        }
+      },
+      skip: packSkip,
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
+
+    test(
+      'refuses to load a GPU pack while a request runs',
+      () async {
+        final dir = await _unpackGpuPack(packFiles);
+        final firstToken = Completer<void>();
+        final done = Completer<void>();
+        final requestId = await fllama.fllamaChat(
+          fllama.OpenAiRequest(
+            modelPath: modelFile.absolute.path,
+            messages: [
+              fllama.Message(fllama.Role.user, 'Count from 1 to 200.'),
+            ],
+            contextSize: 2048,
+            maxTokens: 400,
+            numGpuLayers: _testGpuLayers,
+            enableThinking: false,
+          ),
+          (result, json, isDone) {
+            if (!firstToken.isCompleted) firstToken.complete();
+            if (isDone && !done.isCompleted) done.complete();
+          },
+        );
+        try {
+          await firstToken.future.timeout(const Duration(minutes: 5));
+          expect(done.isCompleted, isFalse,
+              reason: 'The request must still run for this test.');
+          expect(
+            await fllama.fllamaLoadGpuPack(packFiles.first.pack, dir.path),
+            contains('request is running'),
+          );
+        } finally {
+          fllama.fllamaCancelInference(requestId);
+          await done.future.timeout(const Duration(minutes: 2));
+          await _deleteTemp(dir);
+        }
+      },
+      skip: packSkip,
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'loads the GPU pack, or runs on the CPU without a usable GPU',
+      () async {
+        final hasGpu = await fllama.fllamaHasVulkanGpu();
+        final dir = await _unpackGpuPack(packFiles);
+        try {
+          final pack = packFiles.first.pack;
+          final error = await fllama.fllamaLoadGpuPack(pack, dir.path);
+          final loaded = await fllama.fllamaLoadedBackendFiles();
+          print(
+            '[fllama integration] Vulkan GPU: $hasGpu, pack load: '
+            '${error ?? 'ok'}, backends: $loaded',
+          );
+          if (hasGpu) {
+            expect(error, isNull);
+            expect(loaded, contains(packFiles.first.name));
+            // A second load of the same pack does nothing.
+            expect(await fllama.fllamaLoadGpuPack(pack, dir.path), isNull);
+            final gpus = await fllama.fllamaGpuMemoryInfoGetAll();
+            expect(gpus.map((gpu) => gpu.backend), contains('Vulkan'));
+          } else if (error != null) {
+            // Without a Vulkan GPU, ggml-vulkan finds no device and does
+            // not register. fllama keeps running on the CPU (I1).
+            expect(error, contains('failed to load'));
+            expect(loaded, isNot(contains(packFiles.first.name)));
+          }
+        } finally {
+          await _deleteTemp(dir);
+        }
+      },
+      skip: packSkip,
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
+
     test(
       'an unknown GPU device key falls back to Auto',
       () async {
@@ -218,6 +335,36 @@ void main() {
       timeout: const Timeout(Duration(minutes: 10)),
     );
   });
+}
+
+/// Gunzips [files] from the example's `gpu_pack_dir` (see pubspec.yaml) into
+/// a new temporary directory, as an app does after a download.
+Future<Directory> _unpackGpuPack(List<fllama.FllamaGpuPackFile> files) async {
+  final dir = await Directory.systemTemp.createTemp('fllama_pack');
+  for (final file in files) {
+    final gz = File(
+      path.join(
+        Directory.current.path,
+        'build',
+        'gpu_packs',
+        file.relativePath,
+      ),
+    );
+    await File(path.join(dir.path, file.name))
+        .writeAsBytes(gzip.decode(await gz.readAsBytes()));
+  }
+  return dir;
+}
+
+/// Deletes a temporary directory if Windows allows it. After a failed
+/// ggml_backend_load, Windows can keep the DLL file open until the process
+/// ends.
+Future<void> _deleteTemp(Directory dir) async {
+  try {
+    await dir.delete(recursive: true);
+  } on FileSystemException catch (e) {
+    print('[fllama integration] could not delete ${dir.path}: ${e.osError}');
+  }
 }
 
 Future<Directory> _modelCacheDirectory() async {

@@ -75,6 +75,10 @@ public:
   // next request recreates the backend from scratch.
   void mark_unhealthy(const std::string &model_path);
 
+  // Unloads every cached model if no request uses one. Returns false and
+  // unloads nothing if a request runs (ADR 004, I9). Thread-safe.
+  bool evict_all_idle();
+
   // Cancellation.
   void cancel(int request_id);
   bool is_cancelled(int request_id);

@@ -522,8 +522,29 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_set_gpu_allowed(
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char *
 fllama_get_loaded_backends(void) {
-  static const std::string loaded = fllama_backends_loaded_files();
+  // A GPU pack can add a backend later, so read the list on every call.
+  thread_local std::string loaded;
+  loaded = fllama_backends_loaded_files();
   return loaded.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char *
+fllama_get_gpu_pack_files(void) {
+  static const std::string json = fllama_backends_gpu_pack_files_json();
+  return json.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char *
+fllama_load_gpu_pack(const char *pack, const char *directory) {
+  thread_local std::string error;
+  error = fllama_backends_load_gpu_pack(
+      pack ? pack : "", directory ? directory : "",
+      [] { return g_mgr.evict_all_idle(); });
+  return error.empty() ? nullptr : error.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT uint8_t fllama_has_vulkan_gpu(void) {
+  return fllama_backends_has_vulkan_gpu() ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_device_count(void) {

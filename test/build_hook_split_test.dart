@@ -111,6 +111,41 @@ void main() {
       expect(hook.codeAssetName('libggml-vulkan.so'), 'native/libggml-vulkan');
     });
 
+    test('reads the GPU pack list that CMake writes', () {
+      expect(hook.parseGpuPackFiles('[]'), isEmpty);
+      final files = hook.parseGpuPackFiles(
+        '[{"pack":"vulkan","name":"ggml-vulkan.dll","sha256":"ab12"}]',
+      );
+      expect(files, hasLength(1));
+      expect(files.single.pack, 'vulkan');
+      expect(files.single.name, 'ggml-vulkan.dll');
+      expect(files.single.sha256, 'ab12');
+    });
+
+    test('GPU pack paths contain the platform and SHA-256 (ADR 004, §5)', () {
+      const file = hook.GpuPackFile(
+        pack: 'vulkan',
+        name: 'libggml-vulkan.so',
+        sha256: 'ab12',
+      );
+      expect(
+        hook.gpuPackRelativePath(OS.linux, Architecture.x64, file),
+        'linux-x64/ab12/libggml-vulkan.so.gz',
+      );
+      expect(
+        hook.gpuPackRelativePath(
+          OS.windows,
+          Architecture.x64,
+          const hook.GpuPackFile(
+            pack: 'vulkan',
+            name: 'ggml-vulkan.dll',
+            sha256: 'ab12',
+          ),
+        ),
+        'windows-x64/ab12/ggml-vulkan.dll.gz',
+      );
+    });
+
     test('the Vulkan header version changes the build key', () {
       String key(Map<String, String> extra) => computeBuildKey(
         os: 'windows',

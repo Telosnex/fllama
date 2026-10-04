@@ -1,4 +1,5 @@
 #include "fllama_inference_queue.h"
+#include "fllama_backends.h"
 #include "server-context.h"
 
 #include "llama.cpp/common/common.h"
@@ -122,6 +123,10 @@ ServerManager::get_or_create(const std::string &model_path,
   // global state that isn't safe for concurrent model loads (the crash that
   // overwrites the return address with ASCII " using d" from a Metal log).
   std::lock_guard<std::mutex> load_lk(model_load_mutex);
+  // llama.cpp reads the ggml backend list during the load. A GPU pack load
+  // must not change it then (ADR 004, I9). Held until the server is listed,
+  // so evict_all_idle() sees it.
+  auto registry_lk = fllama_backends_registry_read_lock();
 
   // Re-check: another thread may have loaded this model while we waited.
   {
@@ -163,6 +168,7 @@ ServerManager::get_or_create(const std::string &model_path,
   if (!ok) {
     // Another thread raced us.  Drop ours (dtor terminates it) and use theirs.
     lk.unlock();
+    registry_lk.unlock();
     // Recursive call will hit the fast path now.
     return get_or_create(model_path, params, logger);
   }
@@ -220,6 +226,28 @@ void ServerManager::mark_unhealthy(const std::string &model_path) {
 // ---------------------------------------------------------------------------
 // Cancellation
 // ---------------------------------------------------------------------------
+bool ServerManager::evict_all_idle() {
+  std::vector<std::unique_ptr<ServerResources>> old;
+  {
+    std::unique_lock<std::shared_mutex> lk(servers_lock);
+    for (const auto &entry : servers) {
+      if (entry.second->active_users.load() > 0) {
+        return false;
+      }
+    }
+    for (auto &entry : servers) {
+      old.push_back(std::move(entry.second));
+    }
+    servers.clear();
+  }
+  if (!old.empty()) {
+    std::cout << "[ServerManager] Unloaded " << old.size()
+              << " idle model(s) to change backends\n";
+  }
+  old.clear(); // terminate + join, outside the lock
+  return true;
+}
+
 void ServerManager::cancel(int rid) {
   std::lock_guard<std::mutex> lk(cancel_lock);
   cancelled.insert(rid);

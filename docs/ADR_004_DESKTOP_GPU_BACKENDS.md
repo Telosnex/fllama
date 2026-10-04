@@ -195,8 +195,9 @@ D12: ARM64 GPU: the package contains the backend that wins the step 9
 
 D13: A GPU pack is a set of backend libraries that the hook builds in the
      same CMake build as fllama, but does not publish as code assets. The
-     build writes the SHA-256 of each pack file into fllama (a generated
-     source file). The release uploads each file to Backblaze B2 at a path
+     build writes the SHA-256 of each pack file into fllama
+     (`src/cmake/gpu_packs.cmake` generates a source file, and a
+     `gpu_packs.json` that tells the hook which libraries are pack files). The release uploads each file to Backblaze B2 at a path
      that contains its SHA-256 (§5). fllama_load_gpu_pack loads a file only
      if its SHA-256 is equal to the value inside fllama.
      Because: R8, R12, I5
@@ -276,11 +277,13 @@ I7: With "GPU: Off", fllama does not load any GPU backend library.
     fllama_load_gpu_pack returns an error when the GPU is not allowed.
 
 I9: fllama_load_gpu_pack changes the backend list only when no model is
-    loaded and no request runs.
+    loaded and no request runs. It unloads idle cached models first, so the
+    next request loads the model again with the new backend.
     If violated: a model load reads the ggml backend list while another
     thread changes it.
-    Pinned by: the function returns an error in other states. Planned
-    integration test that calls it during a request.
+    Pinned by: a registry lock that model loads share and the pack load
+    holds alone. The function returns an error while a request runs.
+    Integration test "refuses to load a GPU pack while a request runs".
 
 I8: When a request names a device key that exists, the model and the
     draft model use only that GPU and the CPU.
@@ -399,12 +402,13 @@ New FFI:
   Empty array on platforms without packs.
 - `fllama_load_gpu_pack(const char *pack, const char *dir)`: checks the
   SHA-256 of each file of `pack` in `dir`, then loads them. Returns NULL on
-  success, else an error message. Errors: unknown pack, GPU not allowed
-  (I7), a model is loaded or a request runs (I9), file missing, SHA-256
-  different, load failed.
+  success or if the pack is loaded, else an error message. Errors: unknown
+  pack, GPU not allowed (I7), a request runs (I9), file missing, SHA-256
+  different, load failed. Unloads idle cached models first.
 - `fllama_has_vulkan_gpu()`: true if the Vulkan loader
   (`vulkan-1.dll` / `libvulkan.so.1`) is present and lists at least one
-  physical device that is not a CPU. It does not need the pack.
+  physical device that is not a CPU and supports Vulkan 1.2. It does not
+  need the pack. False if the GPU is not allowed (I7).
 
 Device key: `<backend>|<description>|<n>`. `n` is the position of the device
 among the devices with the same backend and description, from 0. Example:
@@ -516,8 +520,8 @@ Ranked by irreversibility.
 4b. **GPU packs (D13).** Check Store Policy 10.2.2 first (risk 3). Remove
     the pack files from the hook code assets. Generate the SHA-256 source in
     `src/CMakeLists.txt`. Add the `gpu_pack_dir` user define and the §5 FFI.
-    Make the fllama example download nothing: its integration test calls
-    `fllama_load_gpu_pack` on the hook cache directory. Add tests for I1
+    Make the fllama example download nothing: it sets `gpu_pack_dir`, and
+    its integration test gunzips and loads the packs from there. Add tests for I1
     (no pack, changed pack), I5, I7 and I9. Done when the Windows x64
     integration test passes with and without the pack.
 5. **Telosnex.** Implement D14: download, gunzip, `fllama_load_gpu_pack`,
