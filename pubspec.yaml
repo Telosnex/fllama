@@ -22,7 +22,7 @@ dependencies:
   native_prebuilt:
     git:
       url: https://github.com/Telosnex/native_prebuilt.git
-      ref: c2d414c6a3dd34ad57be0952fe6eb291ccf945f7
+      ref: e995f4073e335ef57051ac930d05b6c5926fc44a
   native_toolchain_cmake: ^0.2.4
   logging: any
   crypto: any
