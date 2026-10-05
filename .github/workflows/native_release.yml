@@ -105,9 +105,10 @@ jobs:
           sudo cp -r "$sdk/include/vulkan" "$sdk/include/vk_video" "$sdk/include/spirv" /usr/include/
           sudo mkdir -p /usr/share/cmake
           sudo cp -r "$sdk/share/cmake/SPIRV-Headers" /usr/share/cmake/
-          sudo cp -P "$sdk"/lib/libvulkan.so* /usr/lib/x86_64-linux-gnu/
+          sudo cp -P "$sdk"/lib/VulkanLoader/lib/libvulkan.so* /usr/lib/x86_64-linux-gnu/
           sudo cp "$sdk/bin/glslc" /usr/local/bin/
           sudo ldconfig
+          ldd /usr/local/bin/glslc
           glslc --version | sed -n 1p
 
       # hook/build.dart builds Windows ARM64 with the ClangCL toolset.
@@ -150,7 +151,8 @@ jobs:
           echo "Toolchain: $t"
           echo "value=$t" >> "$GITHUB_OUTPUT"
 
-      - run: dart pub get
+      # flutter pub get also downloads sky_engine, which dart pub get needs.
+      - run: flutter pub get --no-example
 
       - &clean
         name: Check that the work tree is clean
@@ -210,7 +212,8 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
       - *flutter
-      - run: dart pub get
+      # flutter pub get also downloads sky_engine, which dart pub get needs.
+      - run: flutter pub get --no-example
       - run: echo "ARTIFACTS=$RUNNER_TEMP/artifacts" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
