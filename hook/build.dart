@@ -297,6 +297,17 @@ Future<void> _buildFromSource({
       libFileName: p.basename(lib.path),
       logger: logger,
     );
+    if (shouldStripAndroidLibrary(targetOS, release: release != null)) {
+      // The NDK adds -g even for Release. Strip only the published copy,
+      // before native_prebuilt hashes it; keep the cache for debugging.
+      await stripAndroidReleaseLibrary(
+        library: File.fromUri(
+          input.outputDirectory.resolve(p.basename(lib.path)),
+        ),
+        cmakeCache: File(p.join(cacheDir.path, 'CMakeCache.txt')),
+        logger: logger,
+      );
+    }
   }
   _registerAssets(
     input: input,
@@ -857,6 +868,40 @@ Future<void> _publishFromCache({
     logger.info('Copying cached library → ${dest.path}');
     await cachedLib.copy(dest.path);
   }
+}
+
+/// Developer source builds retain debug information; Android releases do not.
+bool shouldStripAndroidLibrary(OS os, {required bool release}) =>
+    os == OS.android && release;
+
+/// Uses the strip tool selected by CMake's NDK toolchain, not the host strip.
+/// The caller passes the published copy, never the cached build library.
+Future<void> stripAndroidReleaseLibrary({
+  required File library,
+  required File cmakeCache,
+  required Logger logger,
+  Future<ProcessResult> Function(String, List<String>) run = Process.run,
+}) async {
+  final cache = await cmakeCache.readAsString();
+  final strip = RegExp(
+    r'^CMAKE_STRIP:FILEPATH=(.+)$',
+    multiLine: true,
+  ).firstMatch(cache)?.group(1)?.trim();
+  if (strip == null || strip.isEmpty || strip.endsWith('-NOTFOUND')) {
+    throw StateError('No NDK CMAKE_STRIP in ${cmakeCache.path}.');
+  }
+  final before = await library.length();
+  final result = await run(strip, ['--strip-unneeded', library.path]);
+  if (result.exitCode != 0) {
+    throw StateError(
+      'NDK strip failed (${result.exitCode}) for ${library.path}: '
+      '${result.stdout}\n${result.stderr}',
+    );
+  }
+  logger.info(
+    'Stripped Android release ${library.path}: '
+    '$before → ${await library.length()} bytes',
+  );
 }
 
 /// Registers each published library as a code asset. Flutter bundles all of
