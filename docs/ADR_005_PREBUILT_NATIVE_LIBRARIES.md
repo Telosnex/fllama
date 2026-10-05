@@ -619,6 +619,17 @@ Ranked by irreversibility.
   its release SHA-256. A fresh Flutter iOS Simulator app with all three
   Git dependencies builds in default auto mode from the pub cache, with
   no source fallback for these packages.
+- 2026-10-05: Android release stripping approved and complete. The hook
+  strips only published Android release copies with the NDK tool selected
+  by CMake, before native_prebuilt hashes them. Developer source builds and
+  cached libraries retain debug information. CI saves the unstripped Android
+  libraries as separate `debug-symbols-<target>` artifacts for 90 days.
+
+  Release `native-580a44799cc1e0f1` is immutable and passes all 12 targets.
+  Android ARM, ARM64 and x64 libraries are now 7.9, 10.8 and 11.8 MiB.
+  All three have no debug sections, retain the fllama API exports, and pass
+  actual default-auto and download hook runs against the release SHA-256.
+  The package check and all 24 targeted hook tests pass.
 - 2026-10-05: Step 6 done (fonnx `main` a1c4fdb). Native release
   `native-48fee840f681608e` has all ten supported targets and 22 owned
   files (15.5 MB compressed). The hook compiles selected-op Extensions
