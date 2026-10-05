@@ -619,3 +619,48 @@ Ranked by irreversibility.
   its release SHA-256. A fresh Flutter iOS Simulator app with all three
   Git dependencies builds in default auto mode from the pub cache, with
   no source fallback for these packages.
+- 2026-10-05: Step 6 done (fonnx `main` a1c4fdb). Native release
+  `native-48fee840f681608e` has all ten supported targets and 22 owned
+  files (15.5 MB compressed). The hook compiles selected-op Extensions
+  and the session finalizer in source mode. ORT remains a pinned input.
+  Microsoft/Maven URLs stay unchanged.
+
+  The two dynamic iOS ORT files are
+  copied unchanged into the new immutable release because their old
+  fonnx release predates immutable releases. The converted manifest pins
+  both each upstream archive and the extracted file. The finalizer is
+  now prebuilt, so consumer builds need no compiler.
+
+  The iOS 15.1 and macOS 14 requirements stay unchanged. Flutter reports
+  13 to these hooks regardless of the app's actual target. Fonnx uses a
+  local input adapter only for prebuilt selection, with its declared
+  floors. Source builds keep the original input. The manifest records
+  iOS major 15 and macOS 14, not the inaccurate Flutter request.
+
+  The C-only finalizer keeps iOS 13 so it needs no additional framework
+  packaging fix. This adapter does not change the shared package pin.
+
+  Linux profile 2 builds on Ubuntu 22.04, not the old Ubuntu 24.04
+  producer. Release builds reject GLIBC requirements newer than 2.35
+  and GLIBCXX requirements newer than 3.4.30. The x64 files execute
+  core identity and BpeDecoder sessions in a clean Ubuntu 22.04
+  container. All ten release jobs and their source-key comparison pass.
+  Download mode passes 16 affected package tests on macOS and five
+  native-asset tests with each Windows ARM64/x64 SDK, with no CMake or
+  bash on PATH.
+
+  Both iOS targets serve Flutter's request for 13 in auto
+  and download modes with exact release hashes. Simulator and macOS C
+  smoke tests execute the released files.
+
+  Runtime release `runtime-ccbd3cc9e0793906` has all 16 example models
+  (232.6 MB compressed). `tool/publish_models.dart` checks their source
+  hashes, sizes and FUTO metadata before publication. It generates the
+  pinned catalog. `lib/runtime_models.dart` exposes lookup and verified
+  downloads through the shared runtime library. A downloaded BpeDecoder
+  model creates a real session, and a corrupt cached file is replaced.
+
+  Example/conformance files stay in the repository. Telosnex's move away
+  from bundled models needs its separate ADR. A fresh app resolves one
+  native_prebuilt commit for all four packages, and the Telosnex release
+  check passes for all four. The daily and manifest-PR checks pin I4.
