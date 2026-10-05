@@ -20,7 +20,8 @@ Linux users of Telosnex still run local AI on the CPU.
 | Device keys and `gpu_device_key` in fllama (D9) | Done | fllama `832cf2b` |
 | Auto layers and draft check in Telosnex (D5, R17) | Done | Telosnex `b37eef6417` |
 | GPU pack download in Telosnex (D14) | Not started | |
-| GPU off in Telosnex through `fllama_set_gpu_allowed` (D9, I7) | Not started | |
+| Crash recovery for inference | Done | Telosnex crash flags and startup recovery |
+| Crash recovery for GPU discovery, memory queries and pack loading (D15) | Not started | Existing recovery does not cover these calls |
 | GPU picker in Telosnex (D9) | Not started | |
 | Windows ARM64 GPU backend (D12) | Not decided | Needs step 9 benchmark |
 | ARM64 MSIX (D10) | Not started | |
@@ -115,7 +116,7 @@ together, and every PC uses one of them.
 
 R10 and R17: on 2026-10-05 the founder chose one Telosnex control, "GPU
 layers: Auto / number". `0` turns off GPU offload. Telosnex has no separate
-GPU on/off setting and no GPU picker. D9 gives the consequence for I7.
+GPU on/off setting and no GPU picker. D15 extends the existing crash recovery.
 
 R11 is soft because the founder asked whether CUDA is possible. The founder
 did not require it. R16 is soft because the Windows ARM64 GPU backends have
@@ -200,10 +201,8 @@ D9: fllama reports every GPU, discrete and integrated, with its backend
     llama.cpp only that device. If no device has the key, fllama uses Auto
     and logs a warning. Telosnex settings show one GPU control, "GPU
     layers: Auto / number", on every native platform. `0` means CPU only.
-    Proposed, not approved: if the saved value is `0` at app start,
-    Telosnex calls fllama_set_gpu_allowed(false) before the first fllama
-    call. Then I7 holds, and Telosnex does not download a GPU pack. A change
-    to or from `0` loads or unloads GPU backends only after a restart.
+    The layer setting does not require an app restart. Crash recovery uses
+    D15, not a startup call to fllama_set_gpu_allowed(false).
     Because: R10
     Instead of: the GGML_VK_VISIBLE_DEVICES environment variable. The user
     must set it outside the app and must know the Vulkan device number.
@@ -287,6 +286,21 @@ D14: Telosnex downloads a GPU pack when all of these are true: the
      first pack download.
      State: not started. native_prebuilt `runtime.dart` provides
      `ensureRuntimeFile`, which downloads, gunzips and checks one file.
+
+D15: Telosnex uses its existing fllama crash flags and startup recovery
+     for GPU discovery, GPU memory queries, GPU probes and pack loading.
+     It sets a flag before a native call that can initialize the driver.
+     It clears the flag when the call finishes without a process crash.
+     On the next launch after a crash, the existing recovery selects a
+     fallback model before another risky local call.
+     Because: R4, risk 1
+     Instead of: a second crash recovery system or a restart requirement
+     when the GPU layer setting changes.
+     Instead of: requiring CPU-only inference to never touch the GPU
+     driver. That stronger guarantee is not needed for crash recovery.
+     State: inference has crash recovery. GPU discovery and memory
+     queries do not. D14 must cover native probes and pack loading too.
+     The network download stays outside the native-call crash flag.
 ```
 
 ## 4. Invariants
@@ -346,11 +360,12 @@ I6: If the CUDA pack loads, Nvidia GPUs run on CUDA, and Vulkan does not
 
 I7: After fllama_set_gpu_allowed(false), fllama does not load any GPU
     backend library.
-    If violated: the user cannot avoid a GPU driver crash.
+    If violated: the fllama API does not honor its backend-disable setting.
     Pinned by: `load_backends_from` skips GPU backends when the GPU is not
     allowed. fllama_load_gpu_pack and fllama_has_vulkan_gpu return an error
     or false. Planned: a loader test with the GPU turned off.
-    Telosnex does not call fllama_set_gpu_allowed yet (D9).
+    This is a fllama API guarantee, not a Telosnex crash recovery
+    requirement. Telosnex uses D15 and does not call this API.
 
 I8: When a request names a device key that exists, the model and the
     draft model use only that GPU and the CPU.
@@ -367,6 +382,15 @@ I9: fllama_load_gpu_pack changes the backend list only when no model is
     Pinned by: a registry lock that model loads share and the pack load
     holds alone. The function returns an error while a request runs.
     Integration test "refuses to load a GPU pack while a request runs".
+
+I10: A crash during a guarded native GPU call leaves a flag that the
+     existing startup recovery reads before another risky local call.
+     Normal completion clears the flag. Crash detection runs at startup,
+     not while another operation can still be active.
+     If violated: a GPU query or pack load can cause repeated app crashes
+     without the recovery that inference already has.
+     Pinned by: planned tests for D15 flag lifetime and startup recovery.
+     GPU discovery from the model-selection UI must have the same coverage.
 ```
 
 ## 5. Formats & names
@@ -529,13 +553,14 @@ Ranked by irreversibility.
 
 1. **A GPU driver crashes the process during backend initialization.**
    `ggml_backend_vk_reg` catches C++ exceptions, but it cannot catch an access
-   violation inside the driver. A user who gets this crash cannot use local AI
-   until they turn off the GPU. The GPU pack loads at the first local model
-   load (D14), not when the app starts. `fllama_has_vulkan_gpu` also calls
-   the driver, and Telosnex calls it at the same time. If beta reports show
-   this crash, add a marker file that turns off the GPU after a crash during
-   initialization. With the current Telosnex settings, "GPU layers: 0" does
-   not prevent this crash until the D9 proposal is implemented.
+   violation inside the driver. Telosnex already records inference crash
+   flags and selects a fallback model on the next launch after a crash.
+
+   GPU discovery and memory queries run outside those flags today. These
+   calls can initialize the driver from the model-selection UI, even with
+   "GPU layers: 0". D15 extends the existing recovery to those calls and
+   to the native probes and pack loading in D14. It does not prevent the
+   first crash or guarantee that CPU-only inference never touches a driver.
 2. **A CUDA pack with a different ABI.** I5 covers it.
 3. **Store review rejects the GPU pack download.** Microsoft Store
    Policies 7.20 (effective 2026-10-22) do not forbid downloaded code.
@@ -609,8 +634,10 @@ step 10 are done. Do the open steps in this order: 5, 6, 8, 9, 10, 11, then
       `runtime.dart`: download, gunzip and check each pack file, then call
       `fllamaLoadGpuPack`. Retry at the next model load after a failure.
    2. Show the GPU pack size on the model download screen (D14).
-   3. After approval of the D9 proposal, call `fllamaSetGpuAllowed(false)`
-      when the saved layer count is `0`, and skip the pack download.
+   3. Extend existing crash recovery to GPU discovery, memory queries,
+      native probes and pack loading (D15). Add tests for I10, including
+      calls from the model-selection UI. Keep network downloads outside
+      the native-call crash flag.
    4. If there is no discrete GPU, use the integrated GPU memory in the
       model-size estimates.
    5. Decide whether the custom-model setup test keeps `numGpuLayers: 0`.
@@ -669,8 +696,7 @@ step 10 are done. Do the open steps in this order: 5, 6, 8, 9, 10, 11, then
   variants. Lost to R5 and R6.
 - **`ggml_backend_load_all_from_path(<fllama directory>)`.** This is simpler
   than D4, but it cannot skip GPU backends (I7) or load CUDA first from a
-  second directory (I6). It is sufficient if the owner drops D8 and the
-  D9 proposal.
+  second directory (I6). It does not provide those fllama API guarantees.
 - **clang-cl for x64**, as upstream uses. This adds 5 CPU variants, including
   `zen4`. It needs the Clang components on the x64 runner. Reconsider it if
   step 9 shows slow MSVC CPU code.
@@ -797,3 +823,8 @@ Release `native-580a44799cc1e0f1`, gzipped download sizes:
   fllama_set_gpu_allowed(false) at app start. §5 adds the 14 Linux x64 CPU
   variants, the Linux SDK path in the release workflow, the
   `fllama_set_gpu_allowed` return value, and the release sizes.
+- 2026-10-05: Founder approved reuse of the existing fllama crash recovery
+  for GPU calls (D15, I10, risk 1, step 5). Inference already has coverage.
+  GPU discovery, memory queries, native probes and pack loading need it.
+  Removed the D9 startup-disable proposal and its restart requirement.
+  I7 remains a fllama API guarantee, not a Telosnex recovery requirement.
