@@ -119,6 +119,11 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char * fllama_load_gpu_pack(
 // driver.
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT uint8_t fllama_has_vulkan_gpu(void);
 
+// 1 if the NVIDIA driver reports a GPU and supports CUDA 12, else 0. Does
+// not need the cuda pack. 0 if GPU backends are disabled or this build has
+// no cuda pack. Computed once per process; it calls the GPU driver.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT uint8_t fllama_has_cuda_gpu(void);
+
 // GPU device information.
 // Returns the number of GPU devices (discrete and integrated) visible to
 // ggml/llama.cpp.

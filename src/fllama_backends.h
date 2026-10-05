@@ -50,6 +50,11 @@ std::string fllama_backends_load_gpu_pack(
 // computed once per process.
 bool fllama_backends_has_vulkan_gpu();
 
+// True if the NVIDIA driver reports a GPU and supports CUDA 12. False if
+// the GPU is not allowed or the build has no cuda pack. Does not need the
+// pack. The result is computed once per process.
+bool fllama_backends_has_cuda_gpu();
+
 // Comma-separated file names of the backend libraries that fllama loaded,
 // in load order. Empty when the backends are linked into fllama. Calls
 // fllama_backends_init_once().

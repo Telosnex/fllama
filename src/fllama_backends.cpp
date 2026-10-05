@@ -143,6 +143,44 @@ bool load_backend_file(const fs::path &path) {
   return true;
 }
 
+// Loads a library that a GPU backend needs, for example the CUDA runtime in
+// the cuda pack (ADR 004, I6). The library stays loaded for the life of the
+// process. ggml-cuda then finds it by name: Linux matches the soname of an
+// open library, and Windows uses the loaded-module list and the pack
+// directory that load_gpu_pack adds with AddDllDirectory.
+// Caller holds g_init_mutex.
+bool load_dependency_file(const fs::path &path) {
+#if defined(_WIN32)
+  HMODULE handle = LoadLibraryExW(
+      path.wstring().c_str(), nullptr,
+      LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+  if (!handle) {
+    log_line("GPU pack dependency failed to load (error " +
+             std::to_string(GetLastError()) + "): " +
+             path.filename().string());
+    return false;
+  }
+#else
+  void *handle = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
+  if (!handle) {
+    const char *error = dlerror();
+    log_line("GPU pack dependency failed to load: " +
+             path.filename().string() + (error ? std::string(": ") + error : ""));
+    return false;
+  }
+#endif
+  if (!g_loaded_files.empty()) {
+    g_loaded_files += ",";
+  }
+  g_loaded_files += path.filename().string();
+  return true;
+}
+
+// A ggml backend library, as opposed to a library that a backend needs.
+bool is_ggml_backend_file(const std::string &name) {
+  return name.rfind("ggml-", 0) == 0 || name.rfind("libggml-", 0) == 0;
+}
+
 #if defined(_WIN32) && (defined(_M_ARM64) || defined(__aarch64__))
 bool cpu_has_dotprod() {
 #ifndef PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE
@@ -381,6 +419,57 @@ bool probe_vulkan_gpu() {
 }
 #endif // FLLAMA_VULKAN_PROBE
 
+#if defined(FLLAMA_CUDA_PROBE)
+// Counts NVIDIA GPUs through the driver API. The NVIDIA driver installs
+// nvcuda.dll or libcuda.so.1; the probe needs neither the cuda pack nor the
+// CUDA Toolkit. The library stays loaded, as ggml-cuda loads it anyway.
+int probe_cuda_gpus() {
+  using cu_init_fn = int (*)(unsigned int);
+  using cu_count_fn = int (*)(int *);
+  using cu_version_fn = int (*)(int *);
+#if defined(_WIN32)
+  HMODULE lib =
+      LoadLibraryExW(L"nvcuda.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+  if (!lib) {
+    log_line("CUDA probe: nvcuda.dll not found");
+    return 0;
+  }
+  auto sym = [&](const char *name) {
+    return reinterpret_cast<void *>(GetProcAddress(lib, name));
+  };
+#else
+  void *lib = dlopen("libcuda.so.1", RTLD_NOW | RTLD_LOCAL);
+  if (!lib) {
+    log_line("CUDA probe: libcuda.so.1 not found");
+    return 0;
+  }
+  auto sym = [&](const char *name) { return dlsym(lib, name); };
+#endif
+  auto cu_init = reinterpret_cast<cu_init_fn>(sym("cuInit"));
+  auto cu_count = reinterpret_cast<cu_count_fn>(sym("cuDeviceGetCount"));
+  auto cu_version = reinterpret_cast<cu_version_fn>(sym("cuDriverGetVersion"));
+  int count = 0;
+  int version = 0;
+  if (!cu_init || !cu_count || cu_init(0) != 0 || cu_count(&count) != 0) {
+    log_line("CUDA probe: the NVIDIA driver did not initialize");
+    return 0;
+  }
+  if (cu_version) {
+    cu_version(&version);
+  }
+  log_line("CUDA probe: " + std::to_string(count) + " GPU(s), driver CUDA " +
+           std::to_string(version / 1000) + "." +
+           std::to_string((version % 1000) / 10));
+  // The cuda pack is built with CUDA 12. Its runtime needs a driver that
+  // supports CUDA 12.0 or later.
+  if (version < 12000) {
+    log_line("CUDA probe: driver is older than CUDA 12");
+    return 0;
+  }
+  return count;
+}
+#endif // FLLAMA_CUDA_PROBE
+
 } // namespace
 
 void fllama_backends_init_once() {
@@ -536,27 +625,34 @@ std::string fllama_backends_load_gpu_pack(
   }
 
   std::lock_guard<std::mutex> lock(g_init_mutex);
-  for (const auto *file : files) {
-    if (loaded_file_names_contain(file->name)) {
-      continue;
+  fs::path pack_dir;
+  try {
+    pack_dir = fs::u8path(dir);
+  } catch (const std::exception &) {
+    return "GPU pack directory is not a valid path";
+  }
+#if defined(_WIN32)
+  // Lets a backend DLL find dependencies that its import table names.
+  if (!AddDllDirectory(pack_dir.wstring().c_str())) {
+    log_line("AddDllDirectory failed for the GPU pack directory (error " +
+             std::to_string(GetLastError()) + ")");
+  }
+#endif
+  // Dependencies first, then the backends (I6).
+  for (const bool backends : {false, true}) {
+    for (const auto *file : files) {
+      if (is_ggml_backend_file(file->name) != backends ||
+          loaded_file_names_contain(file->name)) {
+        continue;
+      }
+      const fs::path path = pack_dir / file->name;
+      const bool loaded =
+          backends ? load_backend_file(path) : load_dependency_file(path);
+      if (!loaded) {
+        return std::string("GPU pack file failed to load: ") + file->name;
+      }
+      log_line(std::string("GPU pack loaded: ") + file->name);
     }
-    // Only ggml backend libraries are supported. A pack with dependency
-    // DLLs (CUDA, D8) needs those loaded first; add that with step 13.
-    if (std::string(file->name).find("ggml-") == std::string::npos) {
-      return std::string("Cannot load GPU pack file that is not a ggml "
-                         "backend: ") +
-             file->name;
-    }
-    fs::path path;
-    try {
-      path = fs::u8path(dir) / file->name;
-    } catch (const std::exception &) {
-      return "GPU pack directory is not a valid path";
-    }
-    if (!load_backend_file(path)) {
-      return std::string("GPU pack file failed to load: ") + file->name;
-    }
-    log_line(std::string("GPU pack loaded: ") + file->name);
   }
   return {};
 #endif
@@ -568,6 +664,18 @@ bool fllama_backends_has_vulkan_gpu() {
     return false;
   }
   static const bool has_gpu = probe_vulkan_gpu();
+  return has_gpu;
+#else
+  return false;
+#endif
+}
+
+bool fllama_backends_has_cuda_gpu() {
+#if defined(FLLAMA_CUDA_PROBE)
+  if (!g_gpu_allowed.load()) {
+    return false;
+  }
+  static const bool has_gpu = probe_cuda_gpus() > 0;
   return has_gpu;
 #else
   return false;

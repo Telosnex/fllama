@@ -547,6 +547,10 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT uint8_t fllama_has_vulkan_gpu(void) {
   return fllama_backends_has_vulkan_gpu() ? 1 : 0;
 }
 
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT uint8_t fllama_has_cuda_gpu(void) {
+  return fllama_backends_has_cuda_gpu() ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_device_count(void) {
   return static_cast<int>(fllama_backends_gpu_devices().size());
 }

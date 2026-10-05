@@ -33,6 +33,8 @@ defaults:
 env:
   FLUTTER_VERSION: 3.47.1
   NDK_VERSION: 28.2.13676358
+  # ADR 004 D8. hook/build.dart (cudaToolkitVersion) uses the same version.
+  CUDA_VERSION: "12.8"
   # ADR 004 §5. hook/build.dart looks for this version on Windows.
   VULKAN_SDK_VERSION: 1.4.357.0
   VULKAN_SDK_WINDOWS_SHA256: 81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d
@@ -143,9 +145,9 @@ jobs:
             windows-*)
               vs="$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -property catalog_productDisplayVersion || true)"
               t="Visual Studio ${vs:-unknown}"
-              if [[ "${{ matrix.target }}" == windows-x64 ]]; then t="$t, MSVC, Vulkan SDK $VULKAN_SDK_VERSION"; else t="$t, ClangCL"; fi ;;
+              if [[ "${{ matrix.target }}" == windows-x64 ]]; then t="$t, MSVC, Vulkan SDK $VULKAN_SDK_VERSION, CUDA $CUDA_VERSION"; else t="$t, ClangCL"; fi ;;
             macos-*|ios-*) t="$(xcodebuild -version | sed -n 1p)" ;;
-            linux-x64) t="$(gcc --version | sed -n 1p), Vulkan SDK $VULKAN_SDK_VERSION" ;;
+            linux-x64) t="$(gcc --version | sed -n 1p), Vulkan SDK $VULKAN_SDK_VERSION, CUDA $CUDA_VERSION" ;;
             linux-*) t="$(gcc --version | sed -n 1p)" ;;
           esac
           echo "Toolchain: $t"
@@ -153,6 +155,22 @@ jobs:
 
       # flutter pub get also downloads sky_engine, which dart pub get needs.
       - run: flutter pub get --no-example
+
+      # ADR 004 D8: the CUDA GPU pack. The script checks NVIDIA's SHA-256
+      # values and installs where hook/build.dart looks (cudaToolkitRoot).
+      # It runs outside the checkout; the work tree must stay clean.
+      - name: Install the CUDA Toolkit
+        if: matrix.target == 'windows-x64' || matrix.target == 'linux-x64'
+        run: |
+          if [[ "${{ matrix.target }}" == windows-x64 ]]; then
+            dir="/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v$CUDA_VERSION"
+          else
+            dir="$RUNNER_TEMP/cuda-$CUDA_VERSION"
+          fi
+          dart scripts/install_cuda_toolkit.dart "$dir"
+          if [[ "${{ matrix.target }}" == linux-x64 ]]; then
+            sudo ln -sfn "$dir" "/usr/local/cuda-$CUDA_VERSION"
+          fi
 
       - &clean
         name: Check that the work tree is clean
@@ -247,9 +265,15 @@ jobs:
       # ADR 004 D7, I4: Windows x64 and Linux x64 have a Vulkan GPU pack.
       - name: Check the GPU packs
         run: |
+          # ADR 004 D8: the cuda pack has cudart, cublasLt, cublas and
+          # ggml-cuda.
           for t in windows-x64 linux-x64; do
-            grep -q '"pack": "vulkan"' "$ARTIFACTS/out/$t/target.json" \
+            json="$ARTIFACTS/out/$t/target.json"
+            grep -q '"pack": "vulkan"' "$json" \
               || { echo "::error::$t has no Vulkan GPU pack."; exit 1; }
+            n=$(grep -c '"pack": "cuda"' "$json" || true)
+            [[ "$n" == 4 ]] \
+              || { echo "::error::$t has $n CUDA pack files, expected 4."; exit 1; }
           done
 
       - name: Release

@@ -84,6 +84,15 @@ Future<String?> fllamaLoadGpuPack(String pack, String directory) {
 Future<bool> fllamaHasVulkanGpu() =>
     Isolate.run(() => fllamaBindings.fllama_has_vulkan_gpu() != 0);
 
+/// Whether this PC has an NVIDIA GPU with a driver that the CUDA pack can
+/// use (CUDA 12 or later). It does not need the pack, so the app can decide
+/// whether to download it. False if the GPU is not allowed or this build has
+/// no CUDA pack.
+///
+/// The first call loads the NVIDIA driver library.
+Future<bool> fllamaHasCudaGpu() =>
+    Isolate.run(() => fllamaBindings.fllama_has_cuda_gpu() != 0);
+
 /// Returns the GPU memory information reported by ggml/llama.cpp, for
 /// discrete and integrated GPUs.
 ///

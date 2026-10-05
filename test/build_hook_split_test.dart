@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:code_assets/code_assets.dart';
 import 'package:test/test.dart';
 
@@ -128,11 +130,11 @@ void main() {
 
     test('only a release build makes ggml-vulkan a GPU pack (ADR 005 D7)', () {
       const sdk = hook.VulkanSdk(headerVersion: 357);
-      const url =
-          'https://github.com/Telosnex/fllama/releases/download/native-0123456789abcdef/windows-x64-ggml-vulkan.dll.gz';
+      const template =
+          'https://github.com/Telosnex/fllama/releases/download/native-0123456789abcdef/windows-x64-@FILE@.gz';
       expect(
         hook.computeDefines(OS.windows, Architecture.x64, '', vulkan: sdk),
-        isNot(contains('FLLAMA_GPU_PACK_VULKAN_URL')),
+        isNot(contains('FLLAMA_GPU_PACK_URL_TEMPLATE')),
       );
       expect(
         hook.computeDefines(
@@ -140,20 +142,81 @@ void main() {
           Architecture.x64,
           '',
           vulkan: sdk,
-          vulkanPackUrl: url,
-        )['FLLAMA_GPU_PACK_VULKAN_URL'],
-        url,
+          gpuPackUrlTemplate: template,
+        )['FLLAMA_GPU_PACK_URL_TEMPLATE'],
+        template,
       );
-      // No Vulkan backend, no pack.
+      // No GPU backend, no pack.
       expect(
         hook.computeDefines(
           OS.windows,
           Architecture.x64,
           '',
-          vulkanPackUrl: url,
+          gpuPackUrlTemplate: template,
         ),
-        isNot(contains('FLLAMA_GPU_PACK_VULKAN_URL')),
+        isNot(contains('FLLAMA_GPU_PACK_URL_TEMPLATE')),
       );
+    });
+
+    group('CUDA pack (ADR 004 D8)', () {
+      const cuda = hook.CudaToolkit(defines: {'CUDAToolkit_ROOT': '/cuda'});
+      const template = 'https://example.com/linux-x64-@FILE@.gz';
+
+      test('only Windows x64 and Linux x64 have it', () {
+        for (final os in [OS.windows, OS.linux, OS.macOS, OS.android, OS.iOS]) {
+          for (final arch in [Architecture.x64, Architecture.arm64]) {
+            expect(
+              hook.cudaTargets(os, arch),
+              arch == Architecture.x64 && (os == OS.windows || os == OS.linux),
+              reason: '$os $arch',
+            );
+          }
+        }
+      });
+
+      test('enables CUDA with the pinned architectures and no NCCL', () {
+        final defines = hook.computeDefines(
+          OS.linux,
+          Architecture.x64,
+          '',
+          cuda: cuda,
+          gpuPackUrlTemplate: template,
+        );
+        expect(defines['GGML_CUDA'], 'ON');
+        expect(defines['GGML_CUDA_NCCL'], 'OFF');
+        expect(defines['CMAKE_CUDA_ARCHITECTURES'], hook.cudaArchitectures);
+        expect(defines['CUDAToolkit_ROOT'], '/cuda');
+        expect(defines['FLLAMA_GPU_PACK_URL_TEMPLATE'], template);
+        expect(defines['GGML_BACKEND_DL'], 'ON');
+      });
+
+      test('covers GTX 10 to RTX 50, with PTX for newer GPUs', () {
+        final archs = hook.cudaArchitectures.split(';');
+        for (final arch in [
+          '61-real',
+          '75-real',
+          '86-real',
+          '89-real',
+          '120a-real',
+        ]) {
+          expect(archs, contains(arch));
+        }
+        expect(archs.where((a) => a.endsWith('-virtual')), isNotEmpty);
+      });
+
+      test('is never bundled: CUDA without a release URL is an error', () {
+        expect(
+          () => hook.computeDefines(OS.linux, Architecture.x64, '', cuda: cuda),
+          throwsArgumentError,
+        );
+      });
+
+      test('the hook finds no toolkit where none is installed', () {
+        expect(
+          hook.findCudaToolkit(Platform.isWindows ? OS.linux : OS.windows),
+          isNull,
+        );
+      });
     });
 
     test('library file names', () {

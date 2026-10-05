@@ -104,8 +104,10 @@ class FllamaBindings {
       .asFunction<ffi.Pointer<ffi.Char> Function()>();
 
   /// JSON array of the GPU pack files that this fllama build expects:
-  /// [{"pack":"vulkan","name":"ggml-vulkan.dll","sha256":"<64 hex>"}].
-  /// "[]" if the build has no packs. The app downloads each file and calls
+  /// [{"pack":"vulkan","name":"ggml-vulkan.dll","sha256":"<64 hex>",
+  /// "url":"<gzipped file in the fllama GitHub release>"}].
+  /// "[]" if the build has no packs, for example a local source build, which
+  /// bundles its GPU backends. The app downloads and gunzips each file and calls
   /// fllama_load_gpu_pack. The string is owned by fllama and never changes.
   ffi.Pointer<ffi.Char> fllama_get_gpu_pack_files() {
     return _fllama_get_gpu_pack_files();
@@ -161,6 +163,18 @@ class FllamaBindings {
         'fllama_has_vulkan_gpu',
       );
   late final _fllama_has_vulkan_gpu = _fllama_has_vulkan_gpuPtr
+      .asFunction<int Function()>();
+
+  /// 1 if the NVIDIA driver reports a GPU and supports CUDA 12, else 0. Does
+  /// not need the cuda pack. 0 if GPU backends are disabled or this build has
+  /// no cuda pack. Computed once per process; it calls the GPU driver.
+  int fllama_has_cuda_gpu() {
+    return _fllama_has_cuda_gpu();
+  }
+
+  late final _fllama_has_cuda_gpuPtr =
+      _lookup<ffi.NativeFunction<ffi.Uint8 Function()>>('fllama_has_cuda_gpu');
+  late final _fllama_has_cuda_gpu = _fllama_has_cuda_gpuPtr
       .asFunction<int Function()>();
 
   /// GPU device information.

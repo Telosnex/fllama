@@ -5,6 +5,8 @@
 #       -DFILE_<i>_PACK=<pack> -DFILE_<i>_PATH=<library>
 #       -DFILE_<i>_URL=<gzipped release asset> -P gpu_packs.cmake
 #
+# A URL may contain @FILE@. It is replaced with the file name of the file.
+#
 # OUT_CPP defines the table that src/fllama_gpu_packs.h declares. OUT_JSON
 # lists the same files for hook/build.dart, which publishes them as packs
 # instead of code assets.
@@ -19,11 +21,12 @@ if(FILE_COUNT GREATER 0)
     if(NOT EXISTS "${path}")
       message(FATAL_ERROR "GPU pack file is missing: ${path}")
     endif()
+    get_filename_component(name "${path}" NAME)
+    string(REPLACE "@FILE@" "${name}" url "${url}")
     if(NOT url MATCHES "^https://[^\"\\]+$")
       message(FATAL_ERROR "GPU pack file ${path} has no valid URL: ${url}")
     endif()
     file(SHA256 "${path}" sha256)
-    get_filename_component(name "${path}" NAME)
     string(APPEND entries
       "    {\"${pack}\", \"${name}\", \"${sha256}\", \"${url}\"},\n")
     if(i GREATER 0)
