@@ -126,8 +126,9 @@ D5: The prebuilt files are on GitHub Releases of the package repository.
 
 D6: The release workflow runs the hook of the package in mode source, with
     native_release, once per target. It then uploads every output
-    file and writes native_artifacts/prebuilt.json. A pull request carries
-    the new manifest. The merge of that pull request is the release.
+    file and writes native_artifacts/prebuilt.json. The workflow pushes
+    the branch native-manifest/<tag> with the new manifest. The merge of
+    that branch is the release.
     Because: R2, R4, R10
     Instead of: separate release scripts, as image_ffmpeg and fonnx use now
     (Problem item 4).
@@ -204,9 +205,11 @@ I2: The source key is equal on macOS, Linux and Windows for the same
     commit, from a git checkout and from the pub cache.
     If violated: auto builds from source on some hosts, and download fails
     there.
-    Pinned by: planned release workflow job that runs `native_prebuilt:key`
-    on the three runner types and compares it to the manifest. Unit test:
-    git listing equals a directory walk (test/source_key_test.dart).
+    Pinned by: the release workflow. Each build job saves
+    `native_prebuilt:key --list`, and the release job compares the lists
+    with `diff` before it uploads (webcrypto.dart
+    .github/workflows/native_release.yml). Unit test: git listing equals a
+    directory walk (native_prebuilt test/source_key_test.dart).
 
 I3: In mode auto, a change to a file that is not excluded (§5) makes the
     hook build from source.
@@ -533,6 +536,17 @@ Ranked by irreversibility.
 - 2026-10-05: First draft.
 - 2026-10-05: Approved. fonnx runtime files are models: R13, R14, D12, D13,
   I7.
+- 2026-10-05: Step 2 done (webcrypto.dart `telosnex_main` 84e2f49, release
+  `native-1b3dd752e9a6ede1`, 12 targets). Telosnex's webcrypto example
+  passes its integration test on the Windows ARM64 VM in mode download
+  with no CMake on `PATH`, from a clone with `core.autocrlf=true`. D6: a
+  branch replaces the pull request, because the repository does not let
+  Actions create pull requests. The workflow starts on a push to branch
+  `native-release` (or `native-release-dry`, which uploads nothing),
+  because workflow_dispatch needs the file on the default branch. Build
+  output goes to `RUNNER_TEMP`, because untracked files count in the key.
+  Android targets pass the NDK version to native_toolchain_cmake with
+  `native_prebuilt:build --define`.
 - 2026-10-05: Step 1 done (Telosnex/native_prebuilt). D3: git lists the
   files, lib/ and top-level dot names are excluded, package excludes are in
   `source_excludes.txt`. D12: the command writes the Dart file, not the
