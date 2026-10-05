@@ -536,6 +536,18 @@ Ranked by irreversibility.
 - 2026-10-05: First draft.
 - 2026-10-05: Approved. fonnx runtime files are models: R13, R14, D12, D13,
   I7.
+- 2026-10-05: Step 4 done (Telosnex `dev/ci/releases/native_prebuilt.dart`).
+  Each release job runs `release.dart native` after pub get and before the
+  build. D10: the check runs for every resolved package whose pubspec
+  depends on native_prebuilt, not for a fixed list. It runs `bin/check.dart`
+  of the resolved native_prebuilt with the app package config, because
+  `dart run` runs only executables of direct dependencies. The step gets
+  `github.token` for the GitHub API rate limit. With fllama `main` and
+  webcrypto `telosnex_main`, the check passes from the pub cache on macOS,
+  and on Windows with `core.autocrlf=true`. A local change fails it.
+  Telosnex still resolves fllama `c0e48fe` and webcrypto `d46233b`, which
+  do not use native_prebuilt, so the check covers no package until
+  Telosnex upgrades them.
 - 2026-10-05: Step 3 done (fllama branch `native-prebuilt`, release
   `native-a1adfee740569cc5`, 12 targets, 51 files). The Windows x64
   integration test passes in the ARM64 VM: in mode download with no CMake
