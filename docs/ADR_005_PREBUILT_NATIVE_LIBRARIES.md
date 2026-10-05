@@ -460,6 +460,17 @@ Ranked by irreversibility.
 - **One manifest format per package**, as now. Lost to D1. The fonnx
   `webAssets` and `runtimeConstraints` fields stay in its own
   `native_artifacts/manifest.json`.
+- **Step 1 spike (2026-10-05).** `native_prebuilt:build` can run a hook with
+  no Flutter app. It builds a `BuildInput` with `BuildInputBuilder` and
+  `CodeAssetExtension` from `hooks` 1.0.3 and `code_assets` 1.0.0, writes it
+  to JSON, and runs `dart run hook/build.dart --config=<file>` in the package
+  root. `ProtocolBase.validateBuildOutput` then checks the output. User
+  defines go through `PackageUserDefines.workspacePubspec`. Results for
+  webcrypto: macOS arm64, iOS arm64 and macOS x64 build in 10 s each with
+  no validation errors. macOS x64 first failed at link time: the BoringSSL
+  source list omitted the fiat ADX assembly for Apple x86_64 (fixed in
+  webcrypto.dart `telosnex_main`). Risk 6 remains: these builder classes are
+  public API, but a new `hooks` major version can change them.
 - **The sqlite3 Dart package** has a similar design: its hook downloads
   prebuilt libraries by default, and a user define selects a source build.
 
