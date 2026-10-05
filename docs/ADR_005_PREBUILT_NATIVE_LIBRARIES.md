@@ -536,6 +536,28 @@ Ranked by irreversibility.
 - 2026-10-05: First draft.
 - 2026-10-05: Approved. fonnx runtime files are models: R13, R14, D12, D13,
   I7.
+- 2026-10-05: Step 5 done (image_ffmpeg `main` 9166e0d, release
+  `native-09e0ea6216871a6b`, 12 targets, 15.5 MB). The hook runs
+  `tool/build_native_artifact.sh` for a source build, with the pinned
+  sources and the build directory in the hook's shared output directory.
+  Apple targets build on macOS, Android on macOS or Linux, and Linux and
+  Windows on Linux; a Windows host cannot build from source. §5 runner
+  table: image_ffmpeg builds Linux and Windows on ubuntu-22.04 in the
+  pinned Debian containers it used before (D8): Debian 11 for Linux (the
+  libraries need GLIBC_2.29) and for Windows x64 (MinGW-w64), Debian 12
+  for Windows ARM64 (llvm-mingw). Debian 11 packages now come from
+  archive.debian.org. Release builds use iOS 13. Mode download passes the
+  package tests on the Windows ARM64 VM with the ARM64 and the x64 Dart
+  SDK, on the Ubuntu ARM64 VM, and on macOS. A source build through
+  hooks_runner on the Ubuntu ARM64 VM takes 37 s. Cold release builds take
+  1 to 1.5 min per target. The binaries are deleted from the working tree;
+  `.git` stays 141 MB (NG1).
+- 2026-10-05: Defect found in step 5: Flutter 3.47 passes iOS 13 and
+  macOS 13 to every hook (flutter_tools `targetIOSVersion`,
+  `targetMacOSVersion`). The fllama and webcrypto manifests have
+  `minOSVersion` 15 for iOS, so in mode auto their iOS builds compile from
+  source. Fix: `defaultIOSVersion` 13 in native_prebuilt, then new releases
+  of fllama and webcrypto.
 - 2026-10-05: Step 4 done (Telosnex `dev/ci/releases/native_prebuilt.dart`).
   Each release job runs `release.dart native` after pub get and before the
   build. D10: the check runs for every resolved package whose pubspec
