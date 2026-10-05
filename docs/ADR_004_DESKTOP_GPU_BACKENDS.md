@@ -1,30 +1,61 @@
 # ADR 004 — One desktop build per CPU architecture that selects the GPU and CPU code at run time
-Status: DRAFT (2026-10-04)
+Status: DRAFT, partly implemented (first draft 2026-10-04, updated 2026-10-05)
 Depends on: ADR 005 (prebuilt native libraries). A GPU pack works for every
 app only if every app uses the same fllama build.
+
+## 0. Implementation status (2026-10-05)
+
+fllama release `native-580a44799cc1e0f1` contains the fllama part of this
+ADR for Windows x64, Windows ARM64 (CPU only) and Linux x64. Telosnex uses
+Auto GPU layers. Telosnex does not download GPU packs yet. Thus Windows and
+Linux users of Telosnex still run local AI on the CPU.
+
+| Area | State | Evidence |
+|------|-------|----------|
+| No OpenMP on Windows (D6) | Done | fllama `d97bd7a` |
+| Split libraries, CPU variants, loader (D1, D2, D4, D11) | Done | fllama `832cf2b` |
+| Vulkan from the pinned SDK (D3) | Done | fllama `ce2e308` |
+| GPU packs in fllama (D13) | Done | fllama `515b45e`, ADR 005 step 3 |
+| Release workflow and pack hosting (D7) | Done | ADR 005 steps 1 to 4 |
+| Device keys and `gpu_device_key` in fllama (D9) | Done | fllama `832cf2b` |
+| Auto layers and draft check in Telosnex (D5, R17) | Done | Telosnex `b37eef6417` |
+| GPU pack download in Telosnex (D14) | Not started | |
+| GPU off in Telosnex through `fllama_set_gpu_allowed` (D9, I7) | Not started | |
+| GPU picker in Telosnex (D9) | Not started | |
+| Windows ARM64 GPU backend (D12) | Not decided | Needs step 9 benchmark |
+| ARM64 MSIX (D10) | Not started | |
+| I3 and I4 checks in `release.dart` | Not started | |
+| Hardware tests and Apple measurements (steps 6, 9) | Not started | |
+| Linux snap GPU plug (step 10) | Not started | |
+| CUDA (D8, steps 12, 13) | Not started | Gate not run |
 
 ## 1. Problem
 
 Telosnex ships one Windows x64 package through the Microsoft Store. fllama
 runs llama.cpp inside that package. At fllama `d4e262e` and llama.cpp
-`ece963f41`, the native build has these properties:
+`ece963f41`, the native build had the properties below. Each item gives its
+current state in brackets.
 
 1. **Windows has no GPU acceleration.** `hook/build.dart` and
    `src/CMakeLists.txt` set `LLAMA_VULKAN=ON`. llama.cpp does not read this
    name. Only `GGML_VULKAN` enables Vulkan. The CMake caches of all six Windows
    builds in the test VM contain `GGML_VULKAN:BOOL=OFF`. (Observed.)
+   [Fixed in fllama. The release has a Vulkan pack for Windows x64. Telosnex
+   does not download it yet (D14).]
 2. **Windows x64 CPU code does not use AVX.** `native_toolchain_cmake` 0.2.7
    always passes `CMAKE_SYSTEM_NAME`, so CMake marks each build as a cross
    build. ggml then disables SSE4.2, AVX, AVX2, BMI2, FMA and F16C. The x64
    cache `d11d429c115fb668` contains `GGML_AVX2:BOOL=OFF`. The CPU code uses
    only SSE2. (Observed in the VM. The release runner uses the same code path.
-   Inferred.)
+   Inferred.) [Fixed by D2. The emulated x64 build in the ARM64 VM selects
+   `ggml-cpu-haswell.dll`.]
 3. **The package does not contain a runtime file that fllama needs.** The x64
    `fllama.dll` imports `VCOMP140.DLL`, which is the Microsoft OpenMP runtime.
    `msix` 3.18.0 copies only the C++ runtime DLLs into the package. It does not
    copy `vcomp140.dll`. On a PC without the Visual C++ Redistributable,
    Windows cannot load `fllama.dll`, and local AI fails. (Imports and package
    list observed. The load failure is inferred and not reproduced.)
+   [Fixed by D6 in `d97bd7a`.]
 4. **The GPU layer count disables memory fitting.** Telosnex sends
    `n_gpu_layers = 99` on Windows, macOS and iOS
    (`lib/features/local_llm/fllama_process.dart`). llama.cpp fits the layers to
@@ -32,16 +63,20 @@ runs llama.cpp inside that package. At fllama `d4e262e` and llama.cpp
    99, a model that is larger than the GPU memory does not get a partial
    offload. The same file enables the draft model only when the layer count
    is greater than 0. The user cannot change the layer count. (Source
-   observed. The failure on discrete GPUs is inferred.)
+   observed. The failure on discrete GPUs is inferred.) [Fixed by D5 in
+   Telosnex `b37eef6417`.]
 5. **Linux uses only the CPU.** Telosnex sends `n_gpu_layers = 0` on Linux and
    Android. The Linux x64 build has the same cross-build defaults as item 2.
-   (Telosnex source observed. Linux CPU flags inferred.)
+   (Telosnex source observed. Linux CPU flags inferred.) [Partly fixed.
+   Linux x64 has all 14 CPU variants and a Vulkan pack. Telosnex sends -1.
+   Telosnex does not download the pack yet (D14).]
 6. **Windows ARM PCs run the x64 package in emulation.** Telosnex does not
    ship an ARM64 package, so Snapdragon PCs run x64 code through Windows
    emulation. The fllama ARM64 build exists, but it uses the ClangCL toolset
    with no `-march`, so its CPU code is plain ARMv8.0 without the dot-product
    instructions. (Toolset observed. CPU flags inferred from the clang default
-   target.)
+   target.) [Partly fixed. fllama has the D11 CPU variants, and the ARM64
+   VM selects the dot-product variant. Telosnex has no ARM64 package yet.]
 
 **Outcome.** One Telosnex Store listing contains an x64 package and an ARM64
 package. Each package uses the GPU with no user setup. If no GPU works, it uses
@@ -49,8 +84,7 @@ the fastest CPU code that the CPU supports. On all GPU platforms, llama.cpp
 fits the model to free GPU memory. Users who know llama.cpp can turn off the
 GPU, set the layer count, and later add CUDA. Android is out of scope (§6).
 
-Item 3 affects users now, and it is independent of this ADR. Workplan step 1
-fixes it first.
+Item 3 was independent of this ADR. Workplan step 1 fixed it first.
 
 ## 2. Requirements
 
@@ -78,6 +112,10 @@ R8 applies to every backend, for example Vulkan and CUDA. The x64
 `ggml-vulkan.dll` is 51.8 MB (16.0 MB gzip), and PCs without a Vulkan GPU
 cannot use it. The CPU variants stay in the package: they are 8.0 MB
 together, and every PC uses one of them.
+
+R10 and R17: on 2026-10-05 the founder chose one Telosnex control, "GPU
+layers: Auto / number". `0` turns off GPU offload. Telosnex has no separate
+GPU on/off setting and no GPU picker. D9 gives the consequence for I7.
 
 R11 is soft because the founder asked whether CUDA is possible. The founder
 did not require it. R16 is soft because the Windows ARM64 GPU backends have
@@ -127,6 +165,10 @@ D5: On every native platform, Telosnex sends n_gpu_layers = -1 (auto),
     without a GPU backend, -1 gives the same result as 0.
     Instead of: keeping the draft check at "greater than 0", which turns off
     the draft model for -1.
+    State: done in Telosnex `b37eef6417`, on every native platform. Invalid
+    saved values become -1.
+    The test request in the custom-model setup dialog still sends 0, so
+    that test runs on the CPU.
 
 D6: Build all Windows targets with GGML_OPENMP=OFF.
     Because: R7
@@ -154,16 +196,22 @@ D8: CUDA is a GPU pack (D13) for x64 PCs that have an Nvidia GPU. Work
     Instead of: a separate CUDA edition (R1), or CUDA inside the package (R8).
 
 D9: fllama reports every GPU, discrete and integrated, with its backend
-    name, type and device key (§5). Telosnex settings show
-    "GPU: Auto / Off / <each GPU>" and "GPU layers: Auto / number" on every
-    native platform. A request that names a device key gives llama.cpp only
-    that device. If no device has the key, fllama uses Auto and logs a
-    warning.
+    name, type and device key (§5). A request that names a device key gives
+    llama.cpp only that device. If no device has the key, fllama uses Auto
+    and logs a warning. Telosnex settings show one GPU control, "GPU
+    layers: Auto / number", on every native platform. `0` means CPU only.
+    Proposed, not approved: if the saved value is `0` at app start,
+    Telosnex calls fllama_set_gpu_allowed(false) before the first fllama
+    call. Then I7 holds, and Telosnex does not download a GPU pack. A change
+    to or from `0` loads or unloads GPU backends only after a restart.
     Because: R10
     Instead of: the GGML_VK_VISIBLE_DEVICES environment variable. The user
     must set it outside the app and must know the Vulkan device number.
     Instead of: the device number as the saved value. The order of devices
     can change after a driver update or when a GPU is added.
+    State: the fllama part is done (`832cf2b`). Telosnex sends no device key
+    and does not call fllama_set_gpu_allowed. With `0`, Telosnex does not
+    offload layers, but fllama still loads the GPU backends.
 
 D10: The Telosnex Store submission contains an x64 MSIX and an ARM64 MSIX.
      The ARM64 MSIX is built on a Windows ARM64 runner.
@@ -184,6 +232,9 @@ D11: ARM64 CPU: build two CPU variants, an ARMv8.0 baseline and an
      Instead of: one -march=armv8.7-a build, as in upstream
      cmake/arm64-windows-llvm.cmake. It uses i8mm, and Snapdragon 8cx CPUs
      before Snapdragon X do not have i8mm (inferred).
+     State: done (`832cf2b`). The main build makes the baseline. A second
+     CMake build in `cpu-armv8.2-dotprod/` builds only `ggml-cpu`. The
+     release contains both variants.
 
 D12: ARM64 GPU: the package contains the backend that wins the step 9
      benchmark on a Snapdragon X PC. The candidates are OpenCL with the
@@ -195,6 +246,8 @@ D12: ARM64 GPU: the package contains the backend that wins the step 9
      uses it. Every Windows ARM64 PC has an Adreno GPU, so the selected
      backend stays in the package. If it is Vulkan and some Adreno drivers
      cannot run it, R8 applies.
+     State: not decided. `findVulkanSdk` returns null for Windows ARM64, and
+     the hook does not build OpenCL. The ARM64 release has no GPU backend.
 
 D13: A GPU pack is a set of backend libraries that the ADR 005 release
      build (native_release) builds in the same CMake build as fllama, but
@@ -214,6 +267,9 @@ D13: A GPU pack is a set of backend libraries that the ADR 005 release
      needs two builds.
      Instead of: a check of the fllama build key. An equal file hash also
      proves the same build (I5), and it is one check instead of two.
+     State: done for the `vulkan` pack on Windows x64 and Linux x64.
+     fllama_load_gpu_pack loads only files whose names contain `ggml-`. A
+     pack with dependency DLLs (CUDA) needs a loader change (step 13).
 
 D14: Telosnex downloads a GPU pack when all of these are true: the
      platform has a pack, the GPU is allowed, fllama_has_vulkan_gpu (or a
@@ -229,6 +285,8 @@ D14: Telosnex downloads a GPU pack when all of these are true: the
      Instead of: a separate prompt or setting. R2 requires no extra user
      action. Recovery if Store review asks for one: a prompt before the
      first pack download.
+     State: not started. native_prebuilt `runtime.dart` provides
+     `ensureRuntimeFile`, which downloads, gunzips and checks one file.
 ```
 
 ## 4. Invariants
@@ -238,35 +296,44 @@ I1: If a GPU pack is not downloaded, fails its SHA-256 check, or fails to
     load, or if the GPU loader DLL or a GPU device is missing, fllama runs
     inference on the CPU.
     If violated: local AI fails on PCs and VMs without a working GPU driver.
-    Pinned by: planned integration test with the GPU backend DLL deleted,
-    and a planned run in a VM without a GPU driver.
+    Pinned by: integration test "rejects GPU pack files that are missing or
+    changed". The chat tests after it then run on the CPU. The Windows x64
+    integration tests pass in the ARM64 VM, which has no x64 Vulkan driver.
+    Planned: a run in a clean x64 VM without a GPU driver (step 9).
 
 I2: fllama never loads a CPU variant that uses an instruction that the CPU
     does not have.
     If violated: the app stops with an illegal-instruction error.
-    Pinned by: planned runs under Intel SDE with -nhm (no AVX) and -hsw
-    (AVX2) that check the selected variant in the log. For ARM64, a planned
-    unit test of the D11 selection, and a run on a CPU without dot product
-    if one is available.
+    Pinned by: ggml_backend_score in each x64 variant. The ARM64 VM selects
+    `ggml-cpu-armv8.2-dotprod.dll` natively and `ggml-cpu-haswell.dll` for
+    emulated x64. Planned: runs under Intel SDE with -nhm (no AVX) and -hsw
+    (AVX2) that check the selected variant in the log. A unit test of
+    `fllama_backends_pick_windows_arm64_cpu`. A run on an ARM64 CPU
+    without dot product if one is available.
 
 I3: Every library in a Windows package imports only Windows system DLLs,
     C++ runtime DLLs that the package contains, and other libraries in the
     package.
     If violated: the library cannot load on some PCs (Problem item 3).
-    Pinned by: planned import check in dev/ci/releases/release.dart.
+    Pinned by: planned import check in dev/ci/releases/release.dart. D6
+    removed the only known violation (`VCOMP140.DLL`).
 
 I4: Each Windows or Linux release package contains its baseline CPU
     variant. Its fllama library expects at least one GPU pack (Windows ARM64:
     contains its GPU backend), and every pack URL returns its file.
     If violated: a release loses GPU support or CPU support without an error.
-    Pinned by: planned file check in dev/ci/releases/release.dart, and
-    native_prebuilt:check (ADR 005 D10, I4).
+    Pinned by: the hook stops a Windows x64 or Linux x64 release build that
+    has no Vulkan SDK (D7). native_prebuilt:check checks every release file
+    and pack URL (ADR 005 D10, I4). Planned: a check in
+    dev/ci/releases/release.dart that the package contains the baseline
+    CPU variant.
 
 I5: All ggml libraries in one process come from one build: the same
     llama.cpp commit and the same CMake options.
     If violated: an ABI mismatch causes crashes or wrong output.
     Pinned by: the D13 SHA-256 check. A file from another build has a
-    different SHA-256. Planned integration test with a changed pack file.
+    different SHA-256. Integration test "rejects GPU pack files that are
+    missing or changed".
 
 I6: If the CUDA pack loads, Nvidia GPUs run on CUDA, and Vulkan does not
     also use the same GPU.
@@ -277,10 +344,20 @@ I6: If the CUDA pack loads, Nvidia GPUs run on CUDA, and Vulkan does not
     device_id. Vulkan reports no ID if the driver does not have
     VK_EXT_pci_bus_info. Planned test on Nvidia hardware.
 
-I7: With "GPU: Off", fllama does not load any GPU backend library.
+I7: After fllama_set_gpu_allowed(false), fllama does not load any GPU
+    backend library.
     If violated: the user cannot avoid a GPU driver crash.
-    Pinned by: planned loader unit test with the GPU turned off.
-    fllama_load_gpu_pack returns an error when the GPU is not allowed.
+    Pinned by: `load_backends_from` skips GPU backends when the GPU is not
+    allowed. fllama_load_gpu_pack and fllama_has_vulkan_gpu return an error
+    or false. Planned: a loader test with the GPU turned off.
+    Telosnex does not call fllama_set_gpu_allowed yet (D9).
+
+I8: When a request names a device key that exists, the model and the
+    draft model use only that GPU and the CPU.
+    If violated: the user selection has no effect.
+    Pinned by: integration test "an unknown GPU device key falls back to
+    Auto" covers the fallback. Planned: a loader test with a fake device
+    list, and the step 9 test on a PC with two GPUs if one is available.
 
 I9: fllama_load_gpu_pack changes the backend list only when no model is
     loaded and no request runs. It unloads idle cached models first, so the
@@ -290,12 +367,6 @@ I9: fllama_load_gpu_pack changes the backend list only when no model is
     Pinned by: a registry lock that model loads share and the pack load
     holds alone. The function returns an error while a request runs.
     Integration test "refuses to load a GPU pack while a request runs".
-
-I8: When a request names a device key that exists, the model and the
-    draft model use only that GPU and the CPU.
-    If violated: the user selection has no effect.
-    Pinned by: planned loader unit test with a fake device list, and the
-    step 9 test on a PC with two GPUs if one is available.
 ```
 
 ## 5. Formats & names
@@ -309,8 +380,12 @@ GGML_CPU_ALL_VARIANTS=ON
 GGML_NATIVE=OFF
 GGML_VULKAN=ON                          # only if the hook finds the SDK
 GGML_OPENMP=OFF                         # all Windows targets
-CMAKE_PLATFORM_NO_VERSIONED_SONAME=ON   # Linux. Step 10 confirms.
+CMAKE_PLATFORM_NO_VERSIONED_SONAME=ON   # Linux
+FLLAMA_GPU_PACK_VULKAN_URL=<asset URL>  # release builds only (D13)
 ```
+
+On Linux, `src/CMakeLists.txt` sets the run path of each library to
+`$ORIGIN`.
 
 Windows ARM64 uses the same defines, except:
 
@@ -320,7 +395,9 @@ GGML_CPU_ARM_ARCH=<armv8-a | armv8.2-a+dotprod>   # one value per CPU build
 GGML_OPENCL=ON, GGML_OPENCL_USE_ADRENO_KERNELS=ON  # or GGML_VULKAN=ON (D12)
 ```
 
-Remove `LLAMA_VULKAN` from `hook/build.dart` and `src/CMakeLists.txt`.
+The ARM64 GPU line is not implemented yet (D12).
+
+`LLAMA_VULKAN` is removed. A hook test checks that Windows never sets it.
 
 Windows x64 libraries in the package (Linux uses `lib<name>.so`):
 
@@ -341,9 +418,11 @@ its download functions (`src/fllama_download_stub.cpp`), and a shared
 `llama-common` would need httplib.
 
 MSVC builds 9 of the 14 upstream x64 variants. ggml skips `ivybridge`,
-`piledriver`, `cooperlake`, `zen4` and `sapphirerapids` for MSVC.
+`piledriver`, `cooperlake`, `zen4` and `sapphirerapids` for MSVC. GCC builds
+all 14 for Linux x64.
 
-Expected Windows ARM64 libraries. Step 8 confirms the list:
+Windows ARM64 libraries. The first two lines are in the release. The GPU
+lines are the D12 candidates:
 
 ```
 fllama.dll  llama.dll  mtmd.dll  ggml.dll  ggml-base.dll
@@ -375,8 +454,11 @@ upstream release workflow at `ece963f41`. The SDK version is part of the
 build key. hooks_runner 1.5.0 does not pass `VULKAN_SDK` to hooks, so the
 hook finds the directory itself. It passes `SPIRV-Headers_DIR` from the
 SDK, because ggml-vulkan otherwise finds SPIRV-Headers through
-`VULKAN_SDK`. On Linux, the distribution packages `libvulkan-dev`, `glslc`
-and `spirv-headers` supply the SDK.
+`VULKAN_SDK`. On Linux, the hook looks for the headers, SPIRV-Headers and
+`glslc` in the system directories. A developer can install the distribution
+packages `libvulkan-dev`, `glslc` and `spirv-headers`. The release workflow
+copies the pinned LunarG SDK 1.4.357.0 into those directories, because the
+Ubuntu 22.04 packages are too old.
 
 ggml-vulkan builds its `vulkan-shaders-gen` helper as an ExternalProject.
 `src/CMakeLists.txt` sets its prefix to `<build>/vk`. The default prefix
@@ -388,8 +470,9 @@ loader for ARM64 come from fixed Khronos tags, as in the upstream workflow.
 
 New FFI:
 
-- `fllama_set_gpu_allowed(bool)`. Call it before the first fllama call that
-  loads backends. A later call returns an error and changes nothing.
+- `fllama_set_gpu_allowed(uint8_t)`. Call it before the first fllama call
+  that loads backends. After that, a call with a different value returns
+  non-zero and changes nothing. A call with the same value returns 0.
 - `fllama_gpu_memory_info` gets `device_type` (`GPU` or `IGPU`), `backend`
   (for example `Vulkan`, `OpenCL`, `MTL` or `CUDA`) and `device_key`.
 - `fllama_inference_request` gets `gpu_device_key`. NULL or empty means Auto.
@@ -404,11 +487,17 @@ New FFI:
   SHA-256 of each file of `pack` in `dir`, then loads them. Returns NULL on
   success or if the pack is loaded, else an error message. Errors: unknown
   pack, GPU not allowed (I7), a request runs (I9), file missing, SHA-256
-  different, load failed. Unloads idle cached models first.
+  different, file name without `ggml-`, load failed. Unloads idle cached
+  models first.
 - `fllama_has_vulkan_gpu()`: true if the Vulkan loader
   (`vulkan-1.dll` / `libvulkan.so.1`) is present and lists at least one
   physical device that is not a CPU and supports Vulkan 1.2. It does not
-  need the pack. False if the GPU is not allowed (I7).
+  need the pack. False if the GPU is not allowed (I7) or the build has no
+  Vulkan backend. The result is computed once per process.
+
+The Dart API in `lib/io/fllama_io_gpu.dart` wraps these functions:
+`fllamaSetGpuAllowed`, `fllamaLoadedBackendFiles`, `fllamaGpuPackFiles`,
+`fllamaLoadGpuPack`, `fllamaHasVulkanGpu` and `fllamaGpuMemoryInfoGetAll`.
 
 Device key: `<backend>|<description>|<n>`. `n` is the position of the device
 among the devices with the same backend and description, from 0. Example:
@@ -441,10 +530,12 @@ Ranked by irreversibility.
 1. **A GPU driver crashes the process during backend initialization.**
    `ggml_backend_vk_reg` catches C++ exceptions, but it cannot catch an access
    violation inside the driver. A user who gets this crash cannot use local AI
-   until they find "GPU: Off". The GPU pack loads at the first local model
+   until they turn off the GPU. The GPU pack loads at the first local model
    load (D14), not when the app starts. `fllama_has_vulkan_gpu` also calls
-   the driver, and Telosnex calls it at the same time. If beta reports show this crash, add a marker file that
-   turns off the GPU after a crash during initialization.
+   the driver, and Telosnex calls it at the same time. If beta reports show
+   this crash, add a marker file that turns off the GPU after a crash during
+   initialization. With the current Telosnex settings, "GPU layers: 0" does
+   not prevent this crash until the D9 proposal is implemented.
 2. **A CUDA pack with a different ABI.** I5 covers it.
 3. **Store review rejects the GPU pack download.** Microsoft Store
    Policies 7.20 (effective 2026-10-22) do not forbid downloaded code.
@@ -469,82 +560,74 @@ Ranked by irreversibility.
    load. Unknown size. Step 6 measures it. Recovery: a smaller Apple margin.
    The user can also set the layer count (R17).
 6. **Two ARM64 CPU builds need extra hook work.** Each `ggml-cpu` build is a
-   separate CMake build with the same ggml-base options. If step 8 finds that
-   this breaks I5 or doubles the build time, ship only the dot-product
-   variant if every Windows 11 ARM64 CPU has dot product (unverified), else
-   only the baseline.
+   separate CMake build with the same ggml-base options. Resolved: the
+   release contains both variants. A cold Windows ARM64 release build takes
+   7.5 minutes.
 7. **An integrated GPU is slower than the CPU.** llama.cpp uses an integrated
    GPU when the PC has no discrete GPU. Unknown. Step 11 decides the default.
 8. **OpenMP off makes CPU inference slower.** Unknown. Step 9 measures it
    together with the CPU variants.
 9. **Build time.** A cold Windows x64 build with Vulkan took 16.5 minutes
    in the ARM64 VM (x64 emulation). Shader generation is most of it.
-   ADR 005 moves this build to the fllama release workflow. App builds
-   download the result.
+   Resolved by ADR 005: app builds download the release. Cold release
+   builds on the runners take 12 minutes (Windows x64), 8.5 minutes (Linux
+   x64) and 7.5 minutes (Windows ARM64).
 10. **Windows does not find dependent DLLs in `flutter test`.** In tests, the
-   libraries are not next to the executable. Unknown. Step 2 decides it.
-   Fallback: `fllama_io.dart` opens each dependency by absolute path, in
-   dependency order, before it opens `fllama.dll`.
+    libraries are not next to the executable. Partly resolved: the Windows
+    integration tests find all libraries. A plain `flutter test` run on
+    Windows is not recorded. Fallback: `fllama_io.dart` opens each
+    dependency by absolute path, in dependency order, before it opens
+    `fllama.dll`.
 
 ## 8. Workplan
 
-1. **Fix Problem item 3 in its own release.** Set `GGML_OPENMP=OFF` for all
-   Windows targets in `hook/build.dart`. Rebuild x64. Run the fllama
-   integration tests on x64 (the ARM64 VM can run x64 Flutter in emulation).
-   Done when `fllama.dll` imports only system DLLs and C++ runtime DLLs, and
-   the tests pass.
-2. **Spike on Windows x64 (bounded).** Use a scratch branch with the §5
-   defines. Register each output library as a code asset. Answer these
-   questions and record the results in §A:
-   - Does `flutter build windows` put all libraries next to `telosnex.exe`?
-   - Does `flutter test` find `ggml-base.dll` for `fllama.dll` and for the
-     backends?
-   - What is the cold build time, with and without Vulkan?
-   - What is the unpacked size, and what is the MSIX size?
-   - Does `-DVulkan_ROOT=<sdk>` let `FindVulkan` find the SDK and `glslc`
-     without the `VULKAN_SDK` variable?
+Steps 1 to 4b, the fllama parts of steps 7 and 8, and the fllama part of
+step 10 are done. Do the open steps in this order: 5, 6, 8, 9, 10, 11, then
+12 and 13.
 
-   Success: the integration tests pass in `flutter test` and in the built
-   app, with Vulkan selected and also with `ggml-vulkan.dll` deleted. If
-   `flutter test` fails on dependent DLLs, use the risk 9 fallback. Run the
-   spike on an x64 machine with a GPU. The ARM64 VM runs x64 code only in
-   emulation.
-3. **Hook.** Implement D1, D2, D3, D6, D7 and the §5 names for x64. Add the
-   SDK version to the build key. Publish and register all libraries. Add
-   unit tests: the defines for each target, a new key when the SDK version
-   changes, and a CPU-only build when there is no SDK.
-4. **Loader.** Implement D4 and I7 in `src/fllama.cpp`. Find the directory of
-   the fllama library with `GetModuleHandleExW`
-   (`GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS`) on Windows and `dladdr` on
-   Linux. Load the CPU variant with the highest score. Log the selected CPU
-   variant and the GPU devices. Add the §5 FFI. Add tests for I1 and I7.
-4b. **GPU packs (D13).** Check Store Policy 10.2.2 first (risk 3). Remove
-    the pack files from the hook code assets. Generate the SHA-256 source in
-    `src/CMakeLists.txt`. Add the `gpu_pack_dir` user define and the §5 FFI.
-    Make the fllama example download nothing: it sets `gpu_pack_dir`, and
-    its integration test gunzips and loads the packs from there. Add tests for I1
-    (no pack, changed pack), I5, I7 and I9. Done when the Windows x64
-    integration test passes with and without the pack. (Done in `515b45e`.
-    ADR 005 step 3 replaces `gpu_pack_dir` and the B2 paths.)
-5. **Telosnex.** Implement D14 with the ADR 005 runtime library (D13):
-   download, gunzip and check, then `fllama_load_gpu_pack`,
-   and a retry at the next model load. Apply D5 on Windows, including the
-   draft-model check. Add
-   "GPU: Auto / Off" and "GPU layers: Auto / number" to the settings. If there is no discrete GPU, use the
-   integrated GPU memory in the model-size estimates.
-6. **Apple and Android.** Apply D5 on macOS, iOS and Android. On one Mac
-   and one iPhone, measure load time and tokens per second for each Telosnex
-   model with 99 and with -1. If -1 is slower for a model that loads with 99,
-   set a smaller Apple margin. Done when Android with -1 runs on the CPU
-   with no change in speed.
-7. **Release CI.** Do ADR 005 steps 1 to 4. The fllama release workflow
-   builds and uploads the packs. Add the I3 and I4 checks to
+1. **Done (`d97bd7a`). Fix Problem item 3 in its own release.**
+   `GGML_OPENMP=OFF` for all Windows targets.
+2. **Done in part (`832cf2b`). Spike on Windows x64.** The §5 defines work.
+   The integration tests pass in the ARM64 VM with emulated x64 and without
+   a Vulkan driver. These questions are still open, because the spike ran
+   without an x64 GPU:
+   - Does `flutter build windows` put all libraries next to `telosnex.exe`?
+   - What is the MSIX size?
+   - Does Vulkan run on a real x64 GPU (step 9)?
+3. **Done (`832cf2b`, `ce2e308`). Hook.** D1, D2, D3, D6, D7 and the §5
+   names. The Vulkan header version is part of the build key. Unit tests are
+   in `test/build_hook_split_test.dart`.
+4. **Done (`832cf2b`). Loader.** D4, the §5 FFI, device keys and the D11
+   CPU selection in `src/fllama_backends.cpp`. Open: unit tests for I7 and
+   for `fllama_backends_pick_windows_arm64_cpu`.
+4b. **Done (`515b45e`, then ADR 005 step 3). GPU packs (D13).** The hook
+    publishes pack files as release runtime files. Integration tests cover
+    I1, I5 and I9.
+5. **Telosnex.** D5 and the GPU layer setting are done (`b37eef6417`).
+   To do:
+   1. Implement D14 with `ensureRuntimeFile` from native_prebuilt
+      `runtime.dart`: download, gunzip and check each pack file, then call
+      `fllamaLoadGpuPack`. Retry at the next model load after a failure.
+   2. Show the GPU pack size on the model download screen (D14).
+   3. After approval of the D9 proposal, call `fllamaSetGpuAllowed(false)`
+      when the saved layer count is `0`, and skip the pack download.
+   4. If there is no discrete GPU, use the integrated GPU memory in the
+      model-size estimates.
+   5. Decide whether the custom-model setup test keeps `numGpuLayers: 0`.
+6. **Apple and Android.** D5 is applied in code. On one Mac and one iPhone,
+   measure load time and tokens per second for each Telosnex model with 99
+   and with -1. If -1 is slower for a model that loads with 99, set a
+   smaller Apple margin. Done when Android with -1 runs on the CPU with no
+   change in speed.
+7. **Release CI.** ADR 005 steps 1 to 4 are done. The fllama release
+   workflow builds and uploads the packs. To do: add the I3 and I4 checks to
    `dev/ci/releases/release.dart`.
-8. **Windows ARM64.** Add D11 and both D12 candidates to the hook. Confirm
-   the §5 ARM64 list. Add a release job on a Windows ARM64 runner that builds
-   the ARM64 MSIX (`msix_config` `architecture: arm64`). Upload both MSIX
-   files in the same Store submission. Run the integration tests in the
-   ARM64 VM, which tests the CPU path.
+8. **Windows ARM64.** The D11 CPU variants are done, and the ARM64 VM
+   selects the dot-product variant. To do:
+   1. Add both D12 candidates to the hook.
+   2. Add a Telosnex release job on a Windows ARM64 runner that builds the
+      ARM64 MSIX (`msix_config` `architecture: arm64`).
+   3. Upload both MSIX files in the same Store submission.
 9. **Hardware test.** Run the integration test and a short benchmark on each
    of these:
    - a clean Windows VM without the Visual C++ Redistributable and without
@@ -555,21 +638,23 @@ Ranked by irreversibility.
    - one Snapdragon X PC, with OpenCL and with Vulkan (D12).
 
    Record prompt and generation tokens per second, for the GPU and for the
-   CPU. Compare the CPU numbers with the current SSE2 and OpenMP build.
-10. **Linux x64.** Do steps 3, 4, 7 and 9 again for Linux. Set `$ORIGIN` as
-    the run path of each library. Add a GPU plug to `snapcraft.yaml`. Apply
-    D5 on Linux.
+   CPU. Compare the CPU numbers with the old SSE2 and OpenMP build.
+10. **Linux x64.** The hook, loader, `$ORIGIN` run path, CPU variants and
+    Vulkan pack are done and in the release. Telosnex sends -1. To do: the
+    D14 download (step 5), a GPU plug in `snapcraft.yaml`, and the step 9
+    tests on one Linux PC with a GPU.
 11. **Gate: the owner reviews the step 6 and step 9 results.** Select the
-    D12 backend. Decide the integrated-GPU default (risk 6). Keep or revert
-    OpenMP off (risk 7). Then ship Windows x64, Windows ARM64, Apple and
+    D12 backend. Decide the integrated-GPU default (risk 7). Keep or revert
+    OpenMP off (risk 8). Then ship Windows x64, Windows ARM64, Apple and
     Linux.
 12. **CUDA gate (D8).** Benchmark upstream CUDA and Vulkan builds at the
     fllama llama.cpp commit with Telosnex models, on two Nvidia GPU
     generations. Read Microsoft Store Policy 10.2.2 and the redistribution
     list of the NVIDIA CUDA EULA. The owner decides to continue or stop.
 13. **CUDA pack, if step 12 continues.** Add the `cuda` pack (D13) to the
-    Windows x64 release build. Download it only when an Nvidia GPU is
-    present (D14). Test I6.
+    Windows x64 release build. Let fllama_load_gpu_pack load the CUDA
+    runtime DLLs before `ggml-cuda.dll`. Download the pack only when an
+    Nvidia GPU is present (D14). Test I6.
 
 ---
 
@@ -584,8 +669,8 @@ Ranked by irreversibility.
   variants. Lost to R5 and R6.
 - **`ggml_backend_load_all_from_path(<fllama directory>)`.** This is simpler
   than D4, but it cannot skip GPU backends (I7) or load CUDA first from a
-  second directory (I6). It is sufficient if the owner drops D8 and
-  "GPU: Off".
+  second directory (I6). It is sufficient if the owner drops D8 and the
+  D9 proposal.
 - **clang-cl for x64**, as upstream uses. This adds 5 CPU variants, including
   `zen4`. It needs the Clang components on the x64 runner. Reconsider it if
   step 9 shows slow MSVC CPU code.
@@ -625,13 +710,14 @@ null-terminated list of the devices that the model can use.
 
 | Discovery | Classification | Action |
 |-----------|----------------|--------|
-| x64 `fllama.dll` imports `VCOMP140.DLL` (Problem item 3) | Independent defect. Affects users now. | Workplan step 1, separate release |
-| `LLAMA_VULKAN` has no effect | Fixed by D3 | Step 3 |
-| x64 CPU code is SSE2 only | Fixed by D2 | Step 3 |
-| Windows ARM64 CPU code is ARMv8.0 only | Fixed by D11 | Step 8 |
+| x64 `fllama.dll` imports `VCOMP140.DLL` (Problem item 3) | Independent defect | Fixed in step 1 (`d97bd7a`) |
+| `LLAMA_VULKAN` has no effect | Fixed by D3 | Fixed in step 3 |
+| x64 CPU code is SSE2 only | Fixed by D2 | Fixed in step 3 |
+| Windows ARM64 CPU code is ARMv8.0 only | Fixed by D11 | Fixed in fllama. Telosnex ARM64 package open (step 8) |
 | Android arm64 builds use `-march=armv8.2-a+dotprod` for all devices (`src/CMakeLists.txt`). CPUs without the dot-product extension, for example Cortex-A53, cannot run this code. | Independent defect. Inferred. | Track separately |
-| Telosnex enables the draft model only for `gpuLayers > 0` | Fixed by D5 | Step 5 |
-| `fllama_get_gpu_devices` skips integrated GPUs, so Telosnex shows no GPU memory on PCs with only an integrated GPU | Fixed by D9 | Steps 4 and 5 |
+| Telosnex enables the draft model only for `gpuLayers > 0` | Fixed by D5 | Fixed in Telosnex `b37eef6417` |
+| `fllama_get_gpu_devices` skips integrated GPUs, so Telosnex shows no GPU memory on PCs with only an integrated GPU | Fixed by D9 | Fixed in fllama step 4. Telosnex estimates open (step 5) |
+| Android release libraries contained debug information (129.6 MiB for ARM64) | Independent defect | Fixed in ADR 005 (release `native-580a44799cc1e0f1`) |
 | The Windows zip needs an installed Visual C++ runtime | Independent | NG4 |
 
 **Sizes** from the upstream b11396 Windows release archives, unpacked:
@@ -645,11 +731,19 @@ null-terminated list of the devices that the model can use.
 | `cublas64_13.dll` | 54.9 |
 | `cudart64_13.dll` | 0.6 |
 
-The current fllama VM builds are 7.1 MB (x64) and 8.8 MB (ARM64).
+Before this ADR, the fllama VM builds were 7.1 MB (x64) and 8.8 MB (ARM64).
 
 Measured fllama build at `ce2e308` (MSVC, Windows x64, Vulkan SDK 1.4.357.0):
 `ggml-vulkan.dll` 51.8 MB, 16.0 MB with gzip. The 9 CPU variants are 8.0 MB
 together. `fllama.dll` is 2.5 MB.
+
+Release `native-580a44799cc1e0f1`, gzipped download sizes:
+
+| Target | Bundled libraries | CPU variants in that total | Vulkan pack |
+|--------|------------------:|---------------------------:|------------:|
+| Windows x64 | 5.9 MB | 2.9 MB (9) | 16.6 MB |
+| Windows ARM64 | 4.2 MB | 0.6 MB (2) | none |
+| Linux x64 | 10.6 MB | 6.1 MB (14) | 16.8 MB |
 
 **Evidence index.**
 
@@ -694,3 +788,12 @@ together. `fllama.dll` is 2.5 MB.
   Windows x64 and copies it into the system directories on Linux x64,
   where the hook looks (§5). A release without a Vulkan pack for Windows
   x64 or Linux x64 fails (D7).
+- 2026-10-05: Status update against fllama release
+  `native-580a44799cc1e0f1` and Telosnex `b37eef6417`. New §0 shows the
+  implementation state. Problem items, decisions, invariants, risks and
+  workplan steps now show what is done and what is open. Telosnex has one
+  GPU control, "GPU layers: Auto / number" (founder decision). D9 now
+  describes that control. It also proposes, for approval, that `0` calls
+  fllama_set_gpu_allowed(false) at app start. §5 adds the 14 Linux x64 CPU
+  variants, the Linux SDK path in the release workflow, the
+  `fllama_set_gpu_allowed` return value, and the release sizes.
