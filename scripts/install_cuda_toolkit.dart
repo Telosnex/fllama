@@ -97,6 +97,12 @@ Future<void> main(List<String> args) async {
     await to.create(recursive: true);
     await _merge(from.parent, to);
   }
+  if (Platform.isLinux) {
+    // nvcc.profile links from `lib64`, the directory of a full toolkit
+    // install. The redistributable archives use `lib`.
+    final lib64 = Link(p.join(root.path, 'lib64'));
+    if (!await lib64.exists()) await lib64.create('lib');
+  }
   final nvcc = p.join(
     root.path,
     'bin',
