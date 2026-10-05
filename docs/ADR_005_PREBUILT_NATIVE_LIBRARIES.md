@@ -536,6 +536,18 @@ Ranked by irreversibility.
 - 2026-10-05: First draft.
 - 2026-10-05: Approved. fonnx runtime files are models: R13, R14, D12, D13,
   I7.
+- 2026-10-05: Step 3 done (fllama branch `native-prebuilt`, release
+  `native-a1adfee740569cc5`, 12 targets, 51 files). The Windows x64
+  integration test passes in the ARM64 VM: in mode download with no CMake
+  on `PATH`, 9 of 9, with the Vulkan pack downloaded from its release URL;
+  in mode source, 6 of 6 and 3 pack tests skipped, with `ggml-vulkan.dll`
+  bundled. CMake gets the pack URL in `FLLAMA_GPU_PACK_VULKAN_URL`, and the
+  hook checks it against the release asset URL. The workflow clones
+  Flutter at a fixed tag, because fllama depends on the Flutter SDK and
+  Flutter has no archive for ARM64 Linux and Windows hosts. It copies the
+  pinned LunarG SDK into the Linux system directories, because Ubuntu 22.04
+  packages are too old. Cold builds on the runners: Windows x64 12 min,
+  Linux x64 8.5 min, Windows ARM64 7.5 min.
 - 2026-10-05: Step 2 done (webcrypto.dart `telosnex_main` 84e2f49, release
   `native-1b3dd752e9a6ede1`, 12 targets). Telosnex's webcrypto example
   passes its integration test on the Windows ARM64 VM in mode download

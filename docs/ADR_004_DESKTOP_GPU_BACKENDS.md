@@ -688,3 +688,9 @@ together. `fllama.dll` is 2.5 MB.
 - 2026-10-05: Depends on ADR 005. GPU packs come from the fllama prebuilt
   release on GitHub, not from B2 (D7, D13, I4, risks 4 and 9, §5, step 7).
   A local source build bundles its GPU backends.
+- 2026-10-05: ADR 005 step 3 done. `fllama_get_gpu_pack_files` returns
+  `url`; `gpu_pack_dir`, `relativePath` and `fllamaGpuPackObjectPrefix`
+  are gone. The release workflow installs the Vulkan SDK 1.4.357.0 on
+  Windows x64 and copies it into the system directories on Linux x64,
+  where the hook looks (§5). A release without a Vulkan pack for Windows
+  x64 or Linux x64 fails (D7).
