@@ -1,6 +1,12 @@
 // Build hook for fllama — compiles llama.cpp into a shared library that
 // Flutter bundles with the app. Runs automatically on flutter build/run/test.
 //
+// With package:native_prebuilt (docs/ADR_005_PREBUILT_NATIVE_LIBRARIES.md),
+// the hook first downloads the libraries from the GitHub release in
+// native_artifacts/prebuilt.json if that manifest matches the package
+// sources. User define `native_build`: auto (default), download or source.
+// Everything below is the source build.
+//
 // ═══════════════════════════════════════════════════════════════════════
 //   Why this file is complicated
 // ═══════════════════════════════════════════════════════════════════════
@@ -42,8 +48,8 @@
 //
 //   build_key = sha256(
 //     target_os, target_arch, build_mode,
-//     sorted(defines),
-//     sorted( (relpath, size, sha256(contents)) for each source file )
+//     sorted(defines), GPU SDK version,
+//     native_prebuilt source key (sha256 of every package source file)
 //   )
 //
 //   cache_dir = ~/.cache/fllama/<build_key>/
@@ -83,6 +89,7 @@ import 'package:code_assets/code_assets.dart';
 import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/logging.dart';
+import 'package:native_prebuilt/native_prebuilt.dart';
 import 'package:native_toolchain_cmake/native_toolchain_cmake.dart';
 import 'package:path/path.dart' as p;
 
@@ -101,196 +108,206 @@ void main(List<String> args) async {
       ..level = Level.ALL
       ..onRecord.listen((record) => hookLog.add(record.message));
 
-    final sourceDir = input.packageRoot.resolve('src/');
-    final targetOS = input.config.code.targetOS;
-    final targetArch = input.config.code.targetArchitecture;
-    final targetVariant = _targetVariant(input.config.code);
-    final toolset = windowsToolset(targetOS, targetArch);
-    final split = usesSplitLibraries(targetOS, targetArch);
+    await NativePrebuilt(input: input, output: output, log: logger.info).run(
+      (source) => _buildFromSource(
+        input: input,
+        output: output,
+        source: source,
+        logger: logger,
+      ),
+    );
+    logger.info('Hook completed in ${_formatDuration(hookStopwatch.elapsed)}');
+  }).whenComplete(hookLog.flush);
+}
 
-    // ── GPU SDK ────────────────────────────────────────────────────────
-    final vulkan = split ? findVulkanSdk(targetOS, targetArch) : null;
-    if (split && vulkan == null) {
-      logger.warning(
-        'WARNING: no Vulkan SDK found for ${targetOS.name} '
-        '${targetArch.name}. Building CPU backends only. '
+Future<void> _buildFromSource({
+  required BuildInput input,
+  required BuildOutputBuilder output,
+  required SourceBuild source,
+  required Logger logger,
+}) async {
+  final sourceDir = input.packageRoot.resolve('src/');
+  final targetOS = input.config.code.targetOS;
+  final targetArch = input.config.code.targetArchitecture;
+  final targetVariant = _targetVariant(input.config.code);
+  final toolset = windowsToolset(targetOS, targetArch);
+  final split = usesSplitLibraries(targetOS, targetArch);
+  final release = source.release;
+
+  // ── GPU SDK ────────────────────────────────────────────────────────
+  final vulkan = split ? findVulkanSdk(targetOS, targetArch) : null;
+  if (split && vulkan == null) {
+    if (release != null && targetArch == Architecture.x64) {
+      // ADR 004 D7: a release for Windows x64 or Linux x64 has a GPU pack.
+      throw StateError(
+        'A release build for ${targetOS.name} x64 needs the Vulkan SDK. '
         '${vulkanSdkHint(targetOS)}',
       );
     }
-
-    // ── CMake defines ──────────────────────────────────────────────────
-    final defines = computeDefines(
-      targetOS,
-      targetArch,
-      targetVariant,
-      vulkan: vulkan,
+    logger.warning(
+      'WARNING: no Vulkan SDK found for ${targetOS.name} '
+      '${targetArch.name}. Building CPU backends only. '
+      '${vulkanSdkHint(targetOS)}',
     );
+  }
 
-    // ── Enumerate source files (used for both key + dep declarations) ──
-    final swStart = Stopwatch()..start();
-    final sourceFiles = await collectSourceFiles(sourceDir);
-    logger.info(
-      'Enumerated ${sourceFiles.length} source files '
-      'in ${swStart.elapsedMilliseconds}ms',
-    );
+  // ── CMake defines ──────────────────────────────────────────────────
+  // Only a release build makes ggml-vulkan a GPU pack (ADR 005 D7). A
+  // local build bundles it, because it has no host for the pack.
+  final defines = computeDefines(
+    targetOS,
+    targetArch,
+    targetVariant,
+    vulkan: vulkan,
+    vulkanPackUrl: release?.assetUrl(
+      sharedLibraryFileName(targetOS, 'ggml-vulkan'),
+    ),
+  );
 
-    // ── Compute build key ──────────────────────────────────────────────
-    final buildKey = computeBuildKey(
-      os: targetOS.name,
-      arch: targetArch.name,
-      targetVariant: targetVariant,
-      toolset: toolset,
-      defines: defines,
-      extra: {
-        if (vulkan != null) 'vulkan_header': '${vulkan.headerVersion}',
-        if (split && targetOS == OS.windows && targetArch == Architecture.arm64)
-          'arm64_cpu_variants': windowsArm64CpuVariants.keys.join(','),
-      },
-      sourceFiles: sourceFiles,
-    );
+  // ── Compute build key ──────────────────────────────────────────────
+  final buildKey = computeBuildKey(
+    os: targetOS.name,
+    arch: targetArch.name,
+    targetVariant: targetVariant,
+    toolset: toolset,
+    defines: defines,
+    sourceKey: source.sourceKey.key,
+    extra: {
+      if (vulkan != null) 'vulkan_header': '${vulkan.headerVersion}',
+      if (split && targetOS == OS.windows && targetArch == Architecture.arm64)
+        'arm64_cpu_variants': windowsArm64CpuVariants.keys.join(','),
+    },
+  );
 
-    // ── Resolve cache location ─────────────────────────────────────────
-    final cacheDir = _cacheDirectory(buildKey);
-    logger.info('Build key: $buildKey');
-    logger.info('Cache: ${cacheDir.path}');
+  // ── Resolve cache location ─────────────────────────────────────────
+  final cacheDir = _cacheDirectory(buildKey);
+  logger.info('Build key: $buildKey');
+  logger.info('Cache: ${cacheDir.path}');
 
-    // ── Declare dependencies (always, regardless of cache hit/miss) ────
-    // Even if we never invoke cmake, declaring these helps consumers that
-    // have other cache layers (build_runner, Flutter's depfile, etc.).
-    _declareDependencies(output, sourceFiles);
+  final layout = split
+      ? _SplitLayout(cacheDir, targetOS)
+      : _SingleLayout(cacheDir, _libraryFileName(targetOS));
 
-    final layout = split
-        ? _SplitLayout(cacheDir, targetOS)
-        : _SingleLayout(cacheDir, _libraryFileName(targetOS));
-
-    // ── Fast path: cache hit ───────────────────────────────────────────
-    var cached = await layout.cachedLibraries();
-    if (cached == null) {
-      // ── Slow path: build under flock ─────────────────────────────────
-      await cacheDir.create(recursive: true);
-      final lockAndBuildStopwatch = Stopwatch()..start();
-      await _withExclusiveLock(
-        File(p.join(cacheDir.path, '.build.lock')),
-        () async {
-          // Another process may have just finished the build while we were
-          // waiting for the lock. Re-check before spending 60s recompiling.
-          if (await layout.collect(logger) != null) {
-            logger.info(
-              'Build completed by another process while we waited for the '
-              'lock',
-            );
-            return;
-          }
-
-          final cmakeStopwatch = Stopwatch()..start();
-          for (final job in _buildJobs(
-            targetOS: targetOS,
-            targetArch: targetArch,
-            split: split,
-            cacheDir: cacheDir,
-            defines: defines,
-          )) {
-            final jobDir = Directory.fromUri(job.outDir);
-            await jobDir.create(recursive: true);
-            // Handle stale CMakeCache.txt. The content-addressed cache dir
-            // should make this rare (different source trees → different
-            // build key → different dir), but `LLAMA_BUILD_COMMIT` and
-            // friends aren't in the key yet, and future edits to
-            // computeDefines may introduce keys that aren't fingerprinted.
-            await _clearStaleCMakeCache(
-              cacheDir: jobDir,
-              sourceDir: sourceDir,
-              logger: logger,
-            );
-            final builder = createFllamaBuilder(
-              sourceDir: sourceDir,
-              // Redirect CMakeBuilder's output into OUR cache dir instead
-              // of into hooks_runner's per-config `input.outputDirectory`.
-              // This is the critical move — the expensive artifacts live in
-              // one stable, shared location.
-              outDir: job.outDir,
-              defines: job.defines,
-              toolset: toolset,
-              targets: job.targets,
-              logger: logger,
-            );
-            await builder.run(input: input, output: output, logger: logger);
-          }
+  // ── Fast path: cache hit ───────────────────────────────────────────
+  var cached = await layout.cachedLibraries();
+  if (cached == null) {
+    // ── Slow path: build under flock ─────────────────────────────────
+    await cacheDir.create(recursive: true);
+    final lockAndBuildStopwatch = Stopwatch()..start();
+    await _withExclusiveLock(
+      File(p.join(cacheDir.path, '.build.lock')),
+      () async {
+        // Another process may have just finished the build while we were
+        // waiting for the lock. Re-check before spending 60s recompiling.
+        if (await layout.collect(logger) != null) {
           logger.info(
-            'CMake build finished in '
-            '${_formatDuration(cmakeStopwatch.elapsed)}',
+            'Build completed by another process while we waited for the '
+            'lock',
           );
+          return;
+        }
 
-          if (await layout.collect(logger) == null) {
-            throw StateError(
-              'CMake build reported success but the expected libraries are '
-              'missing. Contents of cache dir:\n'
-              '${await _listForDiagnostics(cacheDir)}',
-            );
-          }
-        },
-        logger: logger,
-      );
-      logger.info(
-        'Cache miss resolved in '
-        '${_formatDuration(lockAndBuildStopwatch.elapsed)}',
-      );
-      cached = await layout.cachedLibraries();
-      if (cached == null) {
-        throw StateError('Libraries missing from ${cacheDir.path}');
-      }
-    }
+        final cmakeStopwatch = Stopwatch()..start();
+        for (final job in _buildJobs(
+          targetOS: targetOS,
+          targetArch: targetArch,
+          split: split,
+          cacheDir: cacheDir,
+          defines: defines,
+        )) {
+          final jobDir = Directory.fromUri(job.outDir);
+          await jobDir.create(recursive: true);
+          // Handle stale CMakeCache.txt. The content-addressed cache dir
+          // should make this rare (different source trees → different
+          // build key → different dir), but `LLAMA_BUILD_COMMIT` and
+          // friends aren't in the key yet, and future edits to
+          // computeDefines may introduce keys that aren't fingerprinted.
+          await _clearStaleCMakeCache(
+            cacheDir: jobDir,
+            sourceDir: sourceDir,
+            logger: logger,
+          );
+          final builder = createFllamaBuilder(
+            sourceDir: sourceDir,
+            // Redirect CMakeBuilder's output into OUR cache dir instead
+            // of into hooks_runner's per-config `input.outputDirectory`.
+            // This is the critical move — the expensive artifacts live in
+            // one stable, shared location.
+            outDir: job.outDir,
+            defines: job.defines,
+            toolset: toolset,
+            targets: job.targets,
+            logger: logger,
+          );
+          await builder.run(input: input, output: output, logger: logger);
+        }
+        logger.info(
+          'CMake build finished in '
+          '${_formatDuration(cmakeStopwatch.elapsed)}',
+        );
 
-    final publishStopwatch = Stopwatch()..start();
-    // GPU packs are downloads, not code assets (ADR 004, D13).
-    final packs = layout is _SplitLayout
-        ? await layout.gpuPackFiles()
-        : const <GpuPackFile>[];
-    final packNames = {for (final pack in packs) pack.name};
-    final bundled = [
-      for (final lib in cached)
-        if (!packNames.contains(p.basename(lib.path))) lib,
-    ];
-    for (final lib in bundled) {
-      await _publishFromCache(
-        cachedLib: lib,
-        outputDirectory: input.outputDirectory,
-        libFileName: p.basename(lib.path),
-        logger: logger,
-      );
-    }
-    _registerAssets(
-      input: input,
-      output: output,
-      libFileNames: [for (final lib in bundled) p.basename(lib.path)],
+        if (await layout.collect(logger) == null) {
+          throw StateError(
+            'CMake build reported success but the expected libraries are '
+            'missing. Contents of cache dir:\n'
+            '${await _listForDiagnostics(cacheDir)}',
+          );
+        }
+      },
       logger: logger,
     );
-    if (packs.isNotEmpty) {
-      final packDir = input.userDefines.path('gpu_pack_dir');
-      for (final pack in packs) {
-        logger.info(
-          'GPU pack ${pack.pack}: ${pack.name} (${pack.sha256}) is not '
-          'bundled.',
-        );
-        if (packDir == null) continue;
-        await _writeGpuPackFile(
-          source: File(p.join(cacheDir.path, 'out', pack.name)),
-          destination: File(
-            p.join(
-              Directory.fromUri(packDir).path,
-              gpuPackRelativePath(targetOS, targetArch, pack),
-            ),
-          ),
-          logger: logger,
-        );
-      }
-    }
     logger.info(
-      'Hook completed in ${_formatDuration(hookStopwatch.elapsed)} '
-      '(publish/register ${_formatDuration(publishStopwatch.elapsed)}, '
-      '${cached.length} libraries)',
+      'Cache miss resolved in '
+      '${_formatDuration(lockAndBuildStopwatch.elapsed)}',
     );
-  }).whenComplete(hookLog.flush);
+    cached = await layout.cachedLibraries();
+    if (cached == null) {
+      throw StateError('Libraries missing from ${cacheDir.path}');
+    }
+  }
+
+  final publishStopwatch = Stopwatch()..start();
+  // GPU packs are downloads, not code assets (ADR 004, D13).
+  final packs = layout is _SplitLayout
+      ? await layout.gpuPackFiles()
+      : const <GpuPackFile>[];
+  for (final pack in packs) {
+    final url = release?.assetUrl(pack.name);
+    if (pack.url != url) {
+      throw StateError(
+        'fllama contains the URL ${pack.url} for GPU pack file ${pack.name}, '
+        'but the release asset URL is $url.',
+      );
+    }
+    release!.addRuntimeFile(
+      File(p.join(cacheDir.path, 'out', pack.name)).uri,
+      pack: pack.pack,
+    );
+    logger.info('GPU pack ${pack.pack}: ${pack.name} (${pack.sha256})');
+  }
+  final packNames = {for (final pack in packs) pack.name};
+  final bundled = [
+    for (final lib in cached)
+      if (!packNames.contains(p.basename(lib.path))) lib,
+  ];
+  for (final lib in bundled) {
+    await _publishFromCache(
+      cachedLib: lib,
+      outputDirectory: input.outputDirectory,
+      libFileName: p.basename(lib.path),
+      logger: logger,
+    );
+  }
+  _registerAssets(
+    input: input,
+    output: output,
+    libFileNames: [for (final lib in bundled) p.basename(lib.path)],
+    logger: logger,
+  );
+  logger.info(
+    'Published ${bundled.length} libraries in '
+    '${_formatDuration(publishStopwatch.elapsed)}',
+  );
 }
 
 /// One CMake configure + build in the cache directory.
@@ -541,11 +558,14 @@ int? readVulkanHeaderVersion(String header) {
   return match == null ? null : int.parse(match.group(1)!);
 }
 
+/// CMake defines for a target. [vulkanPackUrl] is the release URL of the
+/// Vulkan GPU pack file. Without it, ggml-vulkan is a normal library.
 Map<String, String> computeDefines(
   OS targetOS,
   Architecture targetArch,
   String targetVariant, {
   VulkanSdk? vulkan,
+  String? vulkanPackUrl,
 }) {
   final defines = <String, String>{
     'CMAKE_BUILD_TYPE': 'Release',
@@ -624,6 +644,9 @@ Map<String, String> computeDefines(
     if (vulkan != null) {
       defines['GGML_VULKAN'] = 'ON';
       defines.addAll(vulkan.defines);
+      if (vulkanPackUrl != null) {
+        defines['FLLAMA_GPU_PACK_VULKAN_URL'] = vulkanPackUrl;
+      }
     }
   }
 
@@ -692,11 +715,12 @@ Directory _cacheDirectory(String buildKey) {
   return Directory(p.join(home, '.cache', 'fllama', buildKey));
 }
 
-String _libraryFileName(OS targetOS) {
-  if (targetOS == OS.windows) return 'fllama.dll';
-  if (targetOS == OS.macOS || targetOS == OS.iOS) return 'libfllama.dylib';
-  return 'libfllama.so'; // linux, android
-}
+String _libraryFileName(OS targetOS) =>
+    sharedLibraryFileName(targetOS, 'fllama');
+
+/// File name of the shared library [stem] on [targetOS].
+String sharedLibraryFileName(OS targetOS, String stem) =>
+    targetOS.dylibFileName(stem);
 
 /// Ensures [cachedLib] exists at the canonical cache root.
 ///
@@ -878,45 +902,28 @@ final class GpuPackFile {
     required this.pack,
     required this.name,
     required this.sha256,
+    required this.url,
   });
 
   factory GpuPackFile.fromJson(Map<String, Object?> json) => GpuPackFile(
     pack: json['pack']! as String,
     name: json['name']! as String,
     sha256: json['sha256']! as String,
+    url: json['url']! as String,
   );
 
   final String pack;
   final String name;
   final String sha256;
+
+  /// The gzipped file in the fllama GitHub release (ADR 005 §5).
+  final String url;
 }
 
 List<GpuPackFile> parseGpuPackFiles(String json) => [
   for (final entry in jsonDecode(json) as List<Object?>)
     GpuPackFile.fromJson((entry! as Map).cast<String, Object?>()),
 ];
-
-/// Path of a gzipped pack file below `gpu_pack_dir`, and below
-/// `fllama-gpu-packs/` in the B2 bucket (ADR 004, §5):
-/// `<os>-<arch>/<sha256>/<file name>.gz`. lib/io/fllama_io_gpu.dart builds
-/// the same path.
-String gpuPackRelativePath(OS os, Architecture arch, GpuPackFile file) =>
-    '${os.name}-${arch.name}/${file.sha256}/${file.name}.gz';
-
-/// Writes [source] gzipped to [destination] unless it exists. A pack path
-/// contains the file SHA-256, so an existing file is never stale.
-Future<void> _writeGpuPackFile({
-  required File source,
-  required File destination,
-  required Logger logger,
-}) async {
-  if (await destination.exists()) return;
-  await destination.parent.create(recursive: true);
-  final temp = File('${destination.path}.tmp$pid');
-  await temp.writeAsBytes(gzip.encode(await source.readAsBytes()));
-  await temp.rename(destination.path);
-  logger.info('Wrote GPU pack file ${destination.path}');
-}
 
 // ─────────────────────────────────────────────────────────────────────────
 //   cache layouts
@@ -1063,17 +1070,6 @@ final class _SplitLayout extends _CacheLayout {
     }
     return const {};
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-//   dependencies
-// ─────────────────────────────────────────────────────────────────────────
-
-void _declareDependencies(
-  BuildOutputBuilder output,
-  List<SourceFileFingerprint> sourceFiles,
-) {
-  output.dependencies.addAll(sourceFiles.map((f) => f.absoluteUri));
 }
 
 // ─────────────────────────────────────────────────────────────────────────

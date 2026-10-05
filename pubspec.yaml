@@ -19,6 +19,10 @@ dependencies:
   # Native assets build hook dependencies
   hooks: any
   code_assets: any
+  native_prebuilt:
+    git:
+      url: https://github.com/Telosnex/native_prebuilt.git
+      ref: c2d414c6a3dd34ad57be0952fe6eb291ccf945f7
   native_toolchain_cmake: ^0.2.4
   logging: any
   crypto: any

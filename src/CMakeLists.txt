@@ -143,15 +143,20 @@ endif()
 target_link_libraries(server-context PUBLIC llama-common mtmd ${CMAKE_THREAD_LIBS_INIT})
 
 # GPU packs (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D13): backend libraries
-# that the app downloads instead of bundling. fllama contains the SHA-256 of
-# each pack file and loads only files that match.
+# that the app downloads instead of bundling. fllama contains the SHA-256 and
+# the URL of each pack file and loads only files that match. Only a release
+# build (docs/ADR_005_PREBUILT_NATIVE_LIBRARIES.md, D7) sets the URL. Without
+# it, ggml-vulkan is a normal library next to fllama.
+set(FLLAMA_GPU_PACK_VULKAN_URL "" CACHE STRING
+  "Release URL of the gzipped ggml-vulkan GPU pack file")
 set(FLLAMA_GPU_PACK_ARGS -DFILE_COUNT=0)
 set(FLLAMA_GPU_PACK_DEPENDS "")
-if(GGML_BACKEND_DL AND GGML_VULKAN)
+if(GGML_BACKEND_DL AND GGML_VULKAN AND FLLAMA_GPU_PACK_VULKAN_URL)
   set(FLLAMA_GPU_PACK_ARGS
     -DFILE_COUNT=1
     -DFILE_0_PACK=vulkan
-    "-DFILE_0_PATH=$<TARGET_FILE:ggml-vulkan>")
+    "-DFILE_0_PATH=$<TARGET_FILE:ggml-vulkan>"
+    "-DFILE_0_URL=${FLLAMA_GPU_PACK_VULKAN_URL}")
   set(FLLAMA_GPU_PACK_DEPENDS ggml-vulkan "$<TARGET_FILE:ggml-vulkan>")
 endif()
 set(FLLAMA_GPU_PACKS_CPP "${CMAKE_BINARY_DIR}/fllama_gpu_packs.cpp")

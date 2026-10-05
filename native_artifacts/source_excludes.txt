@@ -1,0 +1,13 @@
+# Files that the native build does not read (ADR 005 D3). The hook reads
+# hook/, src/ and pubspec.yaml.
+analysis_options.yaml
+assets/
+codemagic.yaml
+dev/
+ffigen.yaml
+fllama.png
+fllama_header.png
+ios/
+macos/
+scripts/
+windows/

@@ -1,0 +1,270 @@
+# Builds the native libraries for every target and publishes the files as a
+# GitHub release (docs/ADR_005_PREBUILT_NATIVE_LIBRARIES.md, D5, D6, D8).
+# Start it with
+#   git push -f origin HEAD:native-release       (release)
+#   git push -f origin HEAD:native-release-dry   (build only, no upload)
+# or with workflow_dispatch. On success it pushes the branch
+# native-manifest/<tag> with native_artifacts/prebuilt.json. Merge that
+# branch to use the release.
+name: native release
+run-name: Native release / ${{ (github.ref_name == 'native-release-dry' || inputs.dry_run) && 'build only' || 'publish' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build only, upload nothing.
+        type: boolean
+        default: false
+  push:
+    branches: [native-release, native-release-dry]
+
+concurrency:
+  group: native-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  FLUTTER_VERSION: 3.47.1
+  NDK_VERSION: 28.2.13676358
+  # ADR 004 §5. hook/build.dart looks for this version on Windows.
+  VULKAN_SDK_VERSION: 1.4.357.0
+  VULKAN_SDK_WINDOWS_SHA256: 81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d
+  VULKAN_SDK_LINUX_SHA256: 0f09bf6a0625e346bf004be70b92907e934a4c76606b323441b2baf3a5a0e66d
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: windows-x64, runner: windows-2022 }
+          - { target: windows-arm64, runner: windows-11-arm }
+          - { target: linux-x64, runner: ubuntu-22.04 }
+          - { target: linux-arm64, runner: ubuntu-22.04-arm }
+          - { target: macos-arm64, runner: macos-15 }
+          - { target: macos-x64, runner: macos-15 }
+          - { target: ios-arm64-iphoneos, runner: macos-15 }
+          - { target: ios-arm64-iphonesimulator, runner: macos-15 }
+          - { target: ios-x64-iphonesimulator, runner: macos-15 }
+          - { target: android-arm, runner: ubuntu-22.04 }
+          - { target: android-arm64, runner: ubuntu-22.04 }
+          - { target: android-x64, runner: ubuntu-22.04 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      # fllama depends on the Flutter SDK. Flutter has no archive for ARM64
+      # Linux and Windows hosts, so every job uses a git clone of the tag.
+      - &flutter
+        name: Install Flutter
+        run: |
+          git clone -q --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" config --no-analytics > /dev/null
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
+
+      # Files go to $RUNNER_TEMP: untracked files in the checkout count in
+      # the source key.
+      - name: Set paths
+        run: echo "OUT=$RUNNER_TEMP/native" >> "$GITHUB_ENV"
+
+      - name: Install the Vulkan SDK (Windows)
+        if: matrix.target == 'windows-x64'
+        run: |
+          exe="$RUNNER_TEMP/vulkansdk.exe"
+          curl -sSfLo "$exe" "https://sdk.lunarg.com/sdk/download/$VULKAN_SDK_VERSION/windows/vulkansdk-windows-X64-$VULKAN_SDK_VERSION.exe"
+          echo "$VULKAN_SDK_WINDOWS_SHA256  $exe" | sha256sum -c -
+          "$exe" --accept-licenses --default-answer --confirm-command install
+          test -f "/c/VulkanSDK/$VULKAN_SDK_VERSION/Include/vulkan/vulkan_core.h"
+
+      # hook/build.dart finds the Linux SDK in the system directories, where
+      # distribution packages put it (ADR 004 §5). Ubuntu 22.04 packages are
+      # too old, so this copies the pinned LunarG SDK there.
+      - name: Install the Vulkan SDK (Linux)
+        if: matrix.target == 'linux-x64'
+        run: |
+          tar="$RUNNER_TEMP/vulkansdk.tar.xz"
+          curl -sSfLo "$tar" "https://sdk.lunarg.com/sdk/download/$VULKAN_SDK_VERSION/linux/vulkansdk-linux-x86_64-$VULKAN_SDK_VERSION.tar.xz"
+          echo "$VULKAN_SDK_LINUX_SHA256  $tar" | sha256sum -c -
+          tar -xJf "$tar" -C "$RUNNER_TEMP"
+          sdk="$RUNNER_TEMP/$VULKAN_SDK_VERSION/x86_64"
+          sudo cp -r "$sdk/include/vulkan" "$sdk/include/vk_video" "$sdk/include/spirv" /usr/include/
+          sudo mkdir -p /usr/share/cmake
+          sudo cp -r "$sdk/share/cmake/SPIRV-Headers" /usr/share/cmake/
+          sudo cp -P "$sdk"/lib/libvulkan.so* /usr/lib/x86_64-linux-gnu/
+          sudo cp "$sdk/bin/glslc" /usr/local/bin/
+          sudo ldconfig
+          glslc --version | sed -n 1p
+
+      # hook/build.dart builds Windows ARM64 with the ClangCL toolset.
+      - name: Check the ClangCL toolset
+        if: matrix.target == 'windows-arm64'
+        shell: pwsh
+        run: |
+          $installer = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer'
+          $vs = & "$installer\vswhere.exe" -latest -products * -property installationPath
+          if (-not (Test-Path "$vs\VC\Tools\Llvm")) {
+            Write-Host "Adding the ClangCL components to $vs"
+            $p = Start-Process -Wait -PassThru "$installer\vs_installer.exe" -ArgumentList @(
+              'modify', '--installPath', "`"$vs`"",
+              '--add', 'Microsoft.VisualStudio.Component.VC.Llvm.Clang',
+              '--add', 'Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset',
+              '--quiet', '--norestart', '--nocache')
+            if ($p.ExitCode -ne 0) { throw "vs_installer exit code $($p.ExitCode)" }
+          }
+          Get-ChildItem -Recurse -Filter clang-cl.exe "$vs\VC\Tools\Llvm" | Select-Object -First 3 FullName
+
+      - name: Install the NDK
+        if: startsWith(matrix.target, 'android-')
+        run: |
+          { yes || true; } | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" > /dev/null
+          test -d "$ANDROID_HOME/ndk/$NDK_VERSION"
+
+      - name: Describe the toolchain
+        id: toolchain
+        run: |
+          case "${{ matrix.target }}" in
+            android-*) t="Android NDK $NDK_VERSION" ;;
+            windows-*)
+              vs="$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -property catalog_productDisplayVersion || true)"
+              t="Visual Studio ${vs:-unknown}"
+              if [[ "${{ matrix.target }}" == windows-x64 ]]; then t="$t, MSVC, Vulkan SDK $VULKAN_SDK_VERSION"; else t="$t, ClangCL"; fi ;;
+            macos-*|ios-*) t="$(xcodebuild -version | sed -n 1p)" ;;
+            linux-x64) t="$(gcc --version | sed -n 1p), Vulkan SDK $VULKAN_SDK_VERSION" ;;
+            linux-*) t="$(gcc --version | sed -n 1p)" ;;
+          esac
+          echo "Toolchain: $t"
+          echo "value=$t" >> "$GITHUB_OUTPUT"
+
+      - run: dart pub get
+
+      - &clean
+        name: Check that the work tree is clean
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git status --porcelain
+            echo "::error::Untracked or changed files would change the source key."
+            exit 1
+          fi
+
+      - name: Source key
+        run: |
+          mkdir -p "$OUT/key"
+          dart run native_prebuilt:key --list > "$OUT/key/${{ matrix.target }}.txt"
+          tail -1 "$OUT/key/${{ matrix.target }}.txt"
+
+      - name: Build
+        env:
+          TOOLCHAIN: ${{ steps.toolchain.outputs.value }}
+        run: |
+          defines=()
+          if [[ "${{ matrix.target }}" == android-* ]]; then
+            defines+=(--define "android={\"android_home\":\"$ANDROID_HOME\",\"ndk_version\":\"$NDK_VERSION\"}")
+          fi
+          dart run native_prebuilt:build \
+            --target "${{ matrix.target }}" \
+            --out "$OUT/out/${{ matrix.target }}" \
+            --runner "${{ matrix.runner }}" \
+            --toolchain "$TOOLCHAIN" \
+            "${defines[@]}"
+          cat "$OUT/out/${{ matrix.target }}/target.json"
+
+      - *clean
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-${{ matrix.target }}
+          path: ${{ runner.temp }}/native/
+          if-no-files-found: error
+          retention-days: 90
+
+  release:
+    needs: build
+    # Only the owner publishes, from this repository.
+    if: >-
+      github.repository == 'Telosnex/fllama' &&
+      github.actor == 'jpohhhh' && github.triggering_actor == 'jpohhhh'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      DRY_RUN: ${{ github.ref_name == 'native-release-dry' || inputs.dry_run == true }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - *flutter
+      - run: dart pub get
+      - run: echo "ARTIFACTS=$RUNNER_TEMP/artifacts" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: native-*
+          path: ${{ runner.temp }}/artifacts
+          merge-multiple: true
+
+      - name: Compare the source keys of all runners (I2)
+        run: |
+          dart run native_prebuilt:key --list > "$RUNNER_TEMP/local-key.txt"
+          status=0
+          for f in "$ARTIFACTS"/key/*.txt; do
+            if ! diff -u "$RUNNER_TEMP/local-key.txt" "$f"; then
+              echo "::error::The source key on $(basename "$f" .txt) differs."
+              status=1
+            fi
+          done
+          exit $status
+
+      # ADR 004 D7, I4: Windows x64 and Linux x64 have a Vulkan GPU pack.
+      - name: Check the GPU packs
+        run: |
+          for t in windows-x64 linux-x64; do
+            grep -q '"pack": "vulkan"' "$ARTIFACTS/out/$t/target.json" \
+              || { echo "::error::$t has no Vulkan GPU pack."; exit 1; }
+          done
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(--staging "$RUNNER_TEMP/staging")
+          if [[ "$DRY_RUN" == true ]]; then args+=(--dry-run); fi
+          dart run native_prebuilt:release "${args[@]}" "$ARTIFACTS/out"
+          cat native_artifacts/prebuilt.json
+
+      - name: Push the manifest branch
+        if: env.DRY_RUN != 'true'
+        run: |
+          tag="native-$(dart run native_prebuilt:key | tail -1 | cut -c1-16)"
+          branch="native-manifest/$tag"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add native_artifacts/prebuilt.json
+          git commit -m "native: prebuilt files of release $tag"
+          git push origin "$branch"
+          {
+            echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
+            echo
+            echo "Merge branch \`$branch\` to use it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prebuilt-manifest
+          path: native_artifacts/prebuilt.json

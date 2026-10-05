@@ -10,6 +10,7 @@ struct FllamaGpuPackFile {
   const char *pack;   // Pack name, for example "vulkan".
   const char *name;   // File name, for example "ggml-vulkan.dll".
   const char *sha256; // Lowercase hex SHA-256 of the file.
+  const char *url;    // The gzipped file in the fllama GitHub release.
 };
 
 // kFllamaGpuPackFileCount entries. With no packs, the array has one

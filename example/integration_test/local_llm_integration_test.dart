@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' show Abi;
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fllama/fllama.dart' as fllama;
 import 'package:flutter/foundation.dart';
@@ -337,21 +338,36 @@ void main() {
   });
 }
 
-/// Gunzips [files] from the example's `gpu_pack_dir` (see pubspec.yaml) into
-/// a new temporary directory, as an app does after a download.
+/// Downloads and gunzips [files] from the fllama GitHub release into a new
+/// temporary directory, as an app does (ADR 004 D14). The files are cached in
+/// the system temporary directory by SHA-256.
 Future<Directory> _unpackGpuPack(List<fllama.FllamaGpuPackFile> files) async {
   final dir = await Directory.systemTemp.createTemp('fllama_pack');
   for (final file in files) {
-    final gz = File(
-      path.join(
-        Directory.current.path,
-        'build',
-        'gpu_packs',
-        file.relativePath,
-      ),
+    final cached = File(
+      path.join(Directory.systemTemp.path, 'fllama_gpu_pack_${file.sha256}'),
     );
-    await File(path.join(dir.path, file.name))
-        .writeAsBytes(gzip.decode(await gz.readAsBytes()));
+    if (!await cached.exists()) {
+      print('[fllama integration] downloading ${file.url}');
+      final client = HttpClient();
+      try {
+        final request = await client.getUrl(Uri.parse(file.url));
+        final response = await request.close();
+        if (response.statusCode != HttpStatus.ok) {
+          throw HttpException('HTTP ${response.statusCode}', uri: request.uri);
+        }
+        final gz = await response.fold<BytesBuilder>(
+          BytesBuilder(copy: false),
+          (builder, chunk) => builder..add(chunk),
+        );
+        final temp = File('${cached.path}.tmp$pid');
+        await temp.writeAsBytes(gzip.decode(gz.takeBytes()));
+        await temp.rename(cached.path);
+      } finally {
+        client.close();
+      }
+    }
+    await cached.copy(path.join(dir.path, file.name));
   }
   return dir;
 }

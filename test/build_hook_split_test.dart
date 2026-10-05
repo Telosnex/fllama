@@ -2,7 +2,6 @@ import 'package:code_assets/code_assets.dart';
 import 'package:test/test.dart';
 
 import '../hook/build.dart' as hook;
-import '../hook/cache_key.dart';
 
 void main() {
   group('split libraries (ADR 004, D1)', () {
@@ -114,58 +113,57 @@ void main() {
     test('reads the GPU pack list that CMake writes', () {
       expect(hook.parseGpuPackFiles('[]'), isEmpty);
       final files = hook.parseGpuPackFiles(
-        '[{"pack":"vulkan","name":"ggml-vulkan.dll","sha256":"ab12"}]',
+        '[{"pack":"vulkan","name":"ggml-vulkan.dll","sha256":"ab12",'
+        '"url":"https://example.com/windows-x64-ggml-vulkan.dll.gz"}]',
       );
       expect(files, hasLength(1));
       expect(files.single.pack, 'vulkan');
       expect(files.single.name, 'ggml-vulkan.dll');
       expect(files.single.sha256, 'ab12');
+      expect(
+        files.single.url,
+        'https://example.com/windows-x64-ggml-vulkan.dll.gz',
+      );
     });
 
-    test('GPU pack paths contain the platform and SHA-256 (ADR 004, §5)', () {
-      const file = hook.GpuPackFile(
-        pack: 'vulkan',
-        name: 'libggml-vulkan.so',
-        sha256: 'ab12',
+    test('only a release build makes ggml-vulkan a GPU pack (ADR 005 D7)', () {
+      const sdk = hook.VulkanSdk(headerVersion: 357);
+      const url =
+          'https://github.com/Telosnex/fllama/releases/download/native-0123456789abcdef/windows-x64-ggml-vulkan.dll.gz';
+      expect(
+        hook.computeDefines(OS.windows, Architecture.x64, '', vulkan: sdk),
+        isNot(contains('FLLAMA_GPU_PACK_VULKAN_URL')),
       );
       expect(
-        hook.gpuPackRelativePath(OS.linux, Architecture.x64, file),
-        'linux-x64/ab12/libggml-vulkan.so.gz',
-      );
-      expect(
-        hook.gpuPackRelativePath(
+        hook.computeDefines(
           OS.windows,
           Architecture.x64,
-          const hook.GpuPackFile(
-            pack: 'vulkan',
-            name: 'ggml-vulkan.dll',
-            sha256: 'ab12',
-          ),
+          '',
+          vulkan: sdk,
+          vulkanPackUrl: url,
+        )['FLLAMA_GPU_PACK_VULKAN_URL'],
+        url,
+      );
+      // No Vulkan backend, no pack.
+      expect(
+        hook.computeDefines(
+          OS.windows,
+          Architecture.x64,
+          '',
+          vulkanPackUrl: url,
         ),
-        'windows-x64/ab12/ggml-vulkan.dll.gz',
+        isNot(contains('FLLAMA_GPU_PACK_VULKAN_URL')),
       );
     });
 
-    test('the Vulkan header version changes the build key', () {
-      String key(Map<String, String> extra) => computeBuildKey(
-        os: 'windows',
-        arch: 'x64',
-        defines: const {'GGML_VULKAN': 'ON'},
-        extra: extra,
-        sourceFiles: const [],
+    test('library file names', () {
+      expect(
+        hook.sharedLibraryFileName(OS.windows, 'ggml-vulkan'),
+        'ggml-vulkan.dll',
       );
       expect(
-        key({'vulkan_header': '357'}),
-        isNot(key({'vulkan_header': '358'})),
-      );
-      expect(
-        key(const {}),
-        computeBuildKey(
-          os: 'windows',
-          arch: 'x64',
-          defines: const {'GGML_VULKAN': 'ON'},
-          sourceFiles: const [],
-        ),
+        hook.sharedLibraryFileName(OS.linux, 'ggml-vulkan'),
+        'libggml-vulkan.so',
       );
     });
   });

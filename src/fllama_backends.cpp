@@ -470,9 +470,11 @@ std::string fllama_backends_gpu_pack_files_json() {
     if (i > 0) {
       json += ",";
     }
-    // Pack names, file names and hex digests need no JSON escaping.
+    // Pack names, file names, hex digests and the URLs need no JSON
+    // escaping (src/cmake/gpu_packs.cmake checks the URLs).
     json += std::string("{\"pack\":\"") + file.pack + "\",\"name\":\"" +
-            file.name + "\",\"sha256\":\"" + file.sha256 + "\"}";
+            file.name + "\",\"sha256\":\"" + file.sha256 +
+            "\",\"url\":\"" + file.url + "\"}";
   }
   return json + "]";
 }

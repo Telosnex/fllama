@@ -110,9 +110,9 @@ class FllamaTokenizeRequest {
 /// A file of a GPU pack: a ggml GPU backend that the app downloads instead
 /// of bundling (fllama docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D13).
 ///
-/// The app downloads [relativePath] below [fllamaGpuPackObjectPrefix] from
-/// its file host, gunzips it to `<directory>/<name>`, and then calls
-/// `fllamaLoadGpuPack(pack, directory)`.
+/// The app downloads [url], gunzips it to `<directory>/<name>`, and then
+/// calls `fllamaLoadGpuPack(pack, directory)`. fllama loads the file only if
+/// its SHA-256 is [sha256].
 class FllamaGpuPackFile {
   /// Pack name, for example `vulkan`. Every file of a pack has the same name.
   final String pack;
@@ -124,23 +124,20 @@ class FllamaGpuPackFile {
   /// file with this SHA-256.
   final String sha256;
 
-  /// `<os>-<arch>/<sha256>/<name>.gz`, for example
-  /// `windows-x64/3f9a…/ggml-vulkan.dll.gz`.
-  final String relativePath;
+  /// The gzipped file in the fllama GitHub release, for example
+  /// `https://github.com/Telosnex/fllama/releases/download/native-<16 hex>/windows-x64-ggml-vulkan.dll.gz`.
+  final String url;
 
   const FllamaGpuPackFile({
     required this.pack,
     required this.name,
     required this.sha256,
-    required this.relativePath,
+    required this.url,
   });
 
   @override
-  String toString() => 'FllamaGpuPackFile($relativePath)';
+  String toString() => 'FllamaGpuPackFile($url)';
 }
-
-/// Object name prefix of GPU pack files in the file host.
-const fllamaGpuPackObjectPrefix = 'fllama-gpu-packs/';
 
 class FllamaGpuMemoryInfo {
   final int deviceIndex;

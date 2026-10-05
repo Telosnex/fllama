@@ -97,8 +97,10 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_set_gpu_allowed(uint8_t allowe
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char * fllama_get_loaded_backends(void);
 
 // JSON array of the GPU pack files that this fllama build expects:
-// [{"pack":"vulkan","name":"ggml-vulkan.dll","sha256":"<64 hex>"}].
-// "[]" if the build has no packs. The app downloads each file and calls
+// [{"pack":"vulkan","name":"ggml-vulkan.dll","sha256":"<64 hex>",
+//   "url":"<gzipped file in the fllama GitHub release>"}].
+// "[]" if the build has no packs, for example a local source build, which
+// bundles its GPU backends. The app downloads and gunzips each file and calls
 // fllama_load_gpu_pack. The string is owned by fllama and never changes.
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT const char * fllama_get_gpu_pack_files(void);
 

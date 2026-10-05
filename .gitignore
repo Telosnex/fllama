@@ -34,4 +34,6 @@ example/android/app/.cxx/
 /dev/web_smoke/node_modules/
 /tmp/
 ios/Flutter/ephemeral/**
+# flutter pub get at the package root writes these.
+/ios/Flutter/
 macos/Flutter/ephemeral/**

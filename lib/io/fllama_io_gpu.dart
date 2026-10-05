@@ -31,38 +31,24 @@ Future<List<String>> fllamaLoadedBackendFiles() async {
 }
 
 /// GPU pack files that this fllama build expects (ADR 004, D13). Empty if
-/// the build has none, for example on Apple and Android, or when the build
-/// machine had no Vulkan SDK.
+/// the build has no packs: on Apple and Android, and in a local source build,
+/// which bundles its GPU backends (ADR 005, D7).
 List<FllamaGpuPackFile> fllamaGpuPackFiles() {
   final json = fllamaBindings
       .fllama_get_gpu_pack_files()
       .cast<pkg_ffi.Utf8>()
       .toDartString();
-  final platform = _gpuPackPlatform();
   return [
     for (final entry in jsonDecode(json) as List<Object?>)
       if (entry case {
         'pack': final String pack,
         'name': final String name,
         'sha256': final String sha256,
+        'url': final String url,
       })
-        FllamaGpuPackFile(
-          pack: pack,
-          name: name,
-          sha256: sha256,
-          relativePath: '$platform/$sha256/$name.gz',
-        ),
+        FllamaGpuPackFile(pack: pack, name: name, sha256: sha256, url: url),
   ];
 }
-
-/// `<os>-<arch>` of GPU pack paths. hook/build.dart writes the same names.
-String _gpuPackPlatform() => switch (ffi.Abi.current()) {
-  ffi.Abi.windowsX64 => 'windows-x64',
-  ffi.Abi.windowsArm64 => 'windows-arm64',
-  ffi.Abi.linuxX64 => 'linux-x64',
-  ffi.Abi.linuxArm64 => 'linux-arm64',
-  final abi => abi.toString().replaceAll('_', '-'),
-};
 
 /// Loads the GPU pack [pack] from [directory], which contains every file of
 /// the pack, not gzipped. fllama checks the SHA-256 of each file first.

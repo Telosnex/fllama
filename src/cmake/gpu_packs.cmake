@@ -2,7 +2,8 @@
 # (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D13).
 #
 # cmake -DOUT_CPP=<file> -DOUT_JSON=<file> -DFILE_COUNT=<n>
-#       -DFILE_<i>_PACK=<pack> -DFILE_<i>_PATH=<library> -P gpu_packs.cmake
+#       -DFILE_<i>_PACK=<pack> -DFILE_<i>_PATH=<library>
+#       -DFILE_<i>_URL=<gzipped release asset> -P gpu_packs.cmake
 #
 # OUT_CPP defines the table that src/fllama_gpu_packs.h declares. OUT_JSON
 # lists the same files for hook/build.dart, which publishes them as packs
@@ -14,20 +15,25 @@ if(FILE_COUNT GREATER 0)
   foreach(i RANGE ${last})
     set(pack "${FILE_${i}_PACK}")
     set(path "${FILE_${i}_PATH}")
+    set(url "${FILE_${i}_URL}")
     if(NOT EXISTS "${path}")
       message(FATAL_ERROR "GPU pack file is missing: ${path}")
     endif()
+    if(NOT url MATCHES "^https://[^\"\\]+$")
+      message(FATAL_ERROR "GPU pack file ${path} has no valid URL: ${url}")
+    endif()
     file(SHA256 "${path}" sha256)
     get_filename_component(name "${path}" NAME)
-    string(APPEND entries "    {\"${pack}\", \"${name}\", \"${sha256}\"},\n")
+    string(APPEND entries
+      "    {\"${pack}\", \"${name}\", \"${sha256}\", \"${url}\"},\n")
     if(i GREATER 0)
       string(APPEND json ",")
     endif()
     string(APPEND json
-      "{\"pack\":\"${pack}\",\"name\":\"${name}\",\"sha256\":\"${sha256}\"}")
+      "{\"pack\":\"${pack}\",\"name\":\"${name}\",\"sha256\":\"${sha256}\",\"url\":\"${url}\"}")
   endforeach()
 else()
-  set(entries "    {nullptr, nullptr, nullptr},\n")
+  set(entries "    {nullptr, nullptr, nullptr, nullptr},\n")
 endif()
 string(APPEND json "]")
 
