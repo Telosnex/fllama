@@ -599,3 +599,23 @@ Ranked by irreversibility.
   hook. §5: `native_release` holds the repository; manifest fields `asset`
   and `minOSVersion`; the `key` command; the release command derives the
   tag.
+- 2026-10-05: iOS correction approved and complete. The default release
+  version in §5 is now iOS 13, not the template's iOS 15. Flutter 3.47
+  passes its fixed `targetIOSVersion` 13 to every hook, regardless of the
+  app's deployment target (Flutter issue 145104). A prebuilt library that
+  requires 15 cannot serve that request. Native_prebuilt commit `e995f40`
+  documents this at `defaultIOSVersion` in `lib/src/release_tool.dart`.
+  Its regression test checks that an iOS release with the default version
+  serves a request for 13 in both auto and download modes.
+
+  All 57 shared package tests pass. All three consumers pin that same commit.
+  New immutable releases: fllama `native-0ca5c1a22d0af063` (51 files),
+  webcrypto `native-9366b7f0cd50b313` (12 files), image_ffmpeg
+  `native-845e97ea23feb5e6` (12 files). All three release workflows pass
+  for all 12 targets. Each package passes `native_prebuilt:check`.
+
+  The three iOS targets of each package pass actual hook runs in auto and
+  download modes with a request for iOS 13. Every published file matches
+  its release SHA-256. A fresh Flutter iOS Simulator app with all three
+  Git dependencies builds in default auto mode from the pub cache, with
+  no source fallback for these packages.
