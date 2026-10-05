@@ -96,13 +96,18 @@ D2: The build mode is the user define native_build: auto (default),
     uses old prebuilt files without an error (R3).
 
 D3: The source key is the SHA-256 of every file in the package, minus a
-    fixed exclude list (§5). The key does not contain host data: no paths,
-    no times, no compiler versions. Each package sets
-    `* text=auto eol=lf` in .gitattributes.
+    fixed exclude list (§5). In a git work tree, `git ls-files` gives the
+    file list, so ignored build output does not count. Otherwise the hook
+    lists the directory. Both hash the file contents on disk. The key does
+    not contain host data: no paths, no times, no compiler versions. Each
+    package sets `* text=auto eol=lf` in .gitattributes.
     Because: R3, Problem item 7
     Instead of: a list of the input files. A file that the list omits
     changes the build but not the key (risk 2).
-    Instead of: the git tree hash. A pub.dev package has no .git directory.
+    Instead of: the git tree hash. A pub.dev package has no .git directory,
+    and the tree hash does not see a local edit before a commit.
+    Instead of: lib/ in the key. The hooks and the native builds do not read
+    lib/. With lib/ in the key, every Dart change needs a native release.
 
 D4: The package keeps its local build key for its source build cache. That
     key contains the source key and the host toolchain.
@@ -120,14 +125,14 @@ D5: The prebuilt files are on GitHub Releases of the package repository.
     Instead of: binaries in git (R7).
 
 D6: The release workflow runs the hook of the package in mode source, with
-    native_release = true, once per target. It then uploads every output
+    native_release, once per target. It then uploads every output
     file and writes native_artifacts/prebuilt.json. A pull request carries
     the new manifest. The merge of that pull request is the release.
     Because: R2, R4, R10
     Instead of: separate release scripts, as image_ffmpeg and fonnx use now
     (Problem item 4).
 
-D7: native_release = true changes only what the package needs for hosted
+D7: native_release changes only what the package needs for hosted
     files. For fllama: GPU backends become GPU packs with SHA-256 values and
     URLs inside fllama.dll (ADR 004 D13). Without native_release, the hook
     publishes the GPU backends as code assets, and fllama loads them at the
@@ -163,8 +168,8 @@ D12: The manifest has a runtimeFiles section for files that do not depend
      on the target and that the hook does not build (fonnx models). Each
      entry has a name, a SHA-256, a size and a URL. The release workflow
      uploads new files to a release named after a hash of the section
-     (§5). The hook generates a Dart file with the section, so the package
-     can give the list to the app.
+     (§5). The same command writes a Dart file with the section, so the
+     package can give the list to the app.
      Because: R6, R13, R14
      Instead of: models in the per-target section. Every target then repeats
      the same entries.
@@ -192,20 +197,22 @@ D11: Adoption order: webcrypto, fllama, image_ffmpeg, fonnx.
 I1: The hook publishes a prebuilt file only if its SHA-256 is equal to the
     manifest value.
     If violated: an app ships a file that its package source did not pin.
-    Pinned by: planned unit test with a changed cache entry and with a
-    changed download.
+    Pinned by: native_prebuilt test/fetch_test.dart and test/hook_test.dart
+    ("I1: ..."): a changed cache entry, and a changed download.
 
 I2: The source key is equal on macOS, Linux and Windows for the same
     commit, from a git checkout and from the pub cache.
     If violated: auto builds from source on some hosts, and download fails
     there.
-    Pinned by: planned release workflow job that computes the key on the
-    three runner types and compares it to the manifest.
+    Pinned by: planned release workflow job that runs `native_prebuilt:key`
+    on the three runner types and compares it to the manifest. Unit test:
+    git listing equals a directory walk (test/source_key_test.dart).
 
 I3: In mode auto, a change to a file that is not excluded (§5) makes the
     hook build from source.
     If violated: a local change has no effect, with no error (R3).
-    Pinned by: planned unit test that changes one source file.
+    Pinned by: native_prebuilt test/source_key_test.dart,
+    test/hook_test.dart and test/end_to_end_test.dart.
 
 I4: Each manifest at a commit on the main branch refers only to files that
     exist and have the manifest SHA-256.
@@ -217,8 +224,9 @@ I4: Each manifest at a commit on the main branch refers only to files that
 I5: The source build and the prebuilt build of one package give the same
     code asset IDs and the same file names, except the GPU pack files of D7.
     If violated: Dart code finds a library in one mode and not in the other.
-    Pinned by: planned check in the release workflow that compares the asset
-    list of mode source with the manifest.
+    Pinned by: `native_prebuilt:build` takes each `asset` from the hook
+    output of the release build, and download mode publishes that name.
+    native_prebuilt test/end_to_end_test.dart runs both modes.
 
 I6: All files of one target come from one hook run (ADR 004 I5).
     If violated: files from two builds load in one process.
@@ -227,8 +235,8 @@ I6: All files of one target come from one hook run (ADR 004 I5).
 I7: The runtime library never leaves a file at its final path unless the
     file has the expected SHA-256.
     If violated: an app loads a partial or changed model or GPU pack.
-    Pinned by: planned unit tests with a cut download and a changed
-    download.
+    Pinned by: native_prebuilt test/fetch_test.dart ("I7: ..."): a cut
+    download, a changed download, and a wrong file after gunzip.
 ```
 
 ## 5. Formats & names
@@ -238,8 +246,14 @@ pubspec:
 
 ```
 native_build: auto | download | source   # default auto
-native_release: true                     # set only by the release workflow
+native_release: <owner>/<repo>           # set only by native_prebuilt:build
+native_prebuilt_cache: <path>            # optional, changes the D9 cache
 ```
+
+`native_release` holds the repository of the release, so a release build
+can contain the URLs of its runtime files (ADR 004 D13). The fork
+webcrypto.dart keeps the upstream `repository` field in its pubspec, so the
+pubspec cannot supply it.
 
 Target names (`<os>-<arch>`, iOS with the SDK):
 
@@ -268,7 +282,8 @@ Manifest: `native_artifacts/prebuilt.json` in each package.
           "sha256": "<64 hex>",
           "url": "https://github.com/Telosnex/fllama/releases/download/native-<16 hex>/windows-x64-fllama.dll.gz",
           "downloadSha256": "<64 hex>",
-          "delivery": "bundle"
+          "delivery": "bundle",
+          "asset": "fllama_bindings_generated.dart"
         },
         {
           "name": "ggml-vulkan.dll",
@@ -302,6 +317,13 @@ Manifest: `native_artifacts/prebuilt.json` in each package.
   archive (fonnx upstream files).
 - `delivery`: `bundle` (a code asset in the app) or `runtime` (the app
   downloads it after install, ADR 004 D14).
+- `asset`: the code asset name of a bundle file, without
+  `package:<package>/`. The hook publishes the download under this name
+  (I5).
+- `minOSVersion`: per target, for iOS and macOS (major version) and Android
+  (API level). In mode auto, an app that supports an older OS builds from
+  source. Release builds use iOS 15, macOS 12 and Android API 24, the values
+  of the Flutter app template.
 - A manifest without a target means: no prebuilt files for that target.
 
 Release tag: `native-<first 16 hex of the source key>`. Asset name:
@@ -311,24 +333,39 @@ Runtime file release tag: `runtime-<first 16 hex>` of the SHA-256 over the
 lines `<name>\t<sha256>\n`, sorted by name. Asset name: `<name>.gz`. A new
 release has every file of the section, so an old app keeps its URLs.
 
-Generated Dart file: `lib/src/native_prebuilt.g.dart` with the
-`runtimeFiles` section as constants. It is in the exclude list of the
-source key.
+Generated Dart file: `lib/src/native_prebuilt.g.dart`, a const map
+`nativePrebuiltRuntimeFiles` from file name to `RuntimeFile`. lib/ is
+excluded from the source key.
 
 Source key: SHA-256 over the lines `<path>\t<SHA-256 of the file>\n`, sorted
-by path, for every file in the package root. Paths use `/`. Excluded:
+by path. Paths use `/`. A link counts as the text of its target, which is
+what git checks out on a host without links. Files: the output of
+`git ls-files --cached --others --exclude-standard` in a git work tree that
+tracks `pubspec.yaml`, otherwise every file under the package root.
+Excluded:
 
 ```
-.git/  .dart_tool/  build/  example/  test/  integration_test/  docs/
-native_artifacts/prebuilt.json  lib/src/native_prebuilt.g.dart
-*.md  pubspec.lock
+top level:   any name that starts with "."   *.md   pubspec.lock
+             build/  docs/  example/  integration_test/  lib/  test/
+             native_artifacts/prebuilt.json
+any depth:   .git/  .dart_tool/
 ```
 
-A package can add excludes in its hook. It cannot remove these.
+A package adds excludes in `native_artifacts/source_excludes.txt`, one per
+line, with the same syntax (`dir/` or an exact path). That file is in the
+key. A package cannot remove the default excludes.
 
-Cache: `<user cache>/native_prebuilt/<sha256>/<file name>`. `<user cache>`
+The hook keeps the hash of each file with its size and modification time
+in `<user cache>/native_prebuilt/source_keys/`. It hashes again only the
+files that changed. fllama has 3,475 files and 177 MB, which take 1.7 s to
+hash. The commands always hash every file.
+
+Cache: `<user cache>/native_prebuilt/<sha256>/<file name>`, with the lock
+`<sha256>.lock` next to it. A downloaded archive is at
+`<user cache>/native_prebuilt/<downloadSha256>/<file name>`. `<user cache>`
 is `%LOCALAPPDATA%` on Windows, `~/Library/Caches` on macOS, and
-`$XDG_CACHE_HOME` or `~/.cache` on Linux.
+`$XDG_CACHE_HOME` or `~/.cache` on Linux. hooks_runner does not pass
+XDG_CACHE_HOME to hooks, so a hook on Linux uses `~/.cache`.
 
 Release workflow runners:
 
@@ -345,10 +382,21 @@ Commands of the shared package:
 
 ```
 dart run native_prebuilt:build --target <target> --out <dir>   # hook, mode source, native_release
-dart run native_prebuilt:release --tag native-<16 hex> <dirs…> # upload, write prebuilt.json
+dart run native_prebuilt:release <dirs…>                       # upload, write prebuilt.json
 dart run native_prebuilt:check [--download]                    # D10, I2, I4
 dart run native_prebuilt:runtime_release <files…>              # D12
+dart run native_prebuilt:key [--list]                          # print the source key
 ```
+
+`build` writes the files of one target and `target.json` to `--out`.
+`release` reads every `target.json` under its arguments. It checks that
+each source key equals the local key, gzips the files, and uploads them
+with `gh` to release `native-<16 hex>`, created as a draft and published
+when every asset is there. A published release with that tag is final, so
+`release` fails on it. `--repo` defaults to `GITHUB_REPOSITORY`, and
+`--dry-run` uploads nothing. `check` reads asset digests from the GitHub
+API, so it downloads nothing without `--download`. `key --list` prints the
+hashed lines, so two hosts can compare them with `diff` (I2).
 
 Shared package: `Telosnex/native_prebuilt` on GitHub, a git dependency of
 each package, pinned to a commit.
@@ -462,9 +510,15 @@ Ranked by irreversibility.
   `native_artifacts/manifest.json`.
 - **Step 1 spike (2026-10-05).** `native_prebuilt:build` can run a hook with
   no Flutter app. It builds a `BuildInput` with `BuildInputBuilder` and
-  `CodeAssetExtension` from `hooks` 1.0.3 and `code_assets` 1.0.0, writes it
-  to JSON, and runs `dart run hook/build.dart --config=<file>` in the package
-  root. `ProtocolBase.validateBuildOutput` then checks the output. User
+  `CodeAssetExtension` from `hooks` 1.0.3 and `code_assets` 1.0.0, and
+  writes it to JSON. Like hooks_runner, it then runs
+  `dart compile kernel` on `hook/build.dart` and runs the kernel file with
+  `--config=<file>`. (`dart run` first builds the hooks of the package
+  itself and bundles their output, so it fails on a library that is not
+  a real Mach-O file.) `ProtocolBase.validateBuildOutput` and
+  `CodeAssetExtension.validateBuildOutput` then check the output. With
+  `hooks` 2.2 and later, the command must call `setupLogger` on the
+  extension first. User
   defines go through `PackageUserDefines.workspacePubspec`. Results for
   webcrypto: macOS arm64, iOS arm64 and macOS x64 build in 10 s each with
   no validation errors. macOS x64 first failed at link time: the BoringSSL
@@ -479,3 +533,9 @@ Ranked by irreversibility.
 - 2026-10-05: First draft.
 - 2026-10-05: Approved. fonnx runtime files are models: R13, R14, D12, D13,
   I7.
+- 2026-10-05: Step 1 done (Telosnex/native_prebuilt). D3: git lists the
+  files, lib/ and top-level dot names are excluded, package excludes are in
+  `source_excludes.txt`. D12: the command writes the Dart file, not the
+  hook. §5: `native_release` holds the repository; manifest fields `asset`
+  and `minOSVersion`; the `key` command; the release command derives the
+  tag.
