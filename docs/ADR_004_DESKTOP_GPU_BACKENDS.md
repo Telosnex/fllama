@@ -1,5 +1,7 @@
 # ADR 004 — One desktop build per CPU architecture that selects the GPU and CPU code at run time
 Status: DRAFT (2026-10-04)
+Depends on: ADR 005 (prebuilt native libraries). A GPU pack works for every
+app only if every app uses the same fllama build.
 
 ## 1. Problem
 
@@ -133,14 +135,15 @@ D6: Build all Windows targets with GGML_OPENMP=OFF.
     debug_nonredist, so that file is not redistributable. One policy for all
     Windows targets is less to maintain.
 
-D7: The fllama build hook compiles a GPU backend from source when it finds
-    the pinned SDK for it. If it does not find the SDK, it builds the CPU
-    backends only and logs a warning. The Telosnex release script fails if
-    fllama expects no GPU pack, or if the release did not upload each pack
-    that fllama expects (I4).
+D7: Apps use the prebuilt fllama build of ADR 005. Its release workflow
+    installs the pinned GPU SDKs and compiles every GPU backend. A local
+    source build compiles a GPU backend when it finds the pinned SDK. If it
+    does not find the SDK, it builds the CPU backends only and logs a
+    warning. The fllama release workflow fails if a Windows x64 or Linux x64
+    build has no GPU pack (I4).
     Because: R9, R13, R14
-    Instead of: a hook option that makes the SDK mandatory. The release check
-    catches the same failure with one mechanism and no per-machine setting.
+    Instead of: a GPU build on each app build machine. Each machine then
+    needs the SDK, and each app must host its own packs (ADR 005 §1).
     Instead of: upstream prebuilt libraries (the fonnx pattern). They must
     match the local ggml-base exactly (I5).
 
@@ -193,13 +196,16 @@ D12: ARM64 GPU: the package contains the backend that wins the step 9
      backend stays in the package. If it is Vulkan and some Adreno drivers
      cannot run it, R8 applies.
 
-D13: A GPU pack is a set of backend libraries that the hook builds in the
-     same CMake build as fllama, but does not publish as code assets. The
-     build writes the SHA-256 of each pack file into fllama
-     (`src/cmake/gpu_packs.cmake` generates a source file, and a
-     `gpu_packs.json` that tells the hook which libraries are pack files). The release uploads each file to Backblaze B2 at a path
-     that contains its SHA-256 (§5). fllama_load_gpu_pack loads a file only
-     if its SHA-256 is equal to the value inside fllama.
+D13: A GPU pack is a set of backend libraries that the ADR 005 release
+     build (native_release) builds in the same CMake build as fllama, but
+     does not publish as code assets. The build writes the SHA-256 and the
+     URL of each pack file into fllama (`src/cmake/gpu_packs.cmake`
+     generates a source file, and a `gpu_packs.json` that tells the hook
+     which libraries are pack files). The fllama release workflow uploads
+     each file to the fllama GitHub release (ADR 005 §5).
+     fllama_load_gpu_pack loads a file only if its SHA-256 is equal to the
+     value inside fllama. A local source build has no GPU packs. It
+     publishes the GPU backends as code assets (ADR 005 D7).
      Because: R8, R12, I5
      Instead of: hashes in a manifest that the app downloads with the pack.
      The download can change both the file and the manifest (R12).
@@ -251,10 +257,10 @@ I3: Every library in a Windows package imports only Windows system DLLs,
 
 I4: Each Windows or Linux release package contains its baseline CPU
     variant. Its fllama library expects at least one GPU pack (Windows ARM64:
-    contains its GPU backend), and B2 has every pack file that it expects.
+    contains its GPU backend), and every pack URL returns its file.
     If violated: a release loses GPU support or CPU support without an error.
-    Pinned by: planned file check and B2 check in
-    dev/ci/releases/release.dart.
+    Pinned by: planned file check in dev/ci/releases/release.dart, and
+    native_prebuilt:check (ADR 005 D10, I4).
 
 I5: All ggml libraries in one process come from one build: the same
     llama.cpp commit and the same CMake options.
@@ -355,17 +361,10 @@ Code asset IDs: `package:fllama/fllama_io.dart` for `fllama`.
 `package:fllama/native/<file name without extension>` for each other library
 in the package. Pack files are not code assets.
 
-Hook user define `gpu_pack_dir` (a path, relative to the app pubspec). If it
-is set, the hook writes each pack file to
-`<gpu_pack_dir>/<os>-<arch>/<sha256>/<file name>.gz`. The Telosnex release
-script uploads this directory. If it is not set, the pack files stay only in
-the hook cache.
-
-B2 object name: `fllama-gpu-packs/<os>-<arch>/<sha256>/<file name>.gz`, for
-example `fllama-gpu-packs/windows-x64/3f9a…/ggml-vulkan.dll.gz`. `<sha256>`
-is the SHA-256 of the file before gzip, in lowercase hex. Objects are never
-deleted or changed, because released apps expect them. The bucket allows
-public reads.
+Pack file URL: the ADR 005 release asset
+`https://github.com/Telosnex/fllama/releases/download/native-<16 hex>/<target>-<file name>.gz`.
+The manifest entry has `delivery: runtime` and `pack: <pack>`. Released apps
+expect these files, so they are never deleted or changed (ADR 005 R6).
 
 The app writes the files of one pack to one directory, for example
 `%LOCALAPPDATA%\Telosnex\gpu-packs\<sha256 of the first file>\`. Paths must be
@@ -398,8 +397,9 @@ New FFI:
   backend libraries.
 - `fllama_get_gpu_pack_files()`: JSON array of the pack files that this
   fllama build expects:
-  `[{"pack": "vulkan", "name": "ggml-vulkan.dll", "sha256": "<64 hex>"}]`.
-  Empty array on platforms without packs.
+  `[{"pack": "vulkan", "name": "ggml-vulkan.dll", "sha256": "<64 hex>", "url": "<asset URL>"}]`.
+  `sha256` is the file after gunzip. Empty array on platforms without packs
+  and in a local source build.
 - `fllama_load_gpu_pack(const char *pack, const char *dir)`: checks the
   SHA-256 of each file of `pack` in `dir`, then loads them. Returns NULL on
   success or if the pack is loaded, else an error message. Errors: unknown
@@ -456,9 +456,9 @@ Ranked by irreversibility.
    Vulkan in the package for the Store (51.8 MB, R8 exception), packs for
    other channels. The NVIDIA license for the CUDA download is checked in
    step 12. Recovery: drop D8.
-4. **B2 is not available, or a pack object is deleted.** Released apps then
-   run on the CPU (I1). They do not fail. Recovery: upload the object again
-   from the release artifacts. The release keeps the `gpu_pack_dir` output.
+4. **GitHub Releases is not available, or a pack file is deleted.** Released
+   apps then run on the CPU (I1). They do not fail. ADR 005 risk 1 gives the
+   recovery.
 5. **Auto layers make Apple devices slower.** Apple GPUs use the same RAM
    as the CPU. llama.cpp counts the Metal working-set limit as GPU memory,
    and it keeps a 1 GiB free margin by default (`fit_params_target`). On an
@@ -479,7 +479,8 @@ Ranked by irreversibility.
    together with the CPU variants.
 9. **Build time.** A cold Windows x64 build with Vulkan took 16.5 minutes
    in the ARM64 VM (x64 emulation). Shader generation is most of it.
-   Recovery: drop variants, or prebuild.
+   ADR 005 moves this build to the fllama release workflow. App builds
+   download the result.
 10. **Windows does not find dependent DLLs in `flutter test`.** In tests, the
    libraries are not next to the executable. Unknown. Step 2 decides it.
    Fallback: `fllama_io.dart` opens each dependency by absolute path, in
@@ -523,8 +524,10 @@ Ranked by irreversibility.
     Make the fllama example download nothing: it sets `gpu_pack_dir`, and
     its integration test gunzips and loads the packs from there. Add tests for I1
     (no pack, changed pack), I5, I7 and I9. Done when the Windows x64
-    integration test passes with and without the pack.
-5. **Telosnex.** Implement D14: download, gunzip, `fllama_load_gpu_pack`,
+    integration test passes with and without the pack. (Done in `515b45e`.
+    ADR 005 step 3 replaces `gpu_pack_dir` and the B2 paths.)
+5. **Telosnex.** Implement D14 with the ADR 005 runtime library (D13):
+   download, gunzip and check, then `fllama_load_gpu_pack`,
    and a retry at the next model load. Apply D5 on Windows, including the
    draft-model check. Add
    "GPU: Auto / Off" and "GPU layers: Auto / number" to the settings. If there is no discrete GPU, use the
@@ -534,9 +537,9 @@ Ranked by irreversibility.
    model with 99 and with -1. If -1 is slower for a model that loads with 99,
    set a smaller Apple margin. Done when Android with -1 runs on the CPU
    with no change in speed.
-7. **Release CI.** Install the pinned Vulkan SDK on the Windows runner. Set
-   `gpu_pack_dir`. Upload new pack objects to B2, and skip objects that
-   exist. Add the I3 and I4 checks to `dev/ci/releases/release.dart`.
+7. **Release CI.** Do ADR 005 steps 1 to 4. The fllama release workflow
+   builds and uploads the packs. Add the I3 and I4 checks to
+   `dev/ci/releases/release.dart`.
 8. **Windows ARM64.** Add D11 and both D12 candidates to the hook. Confirm
    the §5 ARM64 list. Add a release job on a Windows ARM64 runner that builds
    the ARM64 MSIX (`msix_config` `architecture: arm64`). Upload both MSIX
@@ -682,3 +685,6 @@ together. `fllama.dll` is 2.5 MB.
 - 2026-10-05: Founder rule R8: large backends that not every user can use
   are downloads. Vulkan becomes a GPU pack (D3, D13, D14, I9). The CUDA
   manifest is replaced by hashes inside fllama.
+- 2026-10-05: Depends on ADR 005. GPU packs come from the fllama prebuilt
+  release on GitHub, not from B2 (D7, D13, I4, risks 4 and 9, §5, step 7).
+  A local source build bundles its GPU backends.
