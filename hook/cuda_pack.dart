@@ -27,6 +27,13 @@ const cudaPackSchema = 1;
 
 /// Pinned CUDA Toolkit for the CUDA GPU pack (ADR 004 D8).
 /// scripts/install_cuda_toolkit.dart installs it from NVIDIA's archives.
+/// Release-note text for the NVIDIA files in a CUDA pack (ADR 004 step 12).
+const cudaPackNotice =
+    'The cudart, cublas and cublasLt files are unmodified NVIDIA CUDA '
+    'Toolkit redistributables, provided only for use by fllama under the '
+    'NVIDIA CUDA EULA (https://docs.nvidia.com/cuda/eula/). They are not a '
+    'stand-alone product.';
+
 const cudaToolkitVersion = '12.8';
 
 /// GPU architectures of the CUDA pack. `-real` is machine code, so these

@@ -685,8 +685,8 @@ Ranked by irreversibility.
    consent and after initial download". D14 gets that consent. 10.2.3
    permits other software only if it enhances the product. Low. Recovery:
    Vulkan in the package for the Store (51.8 MB, R8 exception), packs for
-   other channels. The NVIDIA license for the CUDA download is checked in
-   step 12. Recovery: drop D8.
+   other channels. The NVIDIA CUDA EULA permits the pack files (step 12,
+   read 2026-10-06). Recovery: drop D8.
 4. **GitHub Releases is not available, or a pack file is deleted.** Released
    apps then run on the CPU (I1). They do not fail. ADR 005 risk 1 gives the
    recovery.
@@ -800,10 +800,41 @@ step 13, the CUDA pack pipeline, was built before the step 12 gate.
     fllama llama.cpp commit with Telosnex models, on two Nvidia GPU
     generations. Read Microsoft Store Policy 10.2.2 and the redistribution
     list of the NVIDIA CUDA EULA. The owner decides to continue or stop.
+    EULA read 2026-10-06 (docs.nvidia.com/cuda/eula, last updated
+    2026-01-26). Result:
+    - Attachment A lists the CUDA Runtime (`cudart`) and the CUDA BLAS
+      Library (`cublas`, `cublasLt`) as distributable on Windows and
+      Linux, "including certain variations ... with version number ...
+      embedded in the file name". All three pack files qualify.
+      `ggml-cuda` is llama.cpp code (MIT), not NVIDIA's.
+    - §2.3: Linux files must be unmodified "except for unzipping".
+      install_cuda_toolkit.dart takes them from NVIDIA's redistributable
+      archives and checks their SHA-256 against NVIDIA's manifest; the
+      pack only gzips them.
+    - §1.1.1, §1.2: the files may be distributed only as part of an
+      application with "material additional functionality", and not as a
+      stand-alone product. The pack is a GitHub release that Telosnex
+      downloads for its own use (D14). Anyone can download those release
+      assets directly. llama.cpp publishes `cudart-llama-bin-*` archives
+      the same way. Low risk; the pack's release notes say the files are
+      for fllama.
+    - §1.1.2: the terms under which Telosnex is distributed must be
+      consistent with the EULA, including no reverse engineering of the
+      NVIDIA files. To do in Telosnex: a third-party notice for the CUDA
+      files and that clause in its terms.
+    - §1.2: the SDK must not become subject to a license that requires
+      it be distributed as source or for free. fllama is GPL v2: a third
+      party that ships fllama under the GPL with the CUDA pack combines
+      GPL code with NVIDIA's closed libraries. Telosnex ships fllama under
+      its own commercial terms, so this does not affect Telosnex. Open:
+      add a GPL exception for the CUDA libraries to fllama's LICENSE, or
+      say in the README that the CUDA pack is for the commercial license.
+    Questions go to nvidia-compute-license-questions@nvidia.com (§2.5).
 13. **CUDA pack, if step 12 continues.** Done on branch `cuda-pack`: the
     pack build (D16), the release check (I11), and fllama_load_gpu_pack
-    loads the CUDA runtime libraries before `ggml-cuda`. To do: publish
-    the first pack and make a release with it. Download the pack only
+    loads the CUDA runtime libraries before `ggml-cuda`. The first packs
+    are published, and a build-only release with them passed
+    (2026-10-06). To do: a published release with them. Download the pack only
     when an Nvidia GPU is present (D14). Test I6 on Nvidia hardware. CI
     runners have no Nvidia GPU, so CI checks only that the pack builds
     and that its files match the embedded hashes.
@@ -984,3 +1015,5 @@ Release `native-580a44799cc1e0f1`, gzipped download sizes:
   sizes in the appendix are labeled as CUDA 13.4.
 - 2026-10-06: First CUDA packs published. Their sizes are in the
   appendix. A release build-only run with them passed.
+- 2026-10-06: Step 12 license part done: the NVIDIA CUDA EULA permits the
+  pack files. Open: Telosnex notice and terms, and the fllama GPL question.

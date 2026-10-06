@@ -280,7 +280,7 @@ Future<void> _publish({
     notes:
         'fllama CUDA GPU pack for ${key.target} (ADR 004 D16). CUDA '
         '$cudaToolkitVersion, architectures $cudaArchitectures. CUDA pack '
-        'key ${key.key}. ${descriptor.toolchain}',
+        'key ${key.key}. ${descriptor.toolchain}. $cudaPackNotice',
   );
 }
 
