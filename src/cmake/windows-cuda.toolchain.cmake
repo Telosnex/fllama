@@ -9,6 +9,10 @@ if(FLLAMA_CUDA_TOOLKIT_DIR)
   if(CMAKE_GENERATOR MATCHES "^Visual Studio")
     set(CMAKE_GENERATOR_TOOLSET "cuda=${_fllama_cuda_dir}")
   else()
+    # native_toolchain_cmake passes CMAKE_SYSTEM_NAME=Windows but no processor.
+    # Unlike Visual Studio's -A x64, Ninja has no generator platform to let
+    # ggml infer the architecture. This toolchain is only for Windows x64.
+    set(CMAKE_SYSTEM_PROCESSOR AMD64)
     set(CMAKE_CUDA_COMPILER "${_fllama_cuda_dir}/bin/nvcc.exe" CACHE FILEPATH "CUDA compiler")
   endif()
 endif()
