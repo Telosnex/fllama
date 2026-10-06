@@ -1,3 +1,5 @@
+fllama
+
 FLLAMA offers 2 licenses:
 - GPL v2: default; requires the source code of the integrating application be available on request.
 - Commercial: allows use without requiring distribution of source code. Requires signed agreement between Telosnex Inc. and licensee. 
@@ -344,3 +346,68 @@ proprietary programs.  If your program is a subroutine library, you may
 consider it more useful to permit linking proprietary applications with the
 library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.
+--------------------------------------------------------------------------------
+llama.cpp
+ggml
+
+MIT License
+
+Copyright (c) 2023-2026 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+--------------------------------------------------------------------------------
+nlohmann_json
+
+MIT License
+
+Copyright (c) 2013-2025 Niels Lohmann
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+--------------------------------------------------------------------------------
+NVIDIA CUDA
+
+fllama's CUDA packs contain the NVIDIA CUDA Runtime (cudart) and the NVIDIA
+CUDA BLAS libraries (cublas, cublasLt).
+
+Copyright (c) NVIDIA Corporation. All rights reserved.
+
+These files are unmodified NVIDIA CUDA Toolkit redistributables. They are
+provided only for use by fllama, are not a stand-alone product, and are
+licensed under the NVIDIA CUDA Toolkit End User License Agreement:
+https://docs.nvidia.com/cuda/eula/
+
+You may not reverse engineer, decompile or disassemble these files, except
+to the extent the law allows. NVIDIA and CUDA are trademarks of NVIDIA
+Corporation.
