@@ -25,7 +25,7 @@ class CudaTimingTest(unittest.TestCase):
         self.compiler = self.root / "fake nvcc.py"
         self.compiler.write_text('''import pathlib, sys
 csv = next(arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--time="))
-pathlib.Path(csv).write_text("phase name,input file,output file,time\\ncicc,in.cu,out.ptx,2000\\nptxas,out.ptx,out.cubin,500\\n")
+pathlib.Path(csv).write_text("source file name , phase name , phase input files , phase output file , arch , tool, metric , unit\\nin.cu , cicc , in.cu , out.ptx , compute_80 , nvcc , 2000 , ms\\nin.cu , ptxas , out.ptx , out.cubin , sm_80 , nvcc , 500 , ms\\n")
 sys.exit(3 if "--fail" in sys.argv else 0)
 ''')
 
@@ -45,8 +45,8 @@ sys.exit(3 if "--fail" in sys.argv else 0)
             self.assertTrue(Path(str(obj) + ".nvcc-wall-seconds").exists())
         report = TIMINGS.summarize(self.root / "cache", self.root / "report")
         self.assertIn("Objects with nvcc CSVs: **4**", report)
-        self.assertIn("| cicc | 8.00 |", report)
-        self.assertIn("| ptxas | 2.00 |", report)
+        self.assertIn("| cicc [compute_80] | 8.00 |", report)
+        self.assertIn("| ptxas [sm_80] | 2.00 |", report)
         self.assertEqual(len(list((self.root / "report/raw").rglob("*.csv"))), 4)
 
     def test_failure_is_not_swallowed_and_retains_timings(self):
@@ -59,12 +59,12 @@ sys.exit(3 if "--fail" in sys.argv else 0)
     def test_recompile_replaces_old_timings(self):
         obj, result = self.launch("repeat.cu.obj")
         self.assertEqual(result.returncode, 0, result.stderr)
-        Path(str(obj) + ".nvcc-timing.csv").write_text("old,in,out,999999\n")
+        Path(str(obj) + ".nvcc-timing.csv").write_text("in.cu , old , in , out , sm_80 , nvcc , 999999 , ms\n")
         _, result = self.launch("repeat.cu.obj")
         self.assertEqual(result.returncode, 0, result.stderr)
         report = TIMINGS.summarize(self.root / "cache", self.root / "report")
-        self.assertNotIn("| old |", report)
-        self.assertIn("| cicc | 2.00 |", report)
+        self.assertNotIn("| old", report)
+        self.assertIn("| cicc [compute_80] | 2.00 |", report)
 
     def test_missing_cache_and_partial_csv_are_safe(self):
         report = TIMINGS.summarize(self.root / "missing", self.root / "empty-report")
@@ -72,11 +72,11 @@ sys.exit(3 if "--fail" in sys.argv else 0)
         self.launch("partial.cu.obj")
         csv = next((self.root / "cache").rglob("*.csv"))
         with csv.open("a") as stream:
-            stream.write("incomplete\nptxas,in,out,\n")
+            stream.write("incomplete\nin.cu , ptxas , in , out , sm_80 , nvcc , , ms\n")
         ninja = self.root / "cache/key/.ninja_log"
         ninja.write_text("# ninja log v5\n0\t1000\t0\tggml-cuda.obj\thash\n")
         report = TIMINGS.summarize(self.root / "cache", self.root / "partial-report")
-        self.assertIn("| cicc | 2.00 |", report)
+        self.assertIn("| cicc [compute_80] | 2.00 |", report)
         self.assertTrue((self.root / "partial-report/raw/key/.ninja_log").exists())
 
     def test_windows_toolchain_supports_ninja_and_visual_studio(self):

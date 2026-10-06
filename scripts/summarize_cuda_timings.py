@@ -31,14 +31,17 @@ def summarize(root, out):
         phase_ms = 0.0
         with source.open(newline="", encoding="utf-8-sig", errors="replace") as stream:
             for row in csv.reader(stream):
-                if len(row) < 2:
+                # nvcc --time columns: source, phase, inputs, output, arch,
+                # tool, metric, unit. The metric is the second-last column.
+                row = [cell.strip() for cell in row]
+                if len(row) < 8 or row[-1] != "ms":
                     continue
                 try:
-                    milliseconds = float(row[-1].strip())
+                    milliseconds = float(row[-2])
                 except ValueError:
                     # Header, or an incomplete row from a failed compiler.
                     continue
-                phases[row[0].strip()] += milliseconds
+                phases[f"{row[1]} [{row[4] or 'all'}]"] += milliseconds
                 phase_ms += milliseconds
         wall = source.with_name(source.name.removesuffix(".nvcc-timing.csv") + ".nvcc-wall-seconds")
         seconds = float(wall.read_text().strip()) if wall.exists() else None
