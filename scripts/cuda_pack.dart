@@ -275,6 +275,8 @@ Future<void> _publish({
     repository: repository,
     tag: key.tag,
     assets: files,
+    // A CUDA pack is a side release; the latest release stays fllama's own.
+    latest: false,
     notes:
         'fllama CUDA GPU pack for ${key.target} (ADR 004 D16). CUDA '
         '$cudaToolkitVersion, architectures $cudaArchitectures. CUDA pack '
