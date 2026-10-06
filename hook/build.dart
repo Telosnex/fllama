@@ -393,7 +393,7 @@ CMakeBuilder createFllamaBuilder({
     if (toolset != null)
       'CMAKE_TOOLCHAIN_FILE': _toolsetToolchainFile(sourceDir, toolset)
     else if (defines.containsKey('FLLAMA_CUDA_TOOLKIT_DIR'))
-      // The Visual Studio generator finds CUDA through `cmake -T cuda=`.
+      // Select nvcc for Ninja (or cuda= for Visual Studio).
       'CMAKE_TOOLCHAIN_FILE': p.join(
         Directory.fromUri(sourceDir).path,
         'cmake',
@@ -407,6 +407,12 @@ CMakeBuilder createFllamaBuilder({
       ),
   },
   targets: targets,
+  // Ninja schedules individual CUDA files, instead of relying on MSBuild's
+  // project-level parallelism. Use the existing all-core parallel setting.
+  // This marker is emitted only by the Windows CUDA toolkit discovery.
+  generator: defines.containsKey('FLLAMA_CUDA_TOOLKIT_DIR')
+      ? Generator.ninja
+      : Generator.defaultGenerator,
   buildLocal: false,
   parallelUseAllProcessors: true,
   logger: logger,
@@ -755,6 +761,7 @@ Map<String, String> computeDefines(
     }
     if (cuda != null) {
       defines['GGML_CUDA'] = 'ON';
+      defines['FLLAMA_CUDA_TIMING'] = 'ON';
       defines['CMAKE_CUDA_ARCHITECTURES'] = cudaArchitectures;
       // One library for all GPUs. NCCL is only for several GPUs.
       defines['GGML_CUDA_NCCL'] = 'OFF';

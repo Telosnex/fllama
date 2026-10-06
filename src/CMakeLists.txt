@@ -101,6 +101,12 @@ endif()
 # (MSB6003, DirectoryNotFoundException). A short prefix keeps them short.
 set_property(DIRECTORY PROPERTY EP_PREFIX "${CMAKE_BINARY_DIR}/vk")
 add_subdirectory("llama.cpp")
+if(TARGET ggml-cuda AND FLLAMA_CUDA_TIMING)
+  # One CSV per object: a shared nvcc --time file would have concurrent
+  # writers under Ninja/Make. Keep this outside the vendored llama.cpp tree.
+  set_property(TARGET ggml-cuda PROPERTY CUDA_COMPILER_LAUNCHER
+    "${CMAKE_COMMAND};-P;${CMAKE_CURRENT_SOURCE_DIR}/cmake/time_cuda.cmake;--")
+endif()
 if(NOT TARGET cpp-httplib)
   add_library(cpp-httplib INTERFACE)
 endif()

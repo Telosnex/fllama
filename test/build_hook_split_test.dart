@@ -183,6 +183,7 @@ void main() {
           gpuPackUrlTemplate: template,
         );
         expect(defines['GGML_CUDA'], 'ON');
+        expect(defines['FLLAMA_CUDA_TIMING'], 'ON');
         expect(defines['GGML_CUDA_NCCL'], 'OFF');
         expect(defines['CMAKE_CUDA_ARCHITECTURES'], hook.cudaArchitectures);
         expect(defines['CUDAToolkit_ROOT'], '/cuda');

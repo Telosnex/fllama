@@ -145,7 +145,7 @@ jobs:
             windows-*)
               vs="$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -property catalog_productDisplayVersion || true)"
               t="Visual Studio ${vs:-unknown}"
-              if [[ "${{ matrix.target }}" == windows-x64 ]]; then t="$t, MSVC, Vulkan SDK $VULKAN_SDK_VERSION, CUDA $CUDA_VERSION"; else t="$t, ClangCL"; fi ;;
+              if [[ "${{ matrix.target }}" == windows-x64 ]]; then t="$t, MSVC/Ninja, Vulkan SDK $VULKAN_SDK_VERSION, CUDA $CUDA_VERSION"; else t="$t, ClangCL"; fi ;;
             macos-*|ios-*) t="$(xcodebuild -version | sed -n 1p)" ;;
             linux-x64) t="$(gcc --version | sed -n 1p), Vulkan SDK $VULKAN_SDK_VERSION, CUDA $CUDA_VERSION" ;;
             linux-*) t="$(gcc --version | sed -n 1p)" ;;
@@ -190,9 +190,10 @@ jobs:
       - name: Build
         env:
           TOOLCHAIN: ${{ steps.toolchain.outputs.value }}
+          TARGET: ${{ matrix.target }}
         run: |
           defines=()
-          if [[ "${{ matrix.target }}" == android-* ]]; then
+          if [[ "$TARGET" == android-* ]]; then
             defines+=(--define "android={\"android_home\":\"$ANDROID_HOME\",\"ndk_version\":\"$NDK_VERSION\"}")
           fi
           dart run native_prebuilt:build \
@@ -202,6 +203,27 @@ jobs:
             --toolchain "$TOOLCHAIN" \
             "${defines[@]}"
           cat "$OUT/out/${{ matrix.target }}/target.json"
+
+      # Profiling survives a failed build and stays outside the source key.
+      # Each nvcc process writes its own CSV, safe with Ninja's parallelism.
+      - name: Summarize CUDA compile timings
+        if: always() && (matrix.target == 'windows-x64' || matrix.target == 'linux-x64')
+        run: |
+          python=python3
+          if [[ "${{ matrix.target }}" == windows-x64 ]]; then python=python; fi
+          "$python" scripts/summarize_cuda_timings.py \
+            --out "$RUNNER_TEMP/cuda-timings/${{ matrix.target }}" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save CUDA compile timings
+        if: always() && (matrix.target == 'windows-x64' || matrix.target == 'linux-x64')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cuda-timings-${{ matrix.target }}
+          path: ${{ runner.temp }}/cuda-timings/
+          if-no-files-found: warn
+          include-hidden-files: true # .ninja_log contains per-command timings.
+          retention-days: 30
 
       - *clean
 
