@@ -1,5 +1,5 @@
 # ADR 005 — Prebuilt native libraries, built by the same hook code that builds from source
-Status: ACCEPTED (2026-10-05)
+Status: ACCEPTED (2026-10-05), implemented (steps 1 to 6 done, 2026-10-05)
 
 ADR 004 depends on this ADR. Its GPU packs (ADR 004 D13) work for every
 app only if every app uses the same fllama build.
@@ -466,18 +466,29 @@ Ranked by irreversibility.
 
 ## 8. Workplan
 
-1. **Shared package.** Create `Telosnex/native_prebuilt`. Move the
+All six steps are done (§B has the commits and releases). Open: the
+Telosnex ADR on downloading models (step 6).
+
+Step 4 runner cleanup (2026-10-06, Telosnex 7646efad03): the GitHub
+Actions release runners never installed the Vulkan SDK. CMake stays,
+because Flutter's Windows and Linux desktop builds are CMake projects.
+The Windows release setup no longer installs NASM (only the BoringSSL
+source build used it) and no longer puts CMake on PATH. The
+`native_prebuilt:check` in `release.dart` already fails a release whose
+manifest does not match its sources.
+
+1. **Done. Shared package.** Create `Telosnex/native_prebuilt`. Move the
    download, lock and cache code from the fonnx hook. Add the manifest
    model, the source key, the mode resolution (D2), and the three commands
    (§5). Spike first: run the webcrypto hook for one target from
    `native_prebuilt:build`, with no Flutter app. Record the method in §A.
    Add unit tests for I1 and I3, and for the D2 modes.
-2. **webcrypto.dart.** Add `.gitattributes`. Add mode resolution in front
+2. **Done. webcrypto.dart.** Add `.gitattributes`. Add mode resolution in front
    of the source build, with changes only in `hook/` (R11). Split its key
    into the source key and the local key (D4). Add the release workflow for
    all targets. Make the first release. Done when Telosnex builds webcrypto
    in mode download on the Windows ARM64 VM with no CMake on `PATH`.
-3. **fllama.** Do step 2 for fllama. Then change ADR 004 step 4b code:
+3. **Done. fllama.** Do step 2 for fllama. Then change ADR 004 step 4b code:
    - Generate the GPU pack hashes only with `native_release` (D7).
    - Without `native_release`, publish the GPU backends as code assets.
    - Replace the `gpu_pack_dir` user define with the release asset names.
@@ -487,13 +498,13 @@ Ranked by irreversibility.
 
    Done when the Windows x64 integration test passes in mode download with
    the pack from the release, and in mode source with the bundled backend.
-4. **Telosnex check.** Add `native_prebuilt:check` for all four packages to
+4. **Done. Telosnex check.** Add `native_prebuilt:check` for all four packages to
    `dev/ci/releases/release.dart` (D10). Remove the Vulkan SDK and CMake
    requirements from the Telosnex release runners after step 6.
-5. **image_ffmpeg.** Move its build scripts into the hook source build
+5. **Done. image_ffmpeg.** Move its build scripts into the hook source build
    where the host can run them. Keep the Docker build for Linux targets.
    Make the first release. Delete the binaries from the working tree (NG1).
-6. **fonnx.** Replace the download code in its hook with the shared code.
+6. **Done. fonnx.** Replace the download code in its hook with the shared code.
    Convert its manifest. Keep the upstream URLs. Its extension workflows
    become the release workflow. Move its models to `runtimeFiles`. Then
    Telosnex downloads them with the runtime library and stops bundling
@@ -686,3 +697,5 @@ Ranked by irreversibility.
   or in prebuilt.json. `native_prebuilt:check` does not check them. The
   fllama release workflow checks their digests before it builds (ADR 004
   I11).
+- 2026-10-06: Status says implemented. The workplan marks steps 1 to 6
+  done. Step 4 runner cleanup recorded (Telosnex 7646efad03).

@@ -3,12 +3,16 @@ Status: DRAFT, partly implemented (first draft 2026-10-04, updated 2026-10-06)
 Depends on: ADR 005 (prebuilt native libraries). A GPU pack works for every
 app only if every app uses the same fllama build.
 
-## 0. Implementation status (2026-10-05)
+## 0. Implementation status (2026-10-06)
 
 fllama release `native-580a44799cc1e0f1` contains the fllama part of this
 ADR for Windows x64, Windows ARM64 (CPU only) and Linux x64. Telosnex uses
 Auto GPU layers. Telosnex does not download GPU packs yet. Thus Windows and
 Linux users of Telosnex still run local AI on the CPU.
+
+fllama branch `cuda-pack` builds the CUDA pack in its own workflow (D16).
+No CUDA pack is published yet, and no fllama release contains one. The
+CUDA gate (step 12) has not run.
 
 | Area | State | Evidence |
 |------|-------|----------|
@@ -29,6 +33,8 @@ Linux users of Telosnex still run local AI on the CPU.
 | Hardware tests and Apple measurements (steps 6, 9) | Not started | |
 | Linux snap GPU plug (step 10) | Not started | |
 | CUDA pack build, key and release check (D8, D16) | Implemented on branch `cuda-pack`, no pack published | §5 CUDA pack; `test/cuda_pack_test.dart` |
+| CUDA runtime loading and NVIDIA GPU probe (D8, D13, D14) | Done on branch `cuda-pack`, not tested on NVIDIA hardware | `load_dependency_file`, `fllama_has_cuda_gpu` |
+| First published CUDA pack and fllama release with it (D16) | Not done | First `cuda_pack.yml` run in progress |
 | CUDA gate and hardware test (steps 12, 13) | Not started | Gate not run; no Nvidia test machine |
 
 ## 1. Problem
@@ -270,13 +276,14 @@ D13: A GPU pack is a set of backend libraries that the ADR 005 release
      needs two builds.
      Instead of: a check of the fllama build key. An equal file hash also
      proves the same build (I5), and it is one check instead of two.
-     State: done for the `vulkan` pack on Windows x64 and Linux x64.
-     fllama_load_gpu_pack loads only files whose names contain `ggml-`. A
-     pack with dependency DLLs (CUDA) needs a loader change (step 13).
+     State: done for the `vulkan` pack on Windows x64 and Linux x64. For
+     the `cuda` pack, fllama_load_gpu_pack first loads the files that are
+     not ggml backends (the CUDA runtime and cuBLAS libraries), then
+     `ggml-cuda` (I6). Branch `cuda-pack`; not tested on NVIDIA hardware.
 
 D14: Telosnex downloads a GPU pack when all of these are true: the
-     platform has a pack, the GPU is allowed, fllama_has_vulkan_gpu (or a
-     CUDA probe for D8) finds a device, and the user starts a local model
+     platform has a pack, the GPU is allowed, fllama_has_vulkan_gpu (or
+     fllama_has_cuda_gpu for the `cuda` pack, D8) finds a device, and the user starts a local model
      download or load. The model download screen states that GPU support is
      part of the download, with its size. Starting the download is the
      user consent. Telosnex then calls fllama_load_gpu_pack. If the download
@@ -290,6 +297,9 @@ D14: Telosnex downloads a GPU pack when all of these are true: the
      first pack download.
      State: not started. native_prebuilt `runtime.dart` provides
      `ensureRuntimeFile`, which downloads, gunzips and checks one file.
+     fllama provides both probes: `fllamaHasVulkanGpu()` and
+     `fllamaHasCudaGpu()`. The CUDA probe uses only the NVIDIA driver,
+     not the pack.
 
 D15: Telosnex uses its existing fllama crash flags and startup recovery
      for GPU discovery, GPU memory queries, GPU probes and pack loading.
@@ -391,7 +401,9 @@ I5: All ggml libraries in one process are built from the same ggml-base
     missing or changed". For CUDA: the release build embeds only a pack
     whose key equals the key of its own sources (I11).
     `test/cuda_pack_test.dart` checks that the key covers every ggml
-    header that ggml-base and ggml-cuda include. It also checks that the
+    header that ggml-base and ggml-cuda include. CI runs that file before
+    each CUDA pack build (cuda_pack.yml) and before each release
+    (`cuda-packs` job of native_release.yml). It also checks that the
     pack and fllama use the same ggml-base ABI options, and that the pack
     project repeats what llama.cpp's root CMake project sets for ggml.
 
@@ -661,7 +673,9 @@ Ranked by irreversibility.
    is a file list (D16), so a new include from ggml-base or ggml-cuda
    into a file outside the list would change the ABI without a new key.
    `test/cuda_pack_test.dart` follows every `#include` from the key files
-   and fails on such a file. An ABI-relevant setting that llama.cpp's root
+   and fails on such a file. CI runs it before each pack build and each
+   release, so a llama.cpp update with such an include fails before it
+   ships. An ABI-relevant setting that llama.cpp's root
    CMake project adds is caught by the test that compares those lines.
 3. **Store review rejects the GPU pack download.** Microsoft Store
    Policies 7.20 (effective 2026-10-22) do not forbid downloaded code.
@@ -715,7 +729,8 @@ Ranked by irreversibility.
 
 Steps 1 to 4b, the fllama parts of steps 7 and 8, and the fllama part of
 step 10 are done. Do the open steps in this order: 5, 6, 8, 9, 10, 11, then
-12 and 13.
+12 and 13. Exception (founder decision, 2026-10-06): the fllama part of
+step 13, the CUDA pack pipeline, was built before the step 12 gate.
 
 1. **Done (`d97bd7a`). Fix Problem item 3 in its own release.**
    `GGML_OPENMP=OFF` for all Windows targets.
@@ -856,7 +871,10 @@ null-terminated list of the devices that the model can use.
 | Android release libraries contained debug information (129.6 MiB for ARM64) | Independent defect | Fixed in ADR 005 (release `native-580a44799cc1e0f1`) |
 | The Windows zip needs an installed Visual C++ runtime | Independent | NG4 |
 
-**Sizes** from the upstream b11396 Windows release archives, unpacked:
+**Sizes** from the upstream b11396 Windows release archives, unpacked.
+These CUDA files are CUDA 13.4; the fllama pack uses CUDA 12.8 (D16), so
+its files are `*_12` and their sizes differ. Add the pack sizes when the
+first pack is published:
 
 | File | MB |
 |------|---:|
@@ -944,3 +962,8 @@ Release `native-580a44799cc1e0f1`, gzipped download sizes:
   allows the CUDA pack to come from another build with the same ggml-base
   sources and options. Measured CUDA build times added to risk 9. The
   Ninja trial for Windows is recorded under D16 (no gain).
+- 2026-10-06: Status update. D13 and D14 state: the CUDA loader and
+  `fllama_has_cuda_gpu` exist on branch `cuda-pack`. CI runs the CUDA pack
+  key test before each pack build and release (I5, risk 2). Workplan
+  exception: the step 13 pipeline came before the step 12 gate. The CUDA
+  sizes in the appendix are labeled as CUDA 13.4.
