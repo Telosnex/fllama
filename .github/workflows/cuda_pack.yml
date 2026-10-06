@@ -85,6 +85,11 @@ jobs:
 
       - run: flutter pub get --no-example
 
+      # ADR 004 I5: fails if ggml-base or ggml-cuda includes a file that
+      # is not in the CUDA pack key.
+      - name: Test the CUDA pack key
+        run: dart test test/cuda_pack_test.dart
+
       - name: Check for a published pack
         id: status
         run: dart scripts/cuda_pack.dart status --target "$TARGET"
