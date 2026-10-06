@@ -6,6 +6,10 @@
 # or with workflow_dispatch. On success it pushes the branch
 # native-manifest/<tag> with native_artifacts/prebuilt.json. Merge that
 # branch to use the release.
+#
+# Windows x64 and Linux x64 embed the CUDA pack that cuda_pack.yml published
+# for these ggml sources (ADR 004 D16). The run fails in its first job if
+# that pack is not published; run cuda_pack.yml first.
 name: native release
 run-name: Native release / ${{ (github.ref_name == 'native-release-dry' || inputs.dry_run) && 'build only' || 'publish' }}
 
@@ -33,18 +37,58 @@ defaults:
 env:
   FLUTTER_VERSION: 3.47.1
   NDK_VERSION: 28.2.13676358
-  # ADR 004 D8. hook/build.dart (cudaToolkitVersion) uses the same version.
-  CUDA_VERSION: "12.8"
   # ADR 004 §5. hook/build.dart looks for this version on Windows.
   VULKAN_SDK_VERSION: 1.4.357.0
   VULKAN_SDK_WINDOWS_SHA256: 81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d
   VULKAN_SDK_LINUX_SHA256: 0f09bf6a0625e346bf004be70b92907e934a4c76606b323441b2baf3a5a0e66d
 
 jobs:
+  # ADR 004 D16: the release embeds the published CUDA pack of these ggml
+  # sources and never compiles CUDA. Fail in a minute, before any build,
+  # if the pack is not published.
+  cuda-packs:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - &flutter
+        name: Install Flutter
+        run: |
+          git clone -q --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" config --no-analytics > /dev/null
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
+      - run: flutter pub get --no-example
+      - name: Resolve the CUDA packs
+        run: |
+          status=0
+          for t in windows-x64 linux-x64; do
+            dart scripts/cuda_pack.dart resolve --target "$t" \
+              --descriptor "$RUNNER_TEMP/cuda/$t.json" || status=1
+          done
+          if [[ $status != 0 ]]; then
+            echo "::error::A CUDA pack is not published for these ggml sources. Run the CUDA pack workflow (cuda_pack.yml) for this commit, wait for it, then run this release again."
+          fi
+          exit $status
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cuda-packs
+          path: ${{ runner.temp }}/cuda/
+          if-no-files-found: error
+          retention-days: 90
+
   build:
     name: ${{ matrix.target }}
+    needs: cuda-packs
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 150
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -70,14 +114,7 @@ jobs:
 
       # fllama depends on the Flutter SDK. Flutter has no archive for ARM64
       # Linux and Windows hosts, so every job uses a git clone of the tag.
-      - &flutter
-        name: Install Flutter
-        run: |
-          git clone -q --depth 1 --branch "$FLUTTER_VERSION" \
-            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
-          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/flutter/bin/flutter" config --no-analytics > /dev/null
-          "$RUNNER_TEMP/flutter/bin/flutter" --version
+      - *flutter
 
       # Files go to $RUNNER_TEMP: untracked files in the checkout count in
       # the source key.
@@ -145,9 +182,9 @@ jobs:
             windows-*)
               vs="$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -property catalog_productDisplayVersion || true)"
               t="Visual Studio ${vs:-unknown}"
-              if [[ "${{ matrix.target }}" == windows-x64 ]]; then t="$t, MSVC, Vulkan SDK $VULKAN_SDK_VERSION, CUDA $CUDA_VERSION"; else t="$t, ClangCL"; fi ;;
+              if [[ "${{ matrix.target }}" == windows-x64 ]]; then t="$t, MSVC, Vulkan SDK $VULKAN_SDK_VERSION"; else t="$t, ClangCL"; fi ;;
             macos-*|ios-*) t="$(xcodebuild -version | sed -n 1p)" ;;
-            linux-x64) t="$(gcc --version | sed -n 1p), Vulkan SDK $VULKAN_SDK_VERSION, CUDA $CUDA_VERSION" ;;
+            linux-x64) t="$(gcc --version | sed -n 1p), Vulkan SDK $VULKAN_SDK_VERSION" ;;
             linux-*) t="$(gcc --version | sed -n 1p)" ;;
           esac
           echo "Toolchain: $t"
@@ -156,21 +193,14 @@ jobs:
       # flutter pub get also downloads sky_engine, which dart pub get needs.
       - run: flutter pub get --no-example
 
-      # ADR 004 D8: the CUDA GPU pack. The script checks NVIDIA's SHA-256
-      # values and installs where hook/build.dart looks (cudaToolkitRoot).
-      # It runs outside the checkout; the work tree must stay clean.
-      - name: Install the CUDA Toolkit
+      # ADR 004 D16: the descriptor of the published CUDA pack, outside the
+      # checkout. The hook checks it against these sources.
+      - name: Download the CUDA pack descriptor
         if: matrix.target == 'windows-x64' || matrix.target == 'linux-x64'
-        run: |
-          if [[ "${{ matrix.target }}" == windows-x64 ]]; then
-            dir="/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v$CUDA_VERSION"
-          else
-            dir="$RUNNER_TEMP/cuda-$CUDA_VERSION"
-          fi
-          dart scripts/install_cuda_toolkit.dart "$dir"
-          if [[ "${{ matrix.target }}" == linux-x64 ]]; then
-            sudo ln -sfn "$dir" "/usr/local/cuda-$CUDA_VERSION"
-          fi
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cuda-packs
+          path: ${{ runner.temp }}/native/cuda
 
       - &clean
         name: Check that the work tree is clean
@@ -196,6 +226,9 @@ jobs:
           if [[ "$TARGET" == android-* ]]; then
             defines+=(--define "android={\"android_home\":\"$ANDROID_HOME\",\"ndk_version\":\"$NDK_VERSION\"}")
           fi
+          if [[ "$TARGET" == windows-x64 || "$TARGET" == linux-x64 ]]; then
+            defines+=(--define "cuda_pack=$OUT/cuda/$TARGET.json")
+          fi
           dart run native_prebuilt:build \
             --target "${{ matrix.target }}" \
             --out "$OUT/out/${{ matrix.target }}" \
@@ -203,28 +236,6 @@ jobs:
             --toolchain "$TOOLCHAIN" \
             "${defines[@]}"
           cat "$OUT/out/${{ matrix.target }}/target.json"
-
-      # Profiling survives a failed build and stays outside the source key.
-      # Each nvcc process writes its own CSV (safe under parallel builds). CMake
-      # ignores the CUDA launcher under Visual Studio, so Windows has no CSVs.
-      - name: Summarize CUDA compile timings
-        if: always() && (matrix.target == 'windows-x64' || matrix.target == 'linux-x64')
-        run: |
-          python=python3
-          if [[ "${{ matrix.target }}" == windows-x64 ]]; then python=python; fi
-          "$python" scripts/summarize_cuda_timings.py \
-            --out "$RUNNER_TEMP/cuda-timings/${{ matrix.target }}" \
-            >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Save CUDA compile timings
-        if: always() && (matrix.target == 'windows-x64' || matrix.target == 'linux-x64')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cuda-timings-${{ matrix.target }}
-          path: ${{ runner.temp }}/cuda-timings/
-          if-no-files-found: warn
-          include-hidden-files: true # .ninja_log contains per-command timings.
-          retention-days: 30
 
       - *clean
 
@@ -286,17 +297,21 @@ jobs:
           exit $status
 
       # ADR 004 D7, I4: Windows x64 and Linux x64 have a Vulkan GPU pack.
+      # D16: the CUDA pack files are in the cuda-* release, not in this one;
+      # fllama contains their SHA-256 values and URLs.
       - name: Check the GPU packs
         run: |
-          # ADR 004 D8: the cuda pack has cudart, cublasLt, cublas and
-          # ggml-cuda.
           for t in windows-x64 linux-x64; do
             json="$ARTIFACTS/out/$t/target.json"
             grep -q '"pack": "vulkan"' "$json" \
               || { echo "::error::$t has no Vulkan GPU pack."; exit 1; }
-            n=$(grep -c '"pack": "cuda"' "$json" || true)
-            [[ "$n" == 4 ]] \
-              || { echo "::error::$t has $n CUDA pack files, expected 4."; exit 1; }
+            if grep -q '"pack": "cuda"' "$json"; then
+              echo "::error::$t built CUDA pack files. The CUDA pack comes from cuda_pack.yml."
+              exit 1
+            fi
+            cuda="$ARTIFACTS/cuda/$t.json"
+            test -f "$cuda" || { echo "::error::$t has no CUDA pack descriptor."; exit 1; }
+            echo "$t CUDA pack: $(grep -o '"tag": "[^"]*"' "$cuda")" | tee -a "$GITHUB_STEP_SUMMARY"
           done
 
       - name: Release

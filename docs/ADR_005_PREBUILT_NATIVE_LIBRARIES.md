@@ -141,6 +141,10 @@ D7: native_release changes only what the package needs for hosted
     Because: R2, ADR 004 R8
     Instead of: GPU packs in every source build. A local build has no host
     for its packs, so a download is not possible.
+    Exception: the fllama CUDA pack is built by its own workflow and
+    published in its own releases (ADR 004 D16). fllama embeds the SHA-256
+    and the URL of those files. They are not in the native release or in
+    prebuilt.json. R6 applies to those releases too.
 
 D8: The workflow builds each target on a fixed GitHub runner (§5). Linux
     targets build on ubuntu-22.04 and ubuntu-22.04-arm. The manifest records
@@ -234,6 +238,8 @@ I5: The source build and the prebuilt build of one package give the same
 I6: All files of one target come from one hook run (ADR 004 I5).
     If violated: files from two builds load in one process.
     Pinned by: the workflow writes all entries of a target from one job.
+    The fllama CUDA pack is not a file of the target. ADR 004 I11 covers
+    it.
 
 I7: The runtime library never leaves a file at its final path unless the
     file has the expected SHA-256.
@@ -675,3 +681,8 @@ Ranked by irreversibility.
   from bundled models needs its separate ADR. A fresh app resolves one
   native_prebuilt commit for all four packages, and the Telosnex release
   check passes for all four. The daily and manifest-PR checks pin I4.
+- 2026-10-06: D7 exception for the fllama CUDA pack (ADR 004 D16). Its
+  files are in `cuda-<target>-<key16>` releases, not in the native release
+  or in prebuilt.json. `native_prebuilt:check` does not check them. The
+  fllama release workflow checks their digests before it builds (ADR 004
+  I11).

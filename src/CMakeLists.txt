@@ -101,12 +101,6 @@ endif()
 # (MSB6003, DirectoryNotFoundException). A short prefix keeps them short.
 set_property(DIRECTORY PROPERTY EP_PREFIX "${CMAKE_BINARY_DIR}/vk")
 add_subdirectory("llama.cpp")
-if(TARGET ggml-cuda AND FLLAMA_CUDA_TIMING)
-  # One CSV per object: a shared nvcc --time file would have concurrent
-  # writers under Ninja/Make. Keep this outside the vendored llama.cpp tree.
-  set_property(TARGET ggml-cuda PROPERTY CUDA_COMPILER_LAUNCHER
-    "${CMAKE_COMMAND};-P;${CMAKE_CURRENT_SOURCE_DIR}/cmake/time_cuda.cmake;--")
-endif()
 if(NOT TARGET cpp-httplib)
   add_library(cpp-httplib INTERFACE)
 endif()
@@ -153,12 +147,20 @@ target_link_libraries(server-context PUBLIC llama-common mtmd ${CMAKE_THREAD_LIB
 # the URL of each pack file and loads only files that match. Only a release
 # build (docs/ADR_005_PREBUILT_NATIVE_LIBRARIES.md, D7) sets the URL
 # template; CMake puts the file name at @FILE@. Without it, ggml-vulkan is a
-# normal library next to fllama. CUDA is only built as a pack (D8).
+# normal library next to fllama.
+#
+# The CUDA pack is not built here (ADR 004 D16). The release build passes
+# the files of the published pack in FLLAMA_CUDA_PACK_FILES:
+# <name>|<sha256>|<url>, separated by ";". hook/cuda_pack.dart checks that
+# the pack was built from the ggml sources of this build.
 set(FLLAMA_GPU_PACK_URL_TEMPLATE "" CACHE STRING
   "Release URL of a gzipped GPU pack file, with @FILE@ for the file name")
+set(FLLAMA_CUDA_PACK_FILES "" CACHE STRING
+  "Files of the published CUDA pack: <name>|<sha256>|<url>;...")
 set(FLLAMA_GPU_PACK_ARGS "")
 set(FLLAMA_GPU_PACK_DEPENDS "")
 set(FLLAMA_GPU_PACK_COUNT 0)
+# A pack file built here: CMake computes its SHA-256 after the build.
 function(fllama_add_gpu_pack_file pack path)
   math(EXPR i "${FLLAMA_GPU_PACK_COUNT}")
   set(FLLAMA_GPU_PACK_ARGS ${FLLAMA_GPU_PACK_ARGS}
@@ -167,48 +169,34 @@ function(fllama_add_gpu_pack_file pack path)
   math(EXPR next "${FLLAMA_GPU_PACK_COUNT} + 1")
   set(FLLAMA_GPU_PACK_COUNT ${next} PARENT_SCOPE)
 endfunction()
-if(GGML_BACKEND_DL AND FLLAMA_GPU_PACK_URL_TEMPLATE)
-  if(GGML_VULKAN)
-    fllama_add_gpu_pack_file(vulkan "$<TARGET_FILE:ggml-vulkan>")
-    list(APPEND FLLAMA_GPU_PACK_DEPENDS ggml-vulkan "$<TARGET_FILE:ggml-vulkan>")
+# A pack file published by another build, with its SHA-256 and URL.
+function(fllama_add_external_gpu_pack_file pack name sha256 url)
+  math(EXPR i "${FLLAMA_GPU_PACK_COUNT}")
+  set(FLLAMA_GPU_PACK_ARGS ${FLLAMA_GPU_PACK_ARGS}
+    "-DFILE_${i}_PACK=${pack}" "-DFILE_${i}_NAME=${name}"
+    "-DFILE_${i}_SHA256=${sha256}" "-DFILE_${i}_URL=${url}" PARENT_SCOPE)
+  math(EXPR next "${FLLAMA_GPU_PACK_COUNT} + 1")
+  set(FLLAMA_GPU_PACK_COUNT ${next} PARENT_SCOPE)
+endfunction()
+if(GGML_BACKEND_DL AND FLLAMA_GPU_PACK_URL_TEMPLATE AND GGML_VULKAN)
+  fllama_add_gpu_pack_file(vulkan "$<TARGET_FILE:ggml-vulkan>")
+  list(APPEND FLLAMA_GPU_PACK_DEPENDS ggml-vulkan "$<TARGET_FILE:ggml-vulkan>")
+endif()
+if(FLLAMA_CUDA_PACK_FILES)
+  if(NOT GGML_BACKEND_DL)
+    message(FATAL_ERROR "FLLAMA_CUDA_PACK_FILES needs GGML_BACKEND_DL")
   endif()
-  if(GGML_CUDA)
-    # The CUDA runtime and cuBLAS are NVIDIA redistributable files (CUDA
-    # EULA, Attachment A). fllama loads them before ggml-cuda (I6), so the
-    # pack is complete without a system CUDA install.
-    find_package(CUDAToolkit REQUIRED)
-    # Copy each library into the runtime output directory, next to
-    # ggml-cuda, so hook/build.dart publishes it with the other libraries.
-    # Linux copies have the soname, the name that the dynamic loader opens.
-    set(runtime_dir "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-    if(CMAKE_CONFIGURATION_TYPES)
-      set(runtime_dir "${runtime_dir}/Release")
+  foreach(entry IN LISTS FLLAMA_CUDA_PACK_FILES)
+    string(REPLACE "|" ";" parts "${entry}")
+    list(LENGTH parts n)
+    if(NOT n EQUAL 3)
+      message(FATAL_ERROR "Invalid FLLAMA_CUDA_PACK_FILES entry: ${entry}")
     endif()
-    file(MAKE_DIRECTORY "${runtime_dir}")
-    foreach(lib IN ITEMS cudart cublasLt cublas)
-      if(WIN32)
-        file(GLOB source "${CUDAToolkit_BIN_DIR}/${lib}64_*.dll")
-        list(LENGTH source n)
-        if(NOT n EQUAL 1)
-          message(FATAL_ERROR "Expected one ${lib}64_*.dll in ${CUDAToolkit_BIN_DIR}: ${source}")
-        endif()
-        get_filename_component(name "${source}" NAME)
-      else()
-        get_target_property(location CUDA::${lib} IMPORTED_LOCATION)
-        get_filename_component(source "${location}" REALPATH)
-        execute_process(COMMAND objdump -p "${source}" OUTPUT_VARIABLE dump
-          COMMAND_ERROR_IS_FATAL ANY)
-        if(NOT dump MATCHES "SONAME +([^\n]+)")
-          message(FATAL_ERROR "No soname in ${source}")
-        endif()
-        string(STRIP "${CMAKE_MATCH_1}" name)
-      endif()
-      configure_file("${source}" "${runtime_dir}/${name}" COPYONLY)
-      fllama_add_gpu_pack_file(cuda "${runtime_dir}/${name}")
-    endforeach()
-    fllama_add_gpu_pack_file(cuda "$<TARGET_FILE:ggml-cuda>")
-    list(APPEND FLLAMA_GPU_PACK_DEPENDS ggml-cuda "$<TARGET_FILE:ggml-cuda>")
-  endif()
+    list(GET parts 0 name)
+    list(GET parts 1 sha256)
+    list(GET parts 2 url)
+    fllama_add_external_gpu_pack_file(cuda "${name}" "${sha256}" "${url}")
+  endforeach()
 endif()
 list(PREPEND FLLAMA_GPU_PACK_ARGS "-DFILE_COUNT=${FLLAMA_GPU_PACK_COUNT}")
 set(FLLAMA_GPU_PACKS_CPP "${CMAKE_BINARY_DIR}/fllama_gpu_packs.cpp")
@@ -268,7 +256,7 @@ if(GGML_BACKEND_DL)
       target_include_directories(fllama PRIVATE "${Vulkan_INCLUDE_DIR}")
     endif()
   endif()
-  if(GGML_CUDA)
+  if(FLLAMA_CUDA_PACK_FILES)
     # fllama_has_cuda_gpu() loads the NVIDIA driver library at run time.
     target_compile_definitions(fllama PRIVATE FLLAMA_CUDA_PROBE)
   endif()

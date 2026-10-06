@@ -1,15 +1,17 @@
 // Installs the pinned CUDA Toolkit parts that the CUDA GPU pack needs
-// (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D8). The release workflow runs it
-// on Windows x64 and Linux x64:
+// (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D8 and D16). The CUDA pack
+// workflow (.github/workflows/cuda_pack.yml) runs it on Windows x64 and
+// Linux x64:
 //
 //   dart scripts/install_cuda_toolkit.dart <install directory>
 //
 // It downloads NVIDIA's redistributable archives, checks the SHA-256 values
 // from NVIDIA's manifest redistrib_12.8.1.json, and merges them into one
-// toolkit directory. hook/build.dart looks for the toolkit at
-// `cudaToolkitRoot`. Windows also needs Visual Studio; the hook selects the
-// toolkit with `cmake -T cuda=<dir>`, so the Visual Studio installation is
-// not changed.
+// toolkit directory. scripts/cuda_pack.dart looks for the toolkit at
+// `cudaToolkitRoot` (hook/cuda_pack.dart). Windows also needs Visual Studio;
+// the build selects the toolkit with `cmake -T cuda=<dir>`, so the Visual
+// Studio installation is not changed. This file is in the CUDA pack key:
+// the archives it pins are the runtime files of the pack.
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';

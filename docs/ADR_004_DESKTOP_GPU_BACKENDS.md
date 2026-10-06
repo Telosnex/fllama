@@ -1,5 +1,5 @@
 # ADR 004 — One desktop build per CPU architecture that selects the GPU and CPU code at run time
-Status: DRAFT, partly implemented (first draft 2026-10-04, updated 2026-10-05)
+Status: DRAFT, partly implemented (first draft 2026-10-04, updated 2026-10-06)
 Depends on: ADR 005 (prebuilt native libraries). A GPU pack works for every
 app only if every app uses the same fllama build.
 
@@ -28,7 +28,8 @@ Linux users of Telosnex still run local AI on the CPU.
 | I3 and I4 checks in `release.dart` | Not started | |
 | Hardware tests and Apple measurements (steps 6, 9) | Not started | |
 | Linux snap GPU plug (step 10) | Not started | |
-| CUDA (D8, steps 12, 13) | Not started | Gate not run |
+| CUDA pack build, key and release check (D8, D16) | Implemented on branch `cuda-pack`, no pack published | §5 CUDA pack; `test/cuda_pack_test.dart` |
+| CUDA gate and hardware test (steps 12, 13) | Not started | Gate not run; no Nvidia test machine |
 
 ## 1. Problem
 
@@ -195,6 +196,9 @@ D8: CUDA is a GPU pack (D13) for x64 PCs that have an Nvidia GPU. Work
     Vulkan with Telosnex models.
     Because: R1, R8, R11
     Instead of: a separate CUDA edition (R1), or CUDA inside the package (R8).
+    State: the pack build exists for Windows x64 and Linux x64 (D16). The
+    step 12 gate has not run. The founder chose to build the pipeline
+    first.
 
 D9: fllama reports every GPU, discrete and integrated, with its backend
     name, type and device key (§5). A request that names a device key gives
@@ -301,6 +305,41 @@ D15: Telosnex uses its existing fllama crash flags and startup recovery
      State: inference has crash recovery. GPU discovery and memory
      queries do not. D14 must cover native probes and pack loading too.
      The network download stays outside the native-call crash flag.
+
+D16: The CUDA pack is built by its own workflow,
+     .github/workflows/cuda_pack.yml, once per CUDA pack key. Each target
+     has a GitHub release `cuda-<target>-<key16>` with the gzipped pack
+     files and a descriptor (§5). The fllama release build never compiles
+     CUDA. It computes the key of its own sources, reads the descriptor of
+     the published pack, and embeds the SHA-256 and the URL of each file
+     (D13). The release fails if the pack for its key is not published. The
+     key contains the ggml-base and ggml-cuda sources, the pack's CMake
+     project, the CMake defines, the CUDA version and the pinned CUDA
+     archives (§5). It does not contain fllama sources or the rest of
+     llama.cpp.
+     Because: R11, I5. A cold CUDA build takes 85 to 100 minutes on the
+     Windows x64 runner and 46 to 76 minutes on the Linux x64 runner. The
+     build is limited by CPU (about 4 busy cores in nvcc for the whole
+     build), and most of the time is nvcc compiling each kernel once per
+     GPU architecture. A change to fllama code, or a llama.cpp change
+     outside ggml-base and ggml-cuda, must not wait for that build. Of the
+     7 commits that changed vendored llama.cpp from 2026-04 to 2026-10, only
+     the 3 upstream refreshes changed a CUDA pack key file.
+     Instead of: CUDA in every release build. Every release then takes
+     about 1.5 hours.
+     Instead of: shipping a release without CUDA when the pack is missing.
+     Founder decision: the release fails. A release without CUDA cannot get
+     it later, because fllama contains the pack table.
+     Instead of: a key of the whole llama.cpp tree. Then every llama.cpp
+     edit rebuilds CUDA.
+     Instead of: fewer GPU architectures. That reduces the build time but
+     drops GPUs. It can still be done; it changes the key.
+     Instead of: Ninja for Windows. Measured: no gain, because MSBuild
+     already kept the 4 cores busy.
+     Instead of: a run-time check of a ggml build hash in fllama. fllama
+     already loads a pack file only if its SHA-256 equals the embedded
+     value. The key check at release time decides which files those are.
+     State: implemented on branch `cuda-pack`. No pack is published yet.
 ```
 
 ## 4. Invariants
@@ -342,12 +381,19 @@ I4: Each Windows or Linux release package contains its baseline CPU
     dev/ci/releases/release.dart that the package contains the baseline
     CPU variant.
 
-I5: All ggml libraries in one process come from one build: the same
-    llama.cpp commit and the same CMake options.
+I5: All ggml libraries in one process are built from the same ggml-base
+    sources and with the same ggml-base CMake options. Every library
+    except the CUDA pack also comes from the same build. The CUDA pack
+    comes from the build of its CUDA pack key (D16).
     If violated: an ABI mismatch causes crashes or wrong output.
     Pinned by: the D13 SHA-256 check. A file from another build has a
     different SHA-256. Integration test "rejects GPU pack files that are
-    missing or changed".
+    missing or changed". For CUDA: the release build embeds only a pack
+    whose key equals the key of its own sources (I11).
+    `test/cuda_pack_test.dart` checks that the key covers every ggml
+    header that ggml-base and ggml-cuda include. It also checks that the
+    pack and fllama use the same ggml-base ABI options, and that the pack
+    project repeats what llama.cpp's root CMake project sets for ggml.
 
 I6: If the CUDA pack loads, Nvidia GPUs run on CUDA, and Vulkan does not
     also use the same GPU.
@@ -391,6 +437,18 @@ I10: A crash during a guarded native GPU call leaves a flag that the
      without the recovery that inference already has.
      Pinned by: planned tests for D15 flag lifetime and startup recovery.
      GPU discovery from the model-selection UI must have the same coverage.
+
+I11: A fllama release for Windows x64 or Linux x64 contains the CUDA pack
+     table of the published pack whose key equals the CUDA pack key of the
+     release sources. The release fails if no such pack is published.
+     If violated: a release ships without CUDA, or with a pack built from
+     other ggml sources (I5).
+     Pinned by: the `cuda-packs` job of native_release.yml, which runs
+     `scripts/cuda_pack.dart resolve` before any build. The hook then
+     calls `resolveCudaPack`, which computes the key again on the build
+     runner and rejects a missing or different descriptor. Tests:
+     `test/cuda_pack_test.dart` ("a release build without the pack fails
+     with its release tag", "rejects a pack of other sources").
 ```
 
 ## 5. Formats & names
@@ -435,11 +493,49 @@ GPU packs (D13):
 | Pack | Files | Platforms |
 |------|-------|-----------|
 | `vulkan` | `ggml-vulkan.dll` / `libggml-vulkan.so` | Windows x64, Linux x64 |
-| `cuda` (D8) | `ggml-cuda.dll` and the CUDA runtime DLLs | Windows x64 |
+| `cuda` (D8, D16) | `ggml-cuda` and the CUDA runtime and cuBLAS libraries | Windows x64, Linux x64 |
 
 `llama-common` stays a static library inside `fllama.dll`. fllama replaces
 its download functions (`src/fllama_download_stub.cpp`), and a shared
 `llama-common` would need httplib.
+
+CUDA pack (D16). `hook/cuda_pack.dart` defines the key, the CMake defines
+and the descriptor. `scripts/cuda_pack.dart` builds, publishes and
+resolves the pack.
+
+```
+Release tag:   cuda-<target>-<first 16 hex digits of the key>
+Assets:        <target>-<file>.gz for each pack file, and cuda-pack.json
+Files:         cudart64_12.dll, cublasLt64_12.dll, cublas64_12.dll,
+               ggml-cuda.dll (Windows x64)
+               libcudart.so.12, libcublasLt.so.12, libcublas.so.12,
+               libggml-cuda.so (Linux x64)
+Key inputs:    schema version, target, CUDA version, CMake generator,
+               CMake defines (GGML_CUDA=ON, GGML_CPU=OFF,
+               CMAKE_CUDA_ARCHITECTURES, ...), and the SHA-256 of:
+                 src/cuda_pack/**
+                 scripts/install_cuda_toolkit.dart
+                 src/llama.cpp/ggml/CMakeLists.txt, ggml/cmake/**
+                 ggml/src/* (except ggml-backend-reg.cpp, ggml-backend-dl.*)
+                 ggml/src/ggml-cuda/**
+                 ggml/src/ggml-cpu/ggml-cpu-impl.h (ggml-quants.c includes it)
+                 ggml/include/{ggml,ggml-alloc,ggml-backend,ggml-cpp,
+                   ggml-cpu,ggml-cuda,ggml-opt,gguf}.h
+Not in key:    the compiler version. Runner images update MSVC often;
+               the C ABI between ggml-cuda and ggml-base does not change
+               with it. The descriptor records the toolchain.
+Hook input:    user define cuda_pack=<path of cuda-pack.json>
+CMake input:   FLLAMA_CUDA_PACK_FILES=<name>|<sha256>|<url>;...
+```
+
+`src/cuda_pack/CMakeLists.txt` builds `ggml/` directly, with
+`GGML_CPU=OFF`, and builds only the target `ggml-cuda`. ggml-base and ggml
+are built to link it, and the pack does not contain them. On Linux,
+`libggml-cuda.so` needs `libggml-base.so`, the file that the fllama release
+ships (`scripts/cuda_pack.dart` checks the NEEDED entry). The CUDA pack
+files are not in the native release or in `prebuilt.json`.
+`native_prebuilt:check` does not check them. The `cuda-packs` job checks
+the GitHub asset digests of each release that the native release uses.
 
 MSVC builds 9 of the 14 upstream x64 variants. ggml skips `ivybridge`,
 `piledriver`, `cooperlake`, `zen4` and `sapphirerapids` for MSVC. GCC builds
@@ -561,7 +657,12 @@ Ranked by irreversibility.
    "GPU layers: 0". D15 extends the existing recovery to those calls and
    to the native probes and pack loading in D14. It does not prevent the
    first crash or guarantee that CPU-only inference never touches a driver.
-2. **A CUDA pack with a different ABI.** I5 covers it.
+2. **A CUDA pack with a different ABI.** I5 and I11 cover it. The key
+   is a file list (D16), so a new include from ggml-base or ggml-cuda
+   into a file outside the list would change the ABI without a new key.
+   `test/cuda_pack_test.dart` follows every `#include` from the key files
+   and fails on such a file. An ABI-relevant setting that llama.cpp's root
+   CMake project adds is caught by the test that compares those lines.
 3. **Store review rejects the GPU pack download.** Microsoft Store
    Policies 7.20 (effective 2026-10-22) do not forbid downloaded code.
    10.2.2 forbids code that changes or extends the described function, or
@@ -596,7 +697,13 @@ Ranked by irreversibility.
    in the ARM64 VM (x64 emulation). Shader generation is most of it.
    Resolved by ADR 005: app builds download the release. Cold release
    builds on the runners take 12 minutes (Windows x64), 8.5 minutes (Linux
-   x64) and 7.5 minutes (Windows ARM64).
+   x64) and 7.5 minutes (Windows ARM64). CUDA in the release build took
+   85 to 100 minutes (Windows x64) and 46 to 76 minutes (Linux x64).
+   Resolved by D16. The CUDA pack builds only when its key changes.
+   Measured (Linux, nvcc `--time`): 266 CPU-minutes per cold build, 69%
+   in `cicc` and 19% in `ptxas`. Each of the 7 GPU architectures costs 8%
+   to 20%. Fewer architectures, or larger runners, would make the CUDA
+   build itself faster.
 10. **Windows does not find dependent DLLs in `flutter test`.** In tests, the
     libraries are not next to the executable. Partly resolved: the Windows
     integration tests find all libraries. A plain `flutter test` run on
@@ -678,10 +785,13 @@ step 10 are done. Do the open steps in this order: 5, 6, 8, 9, 10, 11, then
     fllama llama.cpp commit with Telosnex models, on two Nvidia GPU
     generations. Read Microsoft Store Policy 10.2.2 and the redistribution
     list of the NVIDIA CUDA EULA. The owner decides to continue or stop.
-13. **CUDA pack, if step 12 continues.** Add the `cuda` pack (D13) to the
-    Windows x64 release build. Let fllama_load_gpu_pack load the CUDA
-    runtime DLLs before `ggml-cuda.dll`. Download the pack only when an
-    Nvidia GPU is present (D14). Test I6.
+13. **CUDA pack, if step 12 continues.** Done on branch `cuda-pack`: the
+    pack build (D16), the release check (I11), and fllama_load_gpu_pack
+    loads the CUDA runtime libraries before `ggml-cuda`. To do: publish
+    the first pack and make a release with it. Download the pack only
+    when an Nvidia GPU is present (D14). Test I6 on Nvidia hardware. CI
+    runners have no Nvidia GPU, so CI checks only that the pack builds
+    and that its files match the embedded hashes.
 
 ---
 
@@ -828,3 +938,9 @@ Release `native-580a44799cc1e0f1`, gzipped download sizes:
   GPU discovery, memory queries, native probes and pack loading need it.
   Removed the D9 startup-disable proposal and its restart requirement.
   I7 remains a fllama API guarantee, not a Telosnex recovery requirement.
+- 2026-10-06: D16 and I11. The CUDA pack has its own key, workflow and
+  releases (`cuda-<target>-<key16>`). The fllama release embeds the
+  published pack and fails if it is missing (founder decision). I5 now
+  allows the CUDA pack to come from another build with the same ggml-base
+  sources and options. Measured CUDA build times added to risk 9. The
+  Ninja trial for Windows is recorded under D16 (no gain).

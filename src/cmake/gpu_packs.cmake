@@ -7,9 +7,13 @@
 #
 # A URL may contain @FILE@. It is replaced with the file name of the file.
 #
+# A file that another build published (the CUDA pack, ADR 004 D16) has
+# -DFILE_<i>_NAME=<file name> and -DFILE_<i>_SHA256=<hex> instead of
+# FILE_<i>_PATH. Its JSON entry has "external":true.
+#
 # OUT_CPP defines the table that src/fllama_gpu_packs.h declares. OUT_JSON
-# lists the same files for hook/build.dart, which publishes them as packs
-# instead of code assets.
+# lists the same files for hook/build.dart, which publishes the files built
+# here as packs instead of code assets.
 set(entries "")
 set(json "[")
 if(FILE_COUNT GREATER 0)
@@ -18,22 +22,39 @@ if(FILE_COUNT GREATER 0)
     set(pack "${FILE_${i}_PACK}")
     set(path "${FILE_${i}_PATH}")
     set(url "${FILE_${i}_URL}")
-    if(NOT EXISTS "${path}")
-      message(FATAL_ERROR "GPU pack file is missing: ${path}")
+    if(path)
+      if(NOT EXISTS "${path}")
+        message(FATAL_ERROR "GPU pack file is missing: ${path}")
+      endif()
+      get_filename_component(name "${path}" NAME)
+      file(SHA256 "${path}" sha256)
+      set(external "false")
+    else()
+      set(name "${FILE_${i}_NAME}")
+      set(sha256 "${FILE_${i}_SHA256}")
+      set(external "true")
+      if(NOT name MATCHES "^[A-Za-z0-9._+-]+$")
+        message(FATAL_ERROR "GPU pack file ${i} has no valid name: ${name}")
+      endif()
+      if(NOT sha256 MATCHES "^[0-9a-f]+$")
+        message(FATAL_ERROR "GPU pack file ${name} has no valid SHA-256: ${sha256}")
+      endif()
+      string(LENGTH "${sha256}" length)
+      if(NOT length EQUAL 64)
+        message(FATAL_ERROR "GPU pack file ${name} has no valid SHA-256: ${sha256}")
+      endif()
     endif()
-    get_filename_component(name "${path}" NAME)
     string(REPLACE "@FILE@" "${name}" url "${url}")
     if(NOT url MATCHES "^https://[^\"\\]+$")
-      message(FATAL_ERROR "GPU pack file ${path} has no valid URL: ${url}")
+      message(FATAL_ERROR "GPU pack file ${name} has no valid URL: ${url}")
     endif()
-    file(SHA256 "${path}" sha256)
     string(APPEND entries
       "    {\"${pack}\", \"${name}\", \"${sha256}\", \"${url}\"},\n")
     if(i GREATER 0)
       string(APPEND json ",")
     endif()
     string(APPEND json
-      "{\"pack\":\"${pack}\",\"name\":\"${name}\",\"sha256\":\"${sha256}\",\"url\":\"${url}\"}")
+      "{\"pack\":\"${pack}\",\"name\":\"${name}\",\"sha256\":\"${sha256}\",\"url\":\"${url}\",\"external\":${external}}")
   endforeach()
 else()
   set(entries "    {nullptr, nullptr, nullptr, nullptr},\n")

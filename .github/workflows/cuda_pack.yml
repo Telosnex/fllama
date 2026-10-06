@@ -1,0 +1,169 @@
+# Builds the CUDA GPU pack and publishes it as release cuda-<target>-<key16>
+# (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D16). The pack takes 1.5 to 2 hours
+# to build, so it is built once per CUDA pack key (hook/cuda_pack.dart), not
+# in each fllama release. The key changes only with the ggml-base and
+# ggml-cuda sources, src/cuda_pack/, the CUDA version and the pinned CUDA
+# archives. A target whose pack is published is skipped in about a minute.
+#
+# The native release workflow fails if the pack of its sources is not
+# published. Start this workflow first:
+#   gh workflow run cuda_pack.yml --ref <branch>
+# A push that changes a key input starts it too.
+name: CUDA pack
+run-name: CUDA pack / ${{ inputs.dry_run && 'build only' || 'publish' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build only, upload nothing.
+        type: boolean
+        default: false
+  push:
+    paths:
+      - src/llama.cpp/ggml/**
+      - src/cuda_pack/**
+      - hook/cuda_pack.dart
+      - scripts/cuda_pack.dart
+      - scripts/install_cuda_toolkit.dart
+      - .github/workflows/cuda_pack.yml
+
+# One run per branch. A newer push replaces an older run that has not
+# published yet; an equal key is skipped anyway.
+concurrency:
+  group: cuda-pack-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  FLUTTER_VERSION: 3.47.1
+  # hook/cuda_pack.dart (cudaToolkitVersion) uses the same version.
+  CUDA_VERSION: "12.8"
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The runners of the native release (ADR 005 D8): the same glibc
+          # and the same Visual Studio major version.
+          - { target: windows-x64, runner: windows-2022 }
+          - { target: linux-x64, runner: ubuntu-22.04 }
+    env:
+      TARGET: ${{ matrix.target }}
+      GH_TOKEN: ${{ github.token }}
+      # Only the owner publishes, from this repository.
+      PUBLISH: >-
+        ${{ github.repository == 'Telosnex/fllama' &&
+            github.actor == 'jpohhhh' && github.triggering_actor == 'jpohhhh' &&
+            !inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install Flutter
+        run: |
+          git clone -q --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" config --no-analytics > /dev/null
+
+      - run: flutter pub get --no-example
+
+      - name: Check for a published pack
+        id: status
+        run: dart scripts/cuda_pack.dart status --target "$TARGET"
+
+      - name: Install the CUDA Toolkit
+        if: steps.status.outputs.published != 'true'
+        run: |
+          if [[ "$TARGET" == windows-x64 ]]; then
+            dir="/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v$CUDA_VERSION"
+          else
+            dir="$RUNNER_TEMP/cuda-$CUDA_VERSION"
+          fi
+          dart scripts/install_cuda_toolkit.dart "$dir"
+          if [[ "$TARGET" == linux-x64 ]]; then
+            sudo ln -sfn "$dir" "/usr/local/cuda-$CUDA_VERSION"
+          fi
+
+      - name: Describe the toolchain
+        if: steps.status.outputs.published != 'true'
+        id: toolchain
+        run: |
+          if [[ "$TARGET" == windows-x64 ]]; then
+            vs="$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -products '*' -property catalog_productDisplayVersion || true)"
+            t="Visual Studio ${vs:-unknown}, MSVC"
+          else
+            t="$(gcc --version | sed -n 1p)"
+          fi
+          echo "value=$t, CUDA $CUDA_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        if: steps.status.outputs.published != 'true'
+        env:
+          TOOLCHAIN: ${{ steps.toolchain.outputs.value }}
+        run: |
+          dart scripts/cuda_pack.dart build --target "$TARGET" \
+            --out "$RUNNER_TEMP/cuda-pack" \
+            --build-dir "$RUNNER_TEMP/cuda-build" \
+            --toolchain "$TOOLCHAIN"
+          ls -l "$RUNNER_TEMP/cuda-pack/assets"
+          cat "$RUNNER_TEMP/cuda-pack/assets/cuda-pack.json"
+
+      # Per-file nvcc timings (Linux only: Visual Studio ignores the
+      # compiler launcher). Kept even if the build fails.
+      - name: Summarize CUDA compile timings
+        if: always() && steps.status.outputs.published != 'true' && matrix.target == 'linux-x64'
+        run: |
+          python3 scripts/summarize_cuda_timings.py \
+            --cache "$RUNNER_TEMP/cuda-build" \
+            --out "$RUNNER_TEMP/cuda-timings" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save CUDA compile timings
+        if: always() && steps.status.outputs.published != 'true' && matrix.target == 'linux-x64'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cuda-timings-${{ matrix.target }}
+          path: ${{ runner.temp }}/cuda-timings/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Check that the work tree is clean
+        if: steps.status.outputs.published != 'true'
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git status --porcelain
+            echo "::error::The build changed the checkout."
+            exit 1
+          fi
+
+      - name: Publish
+        if: steps.status.outputs.published != 'true' && env.PUBLISH == 'true'
+        run: |
+          dart scripts/cuda_pack.dart publish --target "$TARGET" \
+            --out "$RUNNER_TEMP/cuda-pack"
+          echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/${{ steps.status.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the pack (build only)
+        if: steps.status.outputs.published != 'true' && env.PUBLISH != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cuda-pack-${{ matrix.target }}
+          path: ${{ runner.temp }}/cuda-pack/
+          retention-days: 7

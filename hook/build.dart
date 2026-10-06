@@ -94,6 +94,9 @@ import 'package:native_toolchain_cmake/native_toolchain_cmake.dart';
 import 'package:path/path.dart' as p;
 
 import 'cache_key.dart';
+import 'cuda_pack.dart';
+
+export 'cuda_pack.dart';
 
 void main(List<String> args) async {
   final hookLog = _HookLogBuffer('fllama');
@@ -151,17 +154,23 @@ Future<void> _buildFromSource({
     );
   }
 
-  // CUDA is only a GPU pack, so only a release build makes it (ADR 004
-  // D8). A local build would bundle the 1 GB NVIDIA libraries.
-  CudaToolkit? cuda;
+  // CUDA is only a GPU pack, so only a release build has it (ADR 004 D8).
+  // A local build would bundle the 1 GB NVIDIA libraries. The release
+  // build does not compile CUDA: it embeds the pack that the CUDA pack
+  // workflow published for these ggml sources, or fails (ADR 004 D16).
+  CudaPackDescriptor? cudaPack;
   if (release != null && cudaTargets(targetOS, targetArch)) {
-    cuda = findCudaToolkit(targetOS);
-    if (cuda == null) {
-      throw StateError(
-        'A release build for ${targetOS.name} x64 needs the CUDA Toolkit '
-        '$cudaToolkitVersion at ${cudaToolkitRoot(targetOS)}.',
-      );
-    }
+    cudaPack = await resolveCudaPack(
+      packageRoot: input.packageRoot,
+      target: cudaPackTarget(targetOS),
+      sourceFiles: source.sourceKey.files,
+      repository: release.repository,
+      descriptorPath: input.userDefines[cudaPackUserDefine] as String?,
+    );
+    logger.info(
+      'CUDA pack ${cudaPack.key.substring(0, 16)}: '
+      '${cudaPack.files.map((f) => f.name).join(', ')}',
+    );
   }
 
   // ── CMake defines ──────────────────────────────────────────────────
@@ -172,7 +181,7 @@ Future<void> _buildFromSource({
     targetArch,
     targetVariant,
     vulkan: vulkan,
-    cuda: cuda,
+    cudaPack: cudaPack,
     gpuPackUrlTemplate: release?.assetUrl(gpuPackUrlNamePlaceholder),
   );
 
@@ -186,7 +195,6 @@ Future<void> _buildFromSource({
     sourceKey: source.sourceKey.key,
     extra: {
       if (vulkan != null) 'vulkan_header': '${vulkan.headerVersion}',
-      if (cuda != null) 'cuda': cudaToolkitVersion,
       if (split && targetOS == OS.windows && targetArch == Architecture.arm64)
         'arm64_cpu_variants': windowsArm64CpuVariants.keys.join(','),
     },
@@ -285,6 +293,13 @@ Future<void> _buildFromSource({
       ? await layout.gpuPackFiles()
       : const <GpuPackFile>[];
   for (final pack in packs) {
+    if (pack.external) {
+      // Published by the CUDA pack workflow; resolveCudaPack checked it.
+      logger.info(
+        'GPU pack ${pack.pack} (external): ${pack.name} (${pack.sha256})',
+      );
+      continue;
+    }
     final url = release?.assetUrl(pack.name);
     if (pack.url != url) {
       throw StateError(
@@ -391,14 +406,7 @@ CMakeBuilder createFllamaBuilder({
   defines: {
     ...defines,
     if (toolset != null)
-      'CMAKE_TOOLCHAIN_FILE': _toolsetToolchainFile(sourceDir, toolset)
-    else if (defines.containsKey('FLLAMA_CUDA_TOOLKIT_DIR'))
-      // The Visual Studio generator finds CUDA through `cmake -T cuda=`.
-      'CMAKE_TOOLCHAIN_FILE': p.join(
-        Directory.fromUri(sourceDir).path,
-        'cmake',
-        'windows-cuda.toolchain.cmake',
-      ),
+      'CMAKE_TOOLCHAIN_FILE': _toolsetToolchainFile(sourceDir, toolset),
     if (defines['GGML_VULKAN'] == 'ON')
       'GGML_VULKAN_SHADERS_GEN_TOOLCHAIN': p.join(
         Directory.fromUri(sourceDir).path,
@@ -580,74 +588,6 @@ VulkanSdk? findVulkanSdk(OS targetOS, Architecture targetArch) {
   return null;
 }
 
-/// Pinned CUDA Toolkit for the CUDA GPU pack (ADR 004 D8). The release
-/// workflow installs it from the NVIDIA redistributable archives.
-const cudaToolkitVersion = '12.8';
-
-/// GPU architectures of the CUDA pack. `-real` is machine code, so these
-/// GPUs need no JIT compilation and run with any CUDA 12 driver:
-/// GTX 10 (61), GTX 16 and RTX 20 (75), A100 (80), RTX 30 (86), RTX 40
-/// (89) and RTX 50 (120a). `90-virtual` is PTX for other and future GPUs.
-const cudaArchitectures =
-    '61-real;75-real;80-real;86-real;89-real;'
-    '90-virtual;120a-real';
-
-/// Whether a release for [targetOS] and [targetArch] has a CUDA pack.
-bool cudaTargets(OS targetOS, Architecture targetArch) =>
-    targetArch == Architecture.x64 &&
-    (targetOS == OS.windows || targetOS == OS.linux);
-
-/// Where the release workflow installs the CUDA Toolkit. hooks_runner does
-/// not pass CUDA_PATH to hooks, so the hook uses fixed locations.
-String cudaToolkitRoot(OS targetOS) => targetOS == OS.windows
-    ? p.windows.join(
-        r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA',
-        'v$cudaToolkitVersion',
-      )
-    : '/usr/local/cuda-$cudaToolkitVersion';
-
-/// A CUDA Toolkit that the hook found on this machine.
-final class CudaToolkit {
-  const CudaToolkit({required this.defines});
-
-  /// CMake defines that select this toolkit.
-  final Map<String, String> defines;
-}
-
-/// Finds the pinned CUDA Toolkit, or returns null.
-CudaToolkit? findCudaToolkit(OS targetOS) {
-  final root = cudaToolkitRoot(targetOS);
-  if (targetOS == OS.windows) {
-    final required = [
-      p.windows.join(root, 'bin', 'nvcc.exe'),
-      p.windows.join(root, 'include', 'cublas_v2.h'),
-      p.windows.join(
-        root,
-        'extras',
-        'visual_studio_integration',
-        'MSBuildExtensions',
-        'CUDA $cudaToolkitVersion.props',
-      ),
-    ];
-    if (!required.every((path) => File(path).existsSync())) return null;
-    return CudaToolkit(
-      defines: {
-        'CUDAToolkit_ROOT': root,
-        // Read by cmake/windows-cuda.toolchain.cmake.
-        'FLLAMA_CUDA_TOOLKIT_DIR': root,
-      },
-    );
-  }
-  final nvcc = p.join(root, 'bin', 'nvcc');
-  if (!File(nvcc).existsSync() ||
-      !File(p.join(root, 'include', 'cublas_v2.h')).existsSync()) {
-    return null;
-  }
-  return CudaToolkit(
-    defines: {'CUDAToolkit_ROOT': root, 'CMAKE_CUDA_COMPILER': nvcc},
-  );
-}
-
 /// The text in [PrebuiltRelease.assetUrl] that CMake replaces with the
 /// file name of each GPU pack file (src/cmake/gpu_packs.cmake).
 const gpuPackUrlNamePlaceholder = '@FILE@';
@@ -663,17 +603,19 @@ int? readVulkanHeaderVersion(String header) {
 
 /// CMake defines for a target. [gpuPackUrlTemplate] is the release URL of
 /// a GPU pack file, with [gpuPackUrlNamePlaceholder] for its name. Without
-/// it, ggml-vulkan is a normal library. [cuda] needs [gpuPackUrlTemplate].
+/// it, ggml-vulkan is a normal library. [cudaPack] is the published CUDA
+/// pack that fllama embeds (ADR 004 D16); it needs [gpuPackUrlTemplate].
 Map<String, String> computeDefines(
   OS targetOS,
   Architecture targetArch,
   String targetVariant, {
   VulkanSdk? vulkan,
-  CudaToolkit? cuda,
+  CudaPackDescriptor? cudaPack,
   String? gpuPackUrlTemplate,
 }) {
-  if (cuda != null && gpuPackUrlTemplate == null) {
-    throw ArgumentError('CUDA is only built as a GPU pack.');
+  if (cudaPack != null &&
+      (gpuPackUrlTemplate == null || !cudaTargets(targetOS, targetArch))) {
+    throw ArgumentError('A CUDA pack is only for x64 release builds.');
   }
   final defines = <String, String>{
     'CMAKE_BUILD_TYPE': 'Release',
@@ -753,15 +695,11 @@ Map<String, String> computeDefines(
       defines['GGML_VULKAN'] = 'ON';
       defines.addAll(vulkan.defines);
     }
-    if (cuda != null) {
-      defines['GGML_CUDA'] = 'ON';
-      defines['FLLAMA_CUDA_TIMING'] = 'ON';
-      defines['CMAKE_CUDA_ARCHITECTURES'] = cudaArchitectures;
-      // One library for all GPUs. NCCL is only for several GPUs.
-      defines['GGML_CUDA_NCCL'] = 'OFF';
-      defines.addAll(cuda.defines);
+    if (cudaPack != null) {
+      // The pack files are embedded, not built (src/CMakeLists.txt).
+      defines['FLLAMA_CUDA_PACK_FILES'] = cudaPack.cmakeFiles;
     }
-    if (gpuPackUrlTemplate != null && (vulkan != null || cuda != null)) {
+    if (gpuPackUrlTemplate != null && vulkan != null) {
       defines['FLLAMA_GPU_PACK_URL_TEMPLATE'] = gpuPackUrlTemplate;
     }
   }
@@ -1053,6 +991,7 @@ final class GpuPackFile {
     required this.name,
     required this.sha256,
     required this.url,
+    this.external = false,
   });
 
   factory GpuPackFile.fromJson(Map<String, Object?> json) => GpuPackFile(
@@ -1060,14 +999,20 @@ final class GpuPackFile {
     name: json['name']! as String,
     sha256: json['sha256']! as String,
     url: json['url']! as String,
+    external: json['external'] == true,
   );
 
   final String pack;
   final String name;
   final String sha256;
 
-  /// The gzipped file in the fllama GitHub release (ADR 005 §5).
+  /// The gzipped file in the fllama GitHub release (ADR 005 §5), or in the
+  /// CUDA pack release for an [external] file.
   final String url;
+
+  /// Published by another build (the CUDA pack, ADR 004 D16). This build
+  /// has no copy of the file.
+  final bool external;
 }
 
 List<GpuPackFile> parseGpuPackFiles(String json) => [
@@ -1133,8 +1078,8 @@ final class _SplitLayout extends _CacheLayout {
   Future<List<GpuPackFile>> gpuPackFiles() async =>
       parseGpuPackFiles(await _gpuPacks.readAsString());
 
-  /// A shared library name. Linux CUDA libraries have their soname, for
-  /// example `libcudart.so.12` (src/CMakeLists.txt).
+  /// A shared library name, also with a soname version suffix such as
+  /// `libcudart.so.12`.
   bool _isLibrary(String name) => targetOS == OS.windows
       ? p.extension(name) == '.dll'
       : RegExp(r'\.so(\.\d+)*$').hasMatch(name);
@@ -1184,6 +1129,7 @@ final class _SplitLayout extends _CacheLayout {
     if (!await packsJson.exists()) return null;
     final packs = parseGpuPackFiles(await packsJson.readAsString());
     for (final pack in packs) {
+      if (pack.external) continue;
       final file = published[pack.name];
       if (file == null) return null;
       final actual = sha256.convert(await file.readAsBytes()).toString();
