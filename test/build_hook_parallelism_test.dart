@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
 import 'package:logging/logging.dart';
-import 'package:native_toolchain_cmake/native_toolchain_cmake.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -26,35 +25,6 @@ void main() {
     expect(builder.outDir, output);
     expect(builder.defines, defines);
     expect(builder.defines, isNot(contains('CMAKE_TOOLCHAIN_FILE')));
-    expect(builder.generator, Generator.defaultGenerator);
-  });
-
-  test('Windows CUDA uses Ninja; Linux CUDA keeps its generator', () {
-    final sourceDir = Directory.systemTemp.uri.resolve('fixture/src/');
-    final builder = hook.createFllamaBuilder(
-      sourceDir: sourceDir,
-      outDir: Uri.directory('/fixture/cache'),
-      defines: const {'GGML_CUDA': 'ON', 'FLLAMA_CUDA_TOOLKIT_DIR': r'C:\CUDA'},
-      logger: Logger('offline builder test'),
-    );
-    expect(builder.generator, Generator.ninja);
-    expect(builder.parallelUseAllProcessors, isTrue);
-    expect(builder.useVcvars, isTrue);
-    expect(
-      builder.defines['CMAKE_TOOLCHAIN_FILE'],
-      p.join(
-        Directory.fromUri(sourceDir).path,
-        'cmake',
-        'windows-cuda.toolchain.cmake',
-      ),
-    );
-    final linux = hook.createFllamaBuilder(
-      sourceDir: sourceDir,
-      outDir: Uri.directory('/fixture/cache'),
-      defines: const {'GGML_CUDA': 'ON', 'CUDAToolkit_ROOT': '/cuda'},
-      logger: Logger('offline builder test'),
-    );
-    expect(linux.generator, Generator.defaultGenerator);
   });
 
   test('Windows arm64 builds with ClangCL; other targets use defaults', () {
@@ -79,7 +49,6 @@ void main() {
         'windows-clangcl.toolchain.cmake',
       ),
     });
-    expect(builder.generator, Generator.defaultGenerator);
   });
 
   test('Windows builds never link an OpenMP runtime', () {

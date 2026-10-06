@@ -393,7 +393,7 @@ CMakeBuilder createFllamaBuilder({
     if (toolset != null)
       'CMAKE_TOOLCHAIN_FILE': _toolsetToolchainFile(sourceDir, toolset)
     else if (defines.containsKey('FLLAMA_CUDA_TOOLKIT_DIR'))
-      // Select nvcc for Ninja (or cuda= for Visual Studio).
+      // The Visual Studio generator finds CUDA through `cmake -T cuda=`.
       'CMAKE_TOOLCHAIN_FILE': p.join(
         Directory.fromUri(sourceDir).path,
         'cmake',
@@ -407,12 +407,6 @@ CMakeBuilder createFllamaBuilder({
       ),
   },
   targets: targets,
-  // Ninja schedules individual CUDA files, instead of relying on MSBuild's
-  // project-level parallelism. Use the existing all-core parallel setting.
-  // This marker is emitted only by the Windows CUDA toolkit discovery.
-  generator: defines.containsKey('FLLAMA_CUDA_TOOLKIT_DIR')
-      ? Generator.ninja
-      : Generator.defaultGenerator,
   buildLocal: false,
   parallelUseAllProcessors: true,
   logger: logger,
