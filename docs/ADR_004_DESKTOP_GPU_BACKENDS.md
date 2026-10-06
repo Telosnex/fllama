@@ -873,8 +873,8 @@ null-terminated list of the devices that the model can use.
 
 **Sizes** from the upstream b11396 Windows release archives, unpacked.
 These CUDA files are CUDA 13.4; the fllama pack uses CUDA 12.8 (D16), so
-its files are `*_12` and their sizes differ. Add the pack sizes when the
-first pack is published:
+its files are `*_12` and their sizes differ. The fllama pack sizes are
+below this table.
 
 | File | MB |
 |------|---:|
@@ -884,6 +884,21 @@ first pack is published:
 | `cublasLt64_13.dll` | 492.8 |
 | `cublas64_13.dll` | 54.9 |
 | `cudart64_13.dll` | 0.6 |
+
+**fllama CUDA pack sizes** (CUDA 12.8, 7 GPU architectures, first packs
+`cuda-windows-x64-1c6b4f34777df5fe` and `cuda-linux-x64-632a6bd1dff0be2b`,
+MB = 10^6 bytes):
+
+| File | Windows x64 unpacked / gzip | Linux x64 unpacked / gzip |
+|---|---|---|
+| cudart | 0.6 / 0.1 | 0.7 / 0.2 |
+| cublasLt | 674.7 / 480.5 | 751.8 / 507.0 |
+| cublas | 113.7 / 87.9 | 116.4 / 88.5 |
+| ggml-cuda | 127.9 / 115.1 | 137.4 / 116.2 |
+| Total | 917 / 684 | 1006 / 712 |
+
+A user with an NVIDIA GPU downloads about 0.7 GB once per pack key.
+cublasLt is 70% of it.
 
 Before this ADR, the fllama VM builds were 7.1 MB (x64) and 8.8 MB (ARM64).
 
@@ -967,3 +982,5 @@ Release `native-580a44799cc1e0f1`, gzipped download sizes:
   key test before each pack build and release (I5, risk 2). Workplan
   exception: the step 13 pipeline came before the step 12 gate. The CUDA
   sizes in the appendix are labeled as CUDA 13.4.
+- 2026-10-06: First CUDA packs published. Their sizes are in the
+  appendix. A release build-only run with them passed.
