@@ -1,10 +1,11 @@
 // Build hook for fllama — compiles llama.cpp into a shared library that
 // Flutter bundles with the app. Runs automatically on flutter build/run/test.
 //
-// With package:native_prebuilt (docs/ADR_005_PREBUILT_NATIVE_LIBRARIES.md),
-// the hook first downloads the libraries from the GitHub release in
-// native_artifacts/prebuilt.json if that manifest matches the package
-// sources. User define `native_build`: auto (default), download or source.
+// With package:native_prebuilt (native_prebuilt
+// docs/ADR_001_PREBUILT_NATIVE_LIBRARIES.md), the hook first downloads the
+// libraries from the GitHub release in native_artifacts/prebuilt.json if that
+// manifest matches the package sources. User define `native_build`: auto
+// (default), download or source.
 // Everything below is the source build.
 //
 // ═══════════════════════════════════════════════════════════════════════
@@ -174,8 +175,9 @@ Future<void> _buildFromSource({
   }
 
   // ── CMake defines ──────────────────────────────────────────────────
-  // Only a release build makes GPU backends GPU packs (ADR 005 D7). A
-  // local build bundles ggml-vulkan, because it has no host for the pack.
+  // Only a release build makes GPU backends GPU packs (native_prebuilt ADR 001
+  // D7). A local build bundles ggml-vulkan, because it has no host for the
+  // pack.
   final defines = computeDefines(
     targetOS,
     targetArch,
@@ -1006,8 +1008,8 @@ final class GpuPackFile {
   final String name;
   final String sha256;
 
-  /// The gzipped file in the fllama GitHub release (ADR 005 §5), or in the
-  /// CUDA pack release for an [external] file.
+  /// The gzipped file in the fllama GitHub release (native_prebuilt ADR 001
+  /// §5), or in the CUDA pack release for an [external] file.
   final String url;
 
   /// Published by another build (the CUDA pack, ADR 004 D16). This build

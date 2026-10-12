@@ -1,7 +1,7 @@
 # ADR 004 — One desktop build per CPU architecture that selects the GPU and CPU code at run time
 Status: DRAFT, partly implemented (first draft 2026-10-04, updated 2026-10-06)
-Depends on: ADR 005 (prebuilt native libraries). A GPU pack works for every
-app only if every app uses the same fllama build.
+Depends on: native_prebuilt ADR 001 (prebuilt native libraries). A GPU pack
+works for every app only if every app uses the same fllama build.
 
 ## 0. Implementation status (2026-10-06)
 
@@ -19,8 +19,8 @@ CUDA gate (step 12) has not run.
 | No OpenMP on Windows (D6) | Done | fllama `d97bd7a` |
 | Split libraries, CPU variants, loader (D1, D2, D4, D11) | Done | fllama `832cf2b` |
 | Vulkan from the pinned SDK (D3) | Done | fllama `ce2e308` |
-| GPU packs in fllama (D13) | Done | fllama `515b45e`, ADR 005 step 3 |
-| Release workflow and pack hosting (D7) | Done | ADR 005 steps 1 to 4 |
+| GPU packs in fllama (D13) | Done | fllama `515b45e`, native_prebuilt ADR 001 step 3 |
+| Release workflow and pack hosting (D7) | Done | native_prebuilt ADR 001 steps 1 to 4 |
 | Device keys and `gpu_device_key` in fllama (D9) | Done | fllama `832cf2b` |
 | Auto layers and draft check in Telosnex (D5, R17) | Done | Telosnex `b37eef6417` |
 | GPU pack download in Telosnex (D14) | Not started | |
@@ -185,15 +185,16 @@ D6: Build all Windows targets with GGML_OPENMP=OFF.
     debug_nonredist, so that file is not redistributable. One policy for all
     Windows targets is less to maintain.
 
-D7: Apps use the prebuilt fllama build of ADR 005. Its release workflow
-    installs the pinned GPU SDKs and compiles every GPU backend. A local
-    source build compiles a GPU backend when it finds the pinned SDK. If it
-    does not find the SDK, it builds the CPU backends only and logs a
+D7: Apps use the prebuilt fllama build of native_prebuilt ADR 001. Its release
+    workflow installs the pinned GPU SDKs and compiles every GPU backend. A
+    local source build compiles a GPU backend when it finds the pinned SDK. If
+    it does not find the SDK, it builds the CPU backends only and logs a
     warning. The fllama release workflow fails if a Windows x64 or Linux x64
     build has no GPU pack (I4).
     Because: R9, R13, R14
     Instead of: a GPU build on each app build machine. Each machine then
-    needs the SDK, and each app must host its own packs (ADR 005 §1).
+    needs the SDK, and each app must host its own packs (native_prebuilt
+    ADR 001 §1).
     Instead of: upstream prebuilt libraries (the fonnx pattern). They must
     match the local ggml-base exactly (I5).
 
@@ -258,16 +259,16 @@ D12: ARM64 GPU: the package contains the backend that wins the step 9
      State: not decided. `findVulkanSdk` returns null for Windows ARM64, and
      the hook does not build OpenCL. The ARM64 release has no GPU backend.
 
-D13: A GPU pack is a set of backend libraries that the ADR 005 release
-     build (native_release) builds in the same CMake build as fllama, but
-     does not publish as code assets. The build writes the SHA-256 and the
-     URL of each pack file into fllama (`src/cmake/gpu_packs.cmake`
-     generates a source file, and a `gpu_packs.json` that tells the hook
-     which libraries are pack files). The fllama release workflow uploads
-     each file to the fllama GitHub release (ADR 005 §5).
-     fllama_load_gpu_pack loads a file only if its SHA-256 is equal to the
-     value inside fllama. A local source build has no GPU packs. It
-     publishes the GPU backends as code assets (ADR 005 D7).
+D13: A GPU pack is a set of backend libraries that the native_prebuilt ADR 001
+     release build (native_release) builds in the same CMake build as fllama,
+     but does not publish as code assets. The build writes the SHA-256 and the
+     URL of each pack file into fllama (`src/cmake/gpu_packs.cmake` generates
+     a source file, and a `gpu_packs.json` that tells the hook which libraries
+     are pack files). The fllama release workflow uploads each file to the
+     fllama GitHub release (native_prebuilt ADR 001 §5). fllama_load_gpu_pack
+     loads a file only if its SHA-256 is equal to the value inside fllama. A
+     local source build has no GPU packs. It publishes the GPU backends as
+     code assets (native_prebuilt ADR 001 D7).
      Because: R8, R12, I5
      Instead of: hashes in a manifest that the app downloads with the pack.
      The download can change both the file and the manifest (R12).
@@ -387,7 +388,7 @@ I4: Each Windows or Linux release package contains its baseline CPU
     If violated: a release loses GPU support or CPU support without an error.
     Pinned by: the hook stops a Windows x64 or Linux x64 release build that
     has no Vulkan SDK (D7). native_prebuilt:check checks every release file
-    and pack URL (ADR 005 D10, I4). Planned: a check in
+    and pack URL (native_prebuilt ADR 001 D10, I4). Planned: a check in
     dev/ci/releases/release.dart that the package contains the baseline
     CPU variant.
 
@@ -572,10 +573,11 @@ Code asset IDs: `package:fllama/fllama_io.dart` for `fllama`.
 `package:fllama/native/<file name without extension>` for each other library
 in the package. Pack files are not code assets.
 
-Pack file URL: the ADR 005 release asset
+Pack file URL: the native_prebuilt ADR 001 release asset
 `https://github.com/Telosnex/fllama/releases/download/native-<16 hex>/<target>-<file name>.gz`.
 The manifest entry has `delivery: runtime` and `pack: <pack>`. Released apps
-expect these files, so they are never deleted or changed (ADR 005 R6).
+expect these files, so they are never deleted or changed (native_prebuilt
+ADR 001 R6).
 
 The app writes the files of one pack to one directory, for example
 `%LOCALAPPDATA%\Telosnex\gpu-packs\<sha256 of the first file>\`. Paths must be
@@ -688,8 +690,8 @@ Ranked by irreversibility.
    other channels. The NVIDIA CUDA EULA permits the pack files (step 12,
    read 2026-10-06). Recovery: drop D8.
 4. **GitHub Releases is not available, or a pack file is deleted.** Released
-   apps then run on the CPU (I1). They do not fail. ADR 005 risk 1 gives the
-   recovery.
+   apps then run on the CPU (I1). They do not fail. native_prebuilt ADR 001
+   risk 1 gives the recovery.
 5. **Auto layers make Apple devices slower.** Apple GPUs use the same RAM
    as the CPU. llama.cpp counts the Metal working-set limit as GPU memory,
    and it keeps a 1 GiB free margin by default (`fit_params_target`). On an
@@ -709,15 +711,14 @@ Ranked by irreversibility.
    together with the CPU variants.
 9. **Build time.** A cold Windows x64 build with Vulkan took 16.5 minutes
    in the ARM64 VM (x64 emulation). Shader generation is most of it.
-   Resolved by ADR 005: app builds download the release. Cold release
-   builds on the runners take 12 minutes (Windows x64), 8.5 minutes (Linux
-   x64) and 7.5 minutes (Windows ARM64). CUDA in the release build took
-   85 to 100 minutes (Windows x64) and 46 to 76 minutes (Linux x64).
-   Resolved by D16. The CUDA pack builds only when its key changes.
-   Measured (Linux, nvcc `--time`): 266 CPU-minutes per cold build, 69%
-   in `cicc` and 19% in `ptxas`. Each of the 7 GPU architectures costs 8%
-   to 20%. Fewer architectures, or larger runners, would make the CUDA
-   build itself faster.
+   Resolved by native_prebuilt ADR 001: app builds download the release. Cold
+   release builds on the runners take 12 minutes (Windows x64), 8.5 minutes
+   (Linux x64) and 7.5 minutes (Windows ARM64). CUDA in the release build took
+   85 to 100 minutes (Windows x64) and 46 to 76 minutes (Linux x64). Resolved
+   by D16. The CUDA pack builds only when its key changes. Measured (Linux,
+   nvcc `--time`): 266 CPU-minutes per cold build, 69% in `cicc` and 19% in
+   `ptxas`. Each of the 7 GPU architectures costs 8% to 20%. Fewer
+   architectures, or larger runners, would make the CUDA build itself faster.
 10. **Windows does not find dependent DLLs in `flutter test`.** In tests, the
     libraries are not next to the executable. Partly resolved: the Windows
     integration tests find all libraries. A plain `flutter test` run on
@@ -747,9 +748,9 @@ step 13, the CUDA pack pipeline, was built before the step 12 gate.
 4. **Done (`832cf2b`). Loader.** D4, the §5 FFI, device keys and the D11
    CPU selection in `src/fllama_backends.cpp`. Open: unit tests for I7 and
    for `fllama_backends_pick_windows_arm64_cpu`.
-4b. **Done (`515b45e`, then ADR 005 step 3). GPU packs (D13).** The hook
-    publishes pack files as release runtime files. Integration tests cover
-    I1, I5 and I9.
+4b. **Done (`515b45e`, then native_prebuilt ADR 001 step 3). GPU packs
+    (D13).** The hook publishes pack files as release runtime files.
+    Integration tests cover I1, I5 and I9.
 5. **Telosnex.** D5 and the GPU layer setting are done (`b37eef6417`).
    To do:
    1. Implement D14 with `ensureRuntimeFile` from native_prebuilt
@@ -768,9 +769,9 @@ step 13, the CUDA pack pipeline, was built before the step 12 gate.
    and with -1. If -1 is slower for a model that loads with 99, set a
    smaller Apple margin. Done when Android with -1 runs on the CPU with no
    change in speed.
-7. **Release CI.** ADR 005 steps 1 to 4 are done. The fllama release
-   workflow builds and uploads the packs. To do: add the I3 and I4 checks to
-   `dev/ci/releases/release.dart`.
+7. **Release CI.** native_prebuilt ADR 001 steps 1 to 4 are done. The fllama
+   release workflow builds and uploads the packs. To do: add the I3 and I4
+   checks to `dev/ci/releases/release.dart`.
 8. **Windows ARM64.** The D11 CPU variants are done, and the ARM64 VM
    selects the dot-product variant. To do:
    1. Add both D12 candidates to the hook.
@@ -899,7 +900,7 @@ null-terminated list of the devices that the model can use.
 | Android arm64 builds use `-march=armv8.2-a+dotprod` for all devices (`src/CMakeLists.txt`). CPUs without the dot-product extension, for example Cortex-A53, cannot run this code. | Independent defect. Inferred. | Track separately |
 | Telosnex enables the draft model only for `gpuLayers > 0` | Fixed by D5 | Fixed in Telosnex `b37eef6417` |
 | `fllama_get_gpu_devices` skips integrated GPUs, so Telosnex shows no GPU memory on PCs with only an integrated GPU | Fixed by D9 | Fixed in fllama step 4. Telosnex estimates open (step 5) |
-| Android release libraries contained debug information (129.6 MiB for ARM64) | Independent defect | Fixed in ADR 005 (release `native-580a44799cc1e0f1`) |
+| Android release libraries contained debug information (129.6 MiB for ARM64) | Independent defect | Fixed in native_prebuilt ADR 001 (release `native-580a44799cc1e0f1`) |
 | The Windows zip needs an installed Visual C++ runtime | Independent | NG4 |
 
 **Sizes** from the upstream b11396 Windows release archives, unpacked.
@@ -979,15 +980,15 @@ Release `native-580a44799cc1e0f1`, gzipped download sizes:
 - 2026-10-05: Founder rule R8: large backends that not every user can use
   are downloads. Vulkan becomes a GPU pack (D3, D13, D14, I9). The CUDA
   manifest is replaced by hashes inside fllama.
-- 2026-10-05: Depends on ADR 005. GPU packs come from the fllama prebuilt
-  release on GitHub, not from B2 (D7, D13, I4, risks 4 and 9, §5, step 7).
-  A local source build bundles its GPU backends.
-- 2026-10-05: ADR 005 step 3 done. `fllama_get_gpu_pack_files` returns
-  `url`; `gpu_pack_dir`, `relativePath` and `fllamaGpuPackObjectPrefix`
-  are gone. The release workflow installs the Vulkan SDK 1.4.357.0 on
-  Windows x64 and copies it into the system directories on Linux x64,
-  where the hook looks (§5). A release without a Vulkan pack for Windows
-  x64 or Linux x64 fails (D7).
+- 2026-10-05: Depends on native_prebuilt ADR 001. GPU packs come from the
+  fllama prebuilt release on GitHub, not from B2 (D7, D13, I4, risks 4 and 9,
+  §5, step 7). A local source build bundles its GPU backends.
+- 2026-10-05: native_prebuilt ADR 001 step 3 done. `fllama_get_gpu_pack_files`
+  returns `url`; `gpu_pack_dir`, `relativePath` and
+  `fllamaGpuPackObjectPrefix` are gone. The release workflow installs the
+  Vulkan SDK 1.4.357.0 on Windows x64 and copies it into the system
+  directories on Linux x64, where the hook looks (§5). A release without a
+  Vulkan pack for Windows x64 or Linux x64 fails (D7).
 - 2026-10-05: Status update against fllama release
   `native-580a44799cc1e0f1` and Telosnex `b37eef6417`. New §0 shows the
   implementation state. Problem items, decisions, invariants, risks and

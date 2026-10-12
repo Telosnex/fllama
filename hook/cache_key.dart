@@ -2,9 +2,9 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
-/// Computes the local cache key of a native fllama build (ADR 005 D4): the
-/// native_prebuilt source key of the package, the target, the CMake
-/// defines, and host toolchain inputs such as the GPU SDK version.
+/// Computes the local cache key of a native fllama build (native_prebuilt
+/// ADR 001 D4): the native_prebuilt source key of the package, the target, the
+/// CMake defines, and host toolchain inputs such as the GPU SDK version.
 String computeBuildKey({
   required String os,
   required String arch,

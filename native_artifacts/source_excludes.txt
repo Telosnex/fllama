@@ -1,5 +1,5 @@
-# Files that the native build does not read (ADR 005 D3). The hook reads
-# hook/, src/ and pubspec.yaml.
+# Files that the native build does not read (native_prebuilt ADR 001 D3). The
+# hook reads hook/, src/ and pubspec.yaml.
 analysis_options.yaml
 assets/
 codemagic.yaml

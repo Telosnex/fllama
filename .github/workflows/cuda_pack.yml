@@ -57,8 +57,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The runners of the native release (ADR 005 D8): the same glibc
-          # and the same Visual Studio major version.
+          # The runners of the native release (native_prebuilt ADR 001 D8): the
+          # same glibc and the same Visual Studio major version.
           - { target: windows-x64, runner: windows-2022 }
           - { target: linux-x64, runner: ubuntu-22.04 }
     env:

@@ -126,35 +126,38 @@ void main() {
       );
     });
 
-    test('only a release build makes ggml-vulkan a GPU pack (ADR 005 D7)', () {
-      const sdk = hook.VulkanSdk(headerVersion: 357);
-      const template =
-          'https://github.com/Telosnex/fllama/releases/download/native-0123456789abcdef/windows-x64-@FILE@.gz';
-      expect(
-        hook.computeDefines(OS.windows, Architecture.x64, '', vulkan: sdk),
-        isNot(contains('FLLAMA_GPU_PACK_URL_TEMPLATE')),
-      );
-      expect(
-        hook.computeDefines(
-          OS.windows,
-          Architecture.x64,
-          '',
-          vulkan: sdk,
-          gpuPackUrlTemplate: template,
-        )['FLLAMA_GPU_PACK_URL_TEMPLATE'],
-        template,
-      );
-      // No GPU backend, no pack.
-      expect(
-        hook.computeDefines(
-          OS.windows,
-          Architecture.x64,
-          '',
-          gpuPackUrlTemplate: template,
-        ),
-        isNot(contains('FLLAMA_GPU_PACK_URL_TEMPLATE')),
-      );
-    });
+    test(
+      'only a release build makes ggml-vulkan a GPU pack (native_prebuilt ADR 001 D7)',
+      () {
+        const sdk = hook.VulkanSdk(headerVersion: 357);
+        const template =
+            'https://github.com/Telosnex/fllama/releases/download/native-0123456789abcdef/windows-x64-@FILE@.gz';
+        expect(
+          hook.computeDefines(OS.windows, Architecture.x64, '', vulkan: sdk),
+          isNot(contains('FLLAMA_GPU_PACK_URL_TEMPLATE')),
+        );
+        expect(
+          hook.computeDefines(
+            OS.windows,
+            Architecture.x64,
+            '',
+            vulkan: sdk,
+            gpuPackUrlTemplate: template,
+          )['FLLAMA_GPU_PACK_URL_TEMPLATE'],
+          template,
+        );
+        // No GPU backend, no pack.
+        expect(
+          hook.computeDefines(
+            OS.windows,
+            Architecture.x64,
+            '',
+            gpuPackUrlTemplate: template,
+          ),
+          isNot(contains('FLLAMA_GPU_PACK_URL_TEMPLATE')),
+        );
+      },
+    );
 
     group('CUDA pack targets (ADR 004 D8)', () {
       test('only Windows x64 and Linux x64 have it', () {
