@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "webVersion": "c46bbeaca554d82e",
+  "files": [
+    {
+      "name": "fllama_web_init.js",
+      "sha256": "cb020dc37844fe40a1c09faf938a0baae1a3028068a5ce79de06b2826ee6cd9b",
+      "bytes": 35298,
+      "source": "lib/web/fllama_web_init.js"
+    }
+  ]
+}

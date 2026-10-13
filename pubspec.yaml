@@ -22,13 +22,15 @@ dependencies:
   native_prebuilt:
     git:
       url: https://github.com/Telosnex/native_prebuilt.git
-      ref: 59c965b2b4e3fee14e3efa316ed7f7dea4cc49dd
+      ref: bf489921cbd79f96a41d3ac08d88df6cdab97366
   native_toolchain_cmake: ^0.2.4
   logging: any
   crypto: any
   path: any
 
 dev_dependencies:
+  flutter_test:
+    sdk: flutter
   ffigen: ^9.0.0
   flutter_lints: ^2.0.0
   test: ^1.24.9
@@ -38,12 +40,3 @@ dev_dependencies:
 
 # Native code is built via hook/build.dart (native assets).
 # No flutter: plugin: section needed — the hook replaces ffiPlugin.
-
-flutter:
-  assets:
-    - path: assets/web/fllama_web_init.js
-      platforms: [web]
-    - path: assets/web/wllama/index.js
-      platforms: [web]
-    - path: assets/web/wllama/wasm/
-      platforms: [web]

@@ -82,7 +82,10 @@ async function waitForHttp(url, timeoutMs = 20000) {
   throw new Error(`Timed out waiting for ${url}: ${lastError?.message ?? lastError}`);
 }
 
-const packageAssetDir = path.join(exampleDir, 'build', 'web', 'assets', 'packages', 'fllama', 'assets', 'web');
+// The fllama build hook installs the web runtime here (native_prebuilt
+// ADR 002). Legacy refs used assets/packages/fllama/assets/web/; the example
+// now loads only this path.
+const packageAssetDir = path.join(exampleDir, 'build', 'web', 'native_prebuilt', 'fllama');
 
 async function resetPackageWebAssets() {
   await rm(path.join(packageAssetDir, 'wllama'), { recursive: true, force: true });
@@ -92,11 +95,11 @@ async function resetPackageWebAssets() {
 async function overlayCurrentWorkingTreeAssets() {
   await resetPackageWebAssets();
   await cp(
-    path.join(repoRoot, 'assets', 'web', 'fllama_web_init.js'),
+    path.join(repoRoot, 'lib', 'web', 'fllama_web_init.js'),
     path.join(packageAssetDir, 'fllama_web_init.js'),
   );
   await cp(
-    path.join(repoRoot, 'assets', 'web', 'wllama'),
+    path.join(repoRoot, 'lib', 'web', 'wllama'),
     path.join(packageAssetDir, 'wllama'),
     { recursive: true },
   );

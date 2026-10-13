@@ -1,11 +1,15 @@
-# Builds the native libraries for every target and publishes the files as a
-# GitHub release (native_prebuilt docs/ADR_001_PREBUILT_NATIVE_LIBRARIES.md,
-# D5, D6, D8). Start it with
+# Builds the native libraries for every target and the web runtime, and
+# publishes the files as a GitHub release (native_prebuilt ADR 001 D5, D6,
+# D8; ADR 002 D3, D10). Start it with
 #   git push -f origin HEAD:native-release       (release)
 #   git push -f origin HEAD:native-release-dry   (build only, no upload)
 # or with workflow_dispatch. On success it pushes the branch
-# native-manifest/<tag> with native_artifacts/prebuilt.json. Merge that
-# branch to use the release.
+# native-manifest/<tag> with native_artifacts/prebuilt.json, web.json and
+# lib/src/web_runtime.g.dart. Merge that branch to use the release.
+#
+# The web job builds wllama with web_build/wllama.patch in the emsdk image of
+# web_build/wllama.json (tool/build_web.dart). The browser test loads a model
+# with it before the release.
 #
 # Windows x64 and Linux x64 embed the CUDA pack that cuda_pack.yml published
 # for these ggml sources (ADR 004 D16). The run fails in its first job if
@@ -262,8 +266,79 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      # The emsdkImage of web_build/wllama.json (emscripten/emsdk:4.0.20).
+      # env is not available in container.image.
+      image: emscripten/emsdk@sha256:460fff8f8ac87e11b16447fbd66538a686eafa0e4fb977aa0989ed19fe2079f7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check the image pin
+        run: |
+          pinned="$(python3 -c 'import json;print(json.load(open("web_build/wllama.json"))["emsdkImage"])')"
+          [ "$pinned" = "emscripten/emsdk@sha256:460fff8f8ac87e11b16447fbd66538a686eafa0e4fb977aa0989ed19fe2079f7" ] || {
+            echo "::error::web_build/wllama.json pins $pinned; change container.image too."
+            exit 1
+          }
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: 3.13.1
+      # tool/build_web.dart uses only dart:io, so it needs no pub get.
+      - name: Build
+        run: |
+          start=$SECONDS
+          dart tool/build_web.dart --out "$RUNNER_TEMP/native/web" --work "$RUNNER_TEMP/web-build"
+          echo "Web build: $((SECONDS - start)) s"
+          mkdir -p "$RUNNER_TEMP/native/web-meta"
+          echo "Emscripten $(emcc --version | sed -n 1p | grep -o '[0-9][0-9.]* ([0-9a-f]*)'), Node $(node --version | tr -d v)" > "$RUNNER_TEMP/native/web-meta/toolchain.txt"
+          cat "$RUNNER_TEMP/native/web-meta/toolchain.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-web
+          path: ${{ runner.temp }}/native/
+          if-no-files-found: error
+          retention-days: 90
+
+  # The browser test on the files of the web job (ADR 002 D10, D13).
+  web-test:
+    needs: web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - *flutter
+      - run: flutter pub get --no-example
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: native-web
+          path: ${{ runner.temp }}/web-artifact
+      - name: Install the web files into lib/web
+        run: dart run native_prebuilt:web install-dev --from "$RUNNER_TEMP/web-artifact/web"
+      - name: Check the web runtime
+        run: scripts/check_web_assets.sh
+      - name: Download the test model
+        run: |
+          mkdir -p test/web_models
+          curl -sSfL --retry 3 -o test/web_models/stories15M-q4_0.gguf \
+            https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories15M-q4_0.gguf
+          echo "66967fbece6dbe97886593fdbb73589584927e29119ec31f08090732d1861739  test/web_models/stories15M-q4_0.gguf" | sha256sum -c -
+      # The hook builds the host library from source for the test runner:
+      # the release for this source key does not exist yet.
+      - name: Chrome
+        run: flutter test --platform chrome test/web_runtime_test.dart
+
   release:
-    needs: build
+    needs: [build, web, web-test]
     # Only the owner publishes, from this repository.
     if: >-
       github.repository == 'Telosnex/fllama' &&
@@ -325,7 +400,11 @@ jobs:
         run: |
           args=(--staging "$RUNNER_TEMP/staging")
           if [[ "$DRY_RUN" == true ]]; then args+=(--dry-run); fi
-          dart run native_prebuilt:release "${args[@]}" "$ARTIFACTS/out"
+          dart run native_prebuilt:release "${args[@]}" \
+            --web "$ARTIFACTS/web" \
+            --web-runner "ubuntu-24.04, $(python3 -c 'import json;print(json.load(open("web_build/wllama.json"))["emsdkImage"])')" \
+            --web-toolchain "$(cat "$ARTIFACTS/web-meta/toolchain.txt")" \
+            "$ARTIFACTS/out"
           cat native_artifacts/prebuilt.json
 
       - name: Push the manifest branch
@@ -336,7 +415,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git add native_artifacts/prebuilt.json
+          git add native_artifacts/prebuilt.json native_artifacts/web.json lib/src/web_runtime.g.dart
           git commit -m "native: prebuilt files of release $tag"
           git push origin "$branch"
           {
@@ -348,4 +427,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: prebuilt-manifest
-          path: native_artifacts/prebuilt.json
+          path: |
+            native_artifacts/prebuilt.json
+            native_artifacts/web.json

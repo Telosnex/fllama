@@ -104,7 +104,12 @@ void main(List<String> args) async {
   await build(args, (input, output) async {
     // Bail out early if the consumer doesn't need native code (e.g. dart
     // analyze, or a platform that doesn't support code assets).
-    if (!input.config.buildCodeAssets) return;
+    if (!input.config.buildCodeAssets) {
+      // A web build: install the web runtime files of native_artifacts/web.json
+      // into the app (native_prebuilt ADR 002).
+      return NativePrebuilt(input: input, output: output, log: print)
+          .installWeb();
+    }
 
     final hookStopwatch = Stopwatch()..start();
 

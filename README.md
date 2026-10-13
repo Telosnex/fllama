@@ -79,16 +79,12 @@ fllamaChat(request, (response, done) {
 ```
 ## Tips & Tricks
 ### Web
-  Web uses the package-bundled wllama/WebGPU runtime. Apps should import the package asset bridge from `web/index.html`:
-  ```html
-  <script type="module">
-    import './assets/packages/fllama/assets/web/fllama_web_init.js';
-  </script>
-  ```
+  Web uses a wllama/WebGPU runtime. In a Flutter web build, the fllama build hook installs it in `web/native_prebuilt/fllama/` of the app, and fllama loads it at the first call; the app needs no script tag (native_prebuilt ADR 002). Other embedders serve those files and set `FllamaWeb.runtimeUri`.
   For best performance, serve the app with cross-origin isolation enabled so the multi-threaded WebAssembly backend can run.
 
-  Before publishing or after replacing the web runtime, run:
+  To check the web runtime locally:
   ```sh
+  dart run native_prebuilt:web install-dev
   scripts/check_web_assets.sh
   ```
 ### Recommended models
@@ -156,18 +152,13 @@ fllama has two llama.cpp delivery paths:
   ```text
   src/llama.cpp
   ```
-- **Web** uses prebuilt wllama artifacts bundled in this repo:
-  ```text
-  assets/web/wllama/index.js
-  assets/web/wllama/wasm/wllama.js
-  assets/web/wllama/wasm/wllama.wasm
-  ```
-  Those artifacts are built from the separate wllama checkout. In the Telosnex dev workspace, that source is usually:
-  ```text
-  /Users/jpo/dev/ngxson_wllama/llama.cpp
-  ```
+- **Web** uses wllama (`wllama/index.js`, `wllama/wasm/wllama.{js,wasm}`).
+  The release workflow builds it with `tool/build_web.dart` from wllama and
+  llama.cpp at the commits of `web_build/wllama.json`, with
+  `web_build/wllama.patch`. `native_artifacts/web.json` pins the files.
 
-That means web's underlying llama.cpp is whatever the wllama checkout contains at build time. To keep native and web matched, refresh fllama's native vendored tree from wllama's llama.cpp tree, then rebuild/copy the web artifacts.
+To keep native and web matched, the llama.cpp commit of `web_build/wllama.json`
+is the commit of `src/llama.cpp`.
 
 ## Refresh native llama.cpp from wllama
 
@@ -228,34 +219,22 @@ cd "$FLLAMA/example"
 flutter build macos --debug
 ```
 
-## Rebuild and copy the web wllama artifacts
+## Rebuild the web wllama artifacts
 
-After changing the wllama checkout, rebuild its generated glue, WASM, worker, and ESM bundle:
-
-```sh
-cd /Users/jpo/dev/ngxson_wllama
-npm run build:glue
-npx tsc --noEmit -p tsconfig.build.json
-npm run build:wasm
-npm run build:worker
-npm run build:tsup
-```
-
-Copy the generated artifacts into fllama:
+Change `web_build/wllama.json` or `web_build/wllama.patch`, then run the native
+release workflow: its web job builds the files and its browser test loads a
+model with them. For a local build, run the script in the pinned image (see
+the comment at the top of `tool/build_web.dart`), then:
 
 ```sh
-cd /Users/jpo/dev/fllama
-cp /Users/jpo/dev/ngxson_wllama/esm/index.js assets/web/wllama/index.js
-cp /Users/jpo/dev/ngxson_wllama/src/wasm/wllama.js assets/web/wllama/wasm/wllama.js
-cp /Users/jpo/dev/ngxson_wllama/src/wasm/wllama.wasm assets/web/wllama/wasm/wllama.wasm
-```
-
-Validate the web assets:
-
-```sh
-node --check assets/web/fllama_web_init.js
+dart run native_prebuilt:web install-dev --from /tmp/fllama_web
+node --check lib/web/fllama_web_init.js
 scripts/check_web_assets.sh
+flutter test --platform chrome test/web_runtime_test.dart
 ```
+
+After a change to `lib/web/fllama_web_init.js`, run
+`dart run native_prebuilt:web stamp`.
 
 # Web development
 - The web example uses wllama's server backend and requires cross-origin isolation for SharedArrayBuffer/pthreads.

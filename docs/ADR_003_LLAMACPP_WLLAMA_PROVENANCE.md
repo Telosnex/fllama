@@ -1,6 +1,6 @@
 # ADR 003 — llama.cpp / wllama provenance
 
-Status: accepted (updated 2026-08-15)
+Status: accepted (updated 2026-10-13)
 
 This documents what fllama's native and web llama.cpp runtimes are made of and
 how to reproduce them. Keep it current whenever either runtime is refreshed.
@@ -12,12 +12,12 @@ how to reproduce them. Keep it current whenever either runtime is refreshed.
 fllama runs the same llama.cpp source two ways:
 
 - **Native** compiles the plain vendored copy at `src/llama.cpp`.
-- **Web** ships a custom wllama bundle at:
-  ```text
-  assets/web/wllama/index.js
-  assets/web/wllama/wasm/wllama.js
-  assets/web/wllama/wasm/wllama.wasm
-  ```
+- **Web** ships a custom wllama bundle: `wllama/index.js`,
+  `wllama/wasm/wllama.js` and `wllama/wasm/wllama.wasm`. The native release
+  workflow builds it with `tool/build_web.dart` from `web_build/wllama.json`
+  and `web_build/wllama.patch`, and publishes it in the same release as the
+  native libraries (native_prebuilt ADR 002). `native_artifacts/web.json`
+  pins the files.
 
 The current llama.cpp source is the upstream `master` tip fetched for this
 refresh:
@@ -54,7 +54,7 @@ fix compat CDN build (#254)
 The shipped bundle is `766d28e` plus the fllama patch:
 
 ```text
-docs/patches/WLLAMA_3_5_1_LLAMA_B10450.patch
+web_build/wllama.patch
 ```
 
 That patch is the reproducible source of all non-generated wllama changes. It
@@ -84,21 +84,21 @@ copy of that commit, apart from the fllama-owned provenance file
 
 ### 2c. Artifact fingerprints
 
-| fllama path | Bytes | SHA-256 |
-|-------------|------:|---------|
-| `assets/web/wllama/index.js` | 310337 | `4a58f9247ded1b6cfc49a61a94faca709d60cb5d0489ed74ba97aa10190ea583` |
-| `assets/web/wllama/wasm/wllama.js` | 138604 | `eb2adba824b0c41ed7c24d19ae91a83de5a08b2145b75355af2502eb497c0baa` |
-| `assets/web/wllama/wasm/wllama.wasm` | 8523221 | `c6c13820c090724a6e3ce8defac7af9631e30821e07fd167ccb8c5d7b3e3513c` |
+`native_artifacts/web.json` has the SHA-256 of each released file. The
+release workflow writes it.
 
-The hashes fingerprint the shipped files. They are not a claim that different
-Docker, Emscripten, or Node versions produce byte-identical output.
+The 2026-08-15 files were built by hand on a Mac with the arm64 image. A
+`tool/build_web.dart` build with the same image digest on the same Mac
+(2026-10-13) gave a byte-identical `index.js` and `wllama.js`. Its
+`wllama.wasm` was 8,525,140 bytes, against 8,523,221: the build directory is
+different. The release workflow builds on amd64.
 
 ---
 
 ## 3. Required wllama changes
 
 All changes below are captured by
-`docs/patches/WLLAMA_3_5_1_LLAMA_B10450.patch`.
+`web_build/wllama.patch`.
 
 ### 3a. Request-ID parallel generation
 
@@ -179,43 +179,24 @@ target `fllama`, not llama.cpp's CLI/server executables.
 
 ## 5. Reproduce the web runtime
 
-Start with a clean wllama 3.5.1 checkout. The patch requires exactly `766d28e`.
+The native release workflow builds the web runtime: the `web` job runs
+`tool/build_web.dart` in the image of `web_build/wllama.json`, and the
+`web-test` job loads a model with the result in Chrome. The steps of
+`tool/build_web.dart` are:
 
-```sh
-export FLLAMA=/Users/jpo/dev/fllama
-export WLLAMA=/path/to/clean/wllama
+1. Check out wllama at `766d28e` and apply `web_build/wllama.patch`. The patch
+   requires exactly this commit, and it moves the llama.cpp gitlink to
+   `ece963f41`.
+2. Clone llama.cpp with its history at `ece963f41`. `build:worker` names the
+   build `b<commit count>-<short hash>`; the script checks that it is
+   `b10450-ece963f`.
+3. Download the Dawn WebGPU package and check its SHA-256.
+4. Build the JSPI Wasm (`-DGGML_WEBGPU=ON -DGGML_WEBGPU_JSPI=ON`), run
+   `build:glue`, `npm ci`, `build:worker`, `tsc --noEmit` and `build:tsup`.
 
-cd "$WLLAMA"
-git checkout --detach 766d28e03eeac044fe055327d06b83d3f9b84544
-git submodule update --init
-
-git apply --index \
-  "$FLLAMA/docs/patches/WLLAMA_3_5_1_LLAMA_B10450.patch"
-git -C llama.cpp fetch origin
-git -C llama.cpp checkout ece963f41b0b02d7a0d61436ae365762c073a4c8
-git add llama.cpp
-
-grep -F -- '-sSTACK_SIZE=16MB' CMakeLists.txt
-grep -F -- '-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=_localtime_js' CMakeLists.txt
-
-npm ci
-SKIP_COMPAT=1 npm run build:wasm
-npm run build:worker
-npx tsc --noEmit -p tsconfig.build.json
-npm run build:tsup
-```
-
-Copy the generated runtime:
-
-```sh
-cd "$FLLAMA"
-cp "$WLLAMA/esm/index.js" assets/web/wllama/index.js
-cp "$WLLAMA/src/wasm/wllama.js" assets/web/wllama/wasm/wllama.js
-cp "$WLLAMA/src/wasm/wllama.wasm" assets/web/wllama/wasm/wllama.wasm
-```
-
-Update the asset-version string in `assets/web/fllama_web_init.js` and its check
-in `scripts/check_web_assets.sh` whenever the runtime files change.
+To build locally, see `docs/RUNBOOK_WEB_RUNTIME.md`. `lib/web/fllama_web_init.js`
+takes its version from its own URL query, so a change of the runtime files
+needs no change to it.
 
 ---
 
@@ -260,7 +241,7 @@ PASS  native Qwen3.5 27B Q4_K_M inference, reported 16K/2-thread request, Metal
 Commands:
 
 ```sh
-node --check assets/web/fllama_web_init.js
+node --check lib/web/fllama_web_init.js
 scripts/check_web_assets.sh
 cmake -S src -B tmp/fllama-validate -DCMAKE_BUILD_TYPE=Release
 cmake --build tmp/fllama-validate --target fllama -j

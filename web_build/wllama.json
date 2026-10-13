@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/ngxson/wllama.git",
+  "commit": "766d28e03eeac044fe055327d06b83d3f9b84544",
+  "patch": "web_build/wllama.patch",
+  "llamaCpp": {
+    "repository": "https://github.com/ggml-org/llama.cpp.git",
+    "commit": "ece963f41b0b02d7a0d61436ae365762c073a4c8",
+    "version": "b10450-ece963f"
+  },
+  "dawn": {
+    "url": "https://github.com/google/dawn/releases/download/v20260317.182325/emdawnwebgpu_pkg-v20260317.182325.zip",
+    "sha256": "8dcae86c630d76b6794b271c6572becba36f4237d132bee121a56638c3d76575"
+  },
+  "emsdkImage": "emscripten/emsdk@sha256:460fff8f8ac87e11b16447fbd66538a686eafa0e4fb977aa0989ed19fe2079f7",
+  "emscripten": "4.0.20",
+  "node": "22.16.0"
+}

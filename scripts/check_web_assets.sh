@@ -22,7 +22,7 @@ require_file() {
 
 require_absent() {
   local path="$1"
-  [[ ! -e "$path" ]] || fail "$path should not exist; web runtime must come from package assets"
+  [[ ! -e "$path" ]] || fail "$path should not exist; the build hook installs the web runtime"
 }
 
 require_grep() {
@@ -31,24 +31,23 @@ require_grep() {
   grep -qE "$pattern" "$file" || fail "$file does not contain required pattern: $pattern"
 }
 
-require_file assets/web/fllama_web_init.js
-require_file assets/web/wllama/index.js
-require_file assets/web/wllama/wasm/wllama.js
-require_file assets/web/wllama/wasm/wllama.wasm
+# The web runtime: fllama_web_init.js is in git; the wllama files are
+# generated (native_prebuilt ADR 002). Install them first with
+# `dart run native_prebuilt:web install-dev`.
+require_file lib/web/fllama_web_init.js
+require_file lib/web/wllama/index.js
+require_file lib/web/wllama/wasm/wllama.js
+require_file lib/web/wllama/wasm/wllama.wasm
+require_file native_artifacts/web.json
 
+require_absent assets/web
 require_absent example/web/fllama_web_init.js
 require_absent example/web/wllama
-require_absent assets/web/wllama/jspi-single-thread
-require_absent assets/web/wllama/asyncify-single-thread
-require_absent assets/web/wllama/asyncify-multi-thread
 
-require_grep 'assets/web/fllama_web_init\.js' pubspec.yaml
-require_grep 'assets/web/wllama/wasm/' pubspec.yaml
-require_grep "import './assets/packages/fllama/assets/web/fllama_web_init\.js';" example/web/index.html
-require_grep 'ngxson-v10-wllama-3\.5\.1-llamacpp-b10450-stack16-libtime' assets/web/fllama_web_init.js
-require_grep 'default:' assets/web/fllama_web_init.js
+require_grep "import\\(versionedAsset\\('\\./wllama/index\\.js'\\)\\)" lib/web/fllama_web_init.js
+require_grep 'default:' lib/web/fllama_web_init.js
 
-wasm="assets/web/wllama/wasm/wllama.wasm"
+wasm="lib/web/wllama/wasm/wllama.wasm"
 old_markers="$(count_markers "$wasm" 'WaitAny returned|Failed to submit commands')"
 fast_markers="$(count_markers "$wasm" 'ggml_webgpu_flash_attn_decisions|parameter arena exhausted|event_synchronize timed out')"
 server_markers="$(count_markers "$wasm" 'server_context|server_task|chat_completion|cmpl_req')"

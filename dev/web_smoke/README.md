@@ -31,7 +31,7 @@ cd dev/web_smoke
 HEADLESS=1 npm run smoke:current -- --max-tokens=100 --ctx=4096
 ```
 
-This overlays the current `assets/web/fllama_web_init.js` and `assets/web/wllama` into `example/build/web/assets/packages/fllama/assets/web` before serving the app.
+This overlays the current `lib/web/fllama_web_init.js` and `lib/web/wllama` (install them with `dart run native_prebuilt:web install-dev`) into `example/build/web/native_prebuilt/fllama` before serving the app.
 
 ## Run the basic suite
 
@@ -144,7 +144,7 @@ Useful result fields:
 ## Notes
 
 - Run commands from the fllama repository root unless a command explicitly changes directories.
-- The harness mutates `example/build/web/assets/packages/fllama/assets/web` by overlaying runtime assets. Rebuild the example or rerun the desired runtime before manual browser testing.
+- The harness mutates `example/build/web/native_prebuilt/fllama` by overlaying runtime assets. Rebuild the example or rerun the desired runtime before manual browser testing.
 - `HEADLESS=0` opens a visible browser.
 - Use `--model=/path/to/model.gguf` to test a different local GGUF.
 - 100 tokens/sec with Qwen3.5-0.8B-Q4_K_M.gguf is baseline (26-05-20, MacBook Pro M4 Max)

@@ -1,0 +1,6 @@
+# native_prebuilt web install-dev: generated, do not edit.
+/.native_prebuilt_web_version
+/wllama/index.js
+/wllama/wasm/wllama.js
+/wllama/wasm/wllama.wasm
+# End of native_prebuilt web install-dev.
