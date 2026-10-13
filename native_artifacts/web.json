@@ -1,12 +1,40 @@
 {
   "schema": 1,
-  "webVersion": "c46bbeaca554d82e",
+  "sourceKey": "cc228460a674b88e4097cbc507b8ad0256e0df92c4991d67ff0ae7c81289b975",
+  "release": "https://github.com/Telosnex/fllama/releases/tag/native-cc228460a674b88e",
+  "runner": "ubuntu-24.04, emscripten/emsdk@sha256:460fff8f8ac87e11b16447fbd66538a686eafa0e4fb977aa0989ed19fe2079f7",
+  "toolchain": "Emscripten 4.0.20 (6913738ec5371a88c4af5a80db0ab42bad3de681), Node 22.16.0",
+  "webVersion": "705a235f9ec63bf6",
   "files": [
     {
       "name": "fllama_web_init.js",
       "sha256": "cb020dc37844fe40a1c09faf938a0baae1a3028068a5ce79de06b2826ee6cd9b",
       "bytes": 35298,
       "source": "lib/web/fllama_web_init.js"
+    },
+    {
+      "name": "wllama/index.js",
+      "sha256": "4a58f9247ded1b6cfc49a61a94faca709d60cb5d0489ed74ba97aa10190ea583",
+      "bytes": 310337,
+      "source": "release",
+      "url": "https://github.com/Telosnex/fllama/releases/download/native-cc228460a674b88e/web-wllama__index.js.gz",
+      "downloadSha256": "b6a7eded25f814597f6a4947ef935d8f551195fd507429d433af2d4fc7e47fd7"
+    },
+    {
+      "name": "wllama/wasm/wllama.js",
+      "sha256": "eb2adba824b0c41ed7c24d19ae91a83de5a08b2145b75355af2502eb497c0baa",
+      "bytes": 138604,
+      "source": "release",
+      "url": "https://github.com/Telosnex/fllama/releases/download/native-cc228460a674b88e/web-wllama__wasm__wllama.js.gz",
+      "downloadSha256": "d1e9686f567aa2c0d13eaec3e1761c875b7d2c5f39eee9a71d0431c6ee353081"
+    },
+    {
+      "name": "wllama/wasm/wllama.wasm",
+      "sha256": "8ad14344196fa29c9b3f597dcbaec6bfac3e04f5fa598dfd389ec6bca98b8c00",
+      "bytes": 8527556,
+      "source": "release",
+      "url": "https://github.com/Telosnex/fllama/releases/download/native-cc228460a674b88e/web-wllama__wasm__wllama.wasm.gz",
+      "downloadSha256": "5113c570d9cadd6bf38840678d7ba17408894e2adce19a4f5511fff9e55306a6"
     }
   ]
 }

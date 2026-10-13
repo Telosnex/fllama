@@ -2,4 +2,4 @@
 
 /// Version of the web runtime files of this package (native_prebuilt
 /// ADR 002 D7). Load each file with the query `?v=$webRuntimeVersion`.
-const webRuntimeVersion = 'c46bbeaca554d82e';
+const webRuntimeVersion = '705a235f9ec63bf6';
