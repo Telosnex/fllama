@@ -30,6 +30,9 @@ Future<String?> fllamaLoadGpuPack(String pack, String directory) async =>
 /// No Vulkan on this platform.
 Future<bool> fllamaHasVulkanGpu() async => false;
 
+/// GGUF files cannot be read on this platform.
+int? fllamaTrainedContextLength(String modelPath) => null;
+
 /// Returns the chat template embedded in the .gguf file.
 /// If none is found, returns an empty string.
 ///

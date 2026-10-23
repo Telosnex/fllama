@@ -36,6 +36,9 @@ Future<String?> fllamaLoadGpuPack(String pack, String directory) async =>
 /// No Vulkan on this platform.
 Future<bool> fllamaHasVulkanGpu() async => false;
 
+/// On the web, model files are not on a file system that Dart can read.
+int? fllamaTrainedContextLength(String modelPath) => null;
+
 // Keep in sync with fllama_inference_request.dart to pass correctly from Dart to JS
 extension type _JSFllamaInferenceRequest._(JSObject _) implements JSObject {
   external factory _JSFllamaInferenceRequest({
