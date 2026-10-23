@@ -11,6 +11,11 @@
 #include <memory>
 
 #if defined(_WIN32)
+// windows.h defines min and max macros, which break std::min, std::max and
+// llama.cpp's common.h in files that include this header first.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <objbase.h>
 #endif
 
