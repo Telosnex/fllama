@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, webkit } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 import { checkSmokeResult, smokeOptions } from './smoke_checks.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -259,8 +259,8 @@ switch (runtime) {
 console.log(`Using runtime=${runtime}${runtime === 'legacy' || runtime === 'reese' || runtime === 'reeselevine' ? ` ref=${legacyRef}` : ''}`);
 
 const browserName = argValue('--browser', process.env.FLLAMA_SMOKE_BROWSER || 'chromium');
-if (!['chromium', 'webkit'].includes(browserName)) {
-  console.error(`Unknown --browser=${browserName}. Use chromium or webkit.`);
+if (!['chromium', 'firefox', 'webkit'].includes(browserName)) {
+  console.error(`Unknown --browser=${browserName}. Use chromium, firefox or webkit.`);
   process.exit(2);
 }
 console.log(`Using browser=${browserName}`);
@@ -272,8 +272,9 @@ try {
   await waitForHttp(url);
 
   // webkit is Playwright's WebKit build, the engine of Safari.
-  if (browserName === 'webkit') {
-    browser = await webkit.launch({ headless });
+  // firefox is Playwright's Firefox build.
+  if (browserName === 'webkit' || browserName === 'firefox') {
+    browser = await (browserName === 'webkit' ? webkit : firefox).launch({ headless });
   } else try {
     browser = await chromium.launch({
       channel,
@@ -294,7 +295,8 @@ try {
     });
   }
 
-  const page = await browser.newPage();
+  // Without a locale, Playwright's Firefox has no navigator.language and Flutter stops.
+  const page = await browser.newPage({ locale: 'en-US' });
   const logs = [];
   page.on('console', (message) => {
     const text = `[${message.type()}] ${message.text()}`;

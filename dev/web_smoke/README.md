@@ -154,8 +154,9 @@ Useful result fields:
 ## WebKit (Safari)
 
 `--browser=webkit` (or `FLLAMA_SMOKE_BROWSER=webkit`) runs Playwright's WebKit
-build. Install it once with `npx playwright install webkit`. WebKit has no
-WebAssembly Memory64 or JSPI, so the fast wllama build cannot run. A request
+build. Install it once with `npx playwright install webkit`. `--browser=firefox` runs Playwright's
+Firefox (`npx playwright install firefox`); it has no JSPI, so wllama runs on
+the CPU. WebKit has no WebAssembly Memory64, so the wllama build cannot run. A request
 ends at once with a `model_load` error. To check that:
 
 ```bash
