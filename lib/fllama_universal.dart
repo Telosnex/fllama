@@ -1,14 +1,78 @@
+import 'dart:convert';
+
 import 'package:fllama/fllama.dart';
 import 'package:fllama/misc/gbnf.dart';
-import 'package:jinja/jinja.dart';
 
-import 'model/model_override.dart';
+/// Called for each update of an inference request.
+///
+/// [response] is the text so far. [openaiResponseJsonString] is the
+/// llama-server/OpenAI-style chunk of this update, or empty. [done] is true
+/// for the last call, and only the last call. [error] is set only on the last
+/// call, if the request failed; [response] then holds the text before the
+/// failure. A cancelled request ends with [done] and no [error].
+typedef FllamaInferenceCallback =
+    void Function(
+      String response,
+      String openaiResponseJsonString,
+      bool done,
+      FllamaError? error,
+    );
 
-/// Returns true if the given [output] indicates that the model failed to load.
-/// Output is the output from [fllamaInference] or [fllamaChat].
-bool fllamaOutputIndicatesLoadError(String output) {
-  return output.contains('Error: Unable to load model.') ||
-      output.contains('Error: Failed to create context');
+/// What kind of failure a [FllamaError] is.
+enum FllamaErrorType {
+  /// The model could not be loaded: a missing or invalid file, or not enough
+  /// memory.
+  modelLoad,
+
+  /// The request could not be used, for example a chat template error.
+  invalidRequest,
+
+  /// The prompt does not fit the context size.
+  contextSizeExceeded,
+
+  /// The GPU or CPU backend failed while computing. The next request
+  /// recreates the context.
+  backend,
+
+  /// Any other failure.
+  other,
+}
+
+/// Why an inference request failed. See [FllamaInferenceCallback].
+class FllamaError {
+  final FllamaErrorType type;
+
+  /// llama.cpp's or fllama's description, for logs and for users.
+  final String message;
+
+  const FllamaError(this.type, this.message);
+
+  /// Parses `{"type": "...", "message": "..."}` from native or web code.
+  factory FllamaError.fromJson(String json) {
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is Map) {
+        final message = decoded['message'];
+        return FllamaError(
+          _errorTypes[decoded['type']] ?? FllamaErrorType.other,
+          message is String && message.isNotEmpty ? message : json,
+        );
+      }
+    } on FormatException {
+      // Not JSON: use the text as the message.
+    }
+    return FllamaError(FllamaErrorType.other, json);
+  }
+
+  static const _errorTypes = {
+    'model_load': FllamaErrorType.modelLoad,
+    'invalid_request': FllamaErrorType.invalidRequest,
+    'exceed_context_size': FllamaErrorType.contextSizeExceeded,
+    'backend': FllamaErrorType.backend,
+  };
+
+  @override
+  String toString() => 'FllamaError(${type.name}): $message';
 }
 
 /// Parameters needed to run standard LLM inference. Use with [fllamaInference].
@@ -27,23 +91,12 @@ class FllamaInferenceRequest {
   String? openAiRequestJsonString;
   int numGpuLayers;
 
-  /// Number of threads to use for inference.
+  /// Number of CPU threads for inference. -1, the default, lets llama.cpp
+  /// choose one thread per physical core, as llama-server does.
   ///
-  /// 2 by default based on testing performed 2024 Feb 15, and model loading
-  /// taking ~3 minutes when thread count exceeds 2 on Pixel Fold.
-  ///
-  /// See class code for benchmarks from 2024 Feb 15.
-  // Pixel Fold x StableLM 3B Zephyr, 2024 Feb 15:
-  // - 99 gpu layers works, doesn't seem to affect performance or system load.
-  // - default of 4 threads makes model loading take forever
-  // - 1 thread / 0 layers: 4.7
-  // - 1 thread / 99 layers: 4.5
-  // - 2 threads / 0 layers: 7.7
-  // M2 Ultra MBP 2024 x LLaVA 1.6 Mistral 7B, 2024 Feb 15:
-  // - 2 threads / 0 layers: 6.54
-  // - 2 threads / 99 layers: 38.9
-  // - 4 threads / 99 layers: 35.5
-  // - 8 threads / 99 layers: 38.9
+  /// It was 2 until 2026: in 2024, a Pixel Fold loaded models slowly with
+  /// more. On an M-series Mac, CPU-only Qwen 3.5 0.8B generates about 1.5
+  /// times as fast with -1, and processes prompts about 3 times as fast.
   int numThreads;
 
   /// Sampling. null uses the value that the GGUF file recommends, else
@@ -52,9 +105,7 @@ class FllamaInferenceRequest {
   double? penaltyFrequency;
   double? penaltyRepeat;
   double? topP;
-  String? grammar;
   Function(String)? logger;
-  String? eosToken;
 
   /// Optional: path to an MTP assistant/drafter GGUF (e.g.
   /// gemma-4-31B-it-assistant) to enable Multi-Token Prediction speculative
@@ -76,6 +127,28 @@ class FllamaInferenceRequest {
   /// unknown key is logged and treated as Auto. Native-only.
   String? gpuDeviceKey;
 
+  /// The request that [fllamaChat] runs for [request]: llama.cpp's
+  /// OpenAI-compatible chat path, with an empty plain [input].
+  factory FllamaInferenceRequest.fromOpenAiRequest(OpenAiRequest request) =>
+      FllamaInferenceRequest(
+        contextSize: request.contextSize,
+        input: '',
+        maxTokens: request.maxTokens,
+        modelPath: request.modelPath,
+        modelMmprojPath: request.mmprojPath,
+        numGpuLayers: request.numGpuLayers,
+        penaltyFrequency: request.frequencyPenalty,
+        penaltyRepeat: request.repeatPenalty,
+        temperature: request.temperature,
+        topP: request.topP,
+        logger: request.logger,
+        openAiRequestJsonString: request.toJsonString(),
+        draftModelPath: request.draftModelPath,
+        draftNMax: request.draftNMax,
+        draftPMin: request.draftPMin,
+        gpuDeviceKey: request.gpuDeviceKey,
+      );
+
   FllamaInferenceRequest({
     required this.contextSize,
     required this.input,
@@ -86,10 +159,8 @@ class FllamaInferenceRequest {
     this.penaltyRepeat,
     this.temperature,
     this.topP,
-    this.grammar,
-    this.eosToken,
     this.modelMmprojPath,
-    this.numThreads = 2,
+    this.numThreads = -1,
     this.logger,
     this.openAiRequestJsonString,
     this.draftModelPath,
@@ -175,44 +246,21 @@ class FllamaGpuMemoryInfo {
   bool get hasKnownBudget => totalBytes > 0;
 }
 
-/// Run the LLM using the standard LLM chat interface. This is the most common
-/// way to use FLLAMA.
+/// Runs an OpenAI-style chat request with llama.cpp's server code, as
+/// llama-server's /v1/chat/completions does. This is the most common way to
+/// use fllama. Returns the request ID, for [fllamaCancelInference].
 ///
-/// What is the difference between this and inference? It automatically handles:
-/// - Using the chat template in the GGUF (fallback to ChatML if none is found).
-/// - Using the EOS token in the GGUF (fallback to ChatML EOS if none is found).
-/// - If a tool / function is supplied, force the model to only output JSON that
-///   is valid according to the tool's JSON schema.
+/// llama.cpp applies [OpenAiRequest.jinjaTemplate], else the chat template in
+/// the GGUF. A template that cannot be used falls back to ChatML, and
+/// [OpenAiRequest.logger] says so. With tools, llama.cpp constrains tool
+/// calls to their JSON schemas and parses them into the response chunks.
+/// [callback] gets the text so far and each llama-server-style chunk; see
+/// [FllamaInferenceCallback] for errors.
 Future<int> fllamaChat(
   OpenAiRequest request,
   FllamaInferenceCallback callback,
 ) async {
-  // Chat requests are handled by llama.cpp's native OpenAI/server path via
-  // [openAiRequestJsonString]. Keep the plain inference input empty.
-  const text = '';
-  const eosToken = '';
-
-  final inferenceRequest = FllamaInferenceRequest(
-    contextSize: request.contextSize,
-    input: text,
-    maxTokens: request.maxTokens,
-    modelPath: request.modelPath,
-    modelMmprojPath: request.mmprojPath,
-    numGpuLayers: request.numGpuLayers,
-    penaltyFrequency: request.frequencyPenalty,
-    penaltyRepeat: request.repeatPenalty,
-    temperature: request.temperature,
-    topP: request.topP,
-    grammar: '', // deprecated, llama.cpp handles tools internally now
-    logger: request.logger,
-    eosToken: eosToken,
-    openAiRequestJsonString: request.toJsonString(),
-    draftModelPath: request.draftModelPath,
-    draftNMax: request.draftNMax,
-    draftPMin: request.draftPMin,
-    gpuDeviceKey: request.gpuDeviceKey,
-  );
-
+  final inferenceRequest = FllamaInferenceRequest.fromOpenAiRequest(request);
   return fllamaInference(inferenceRequest, callback);
 }
 
@@ -222,122 +270,6 @@ Future<int> fllamaChat(
 /// - [chatTemplate] is the raw chat template from the GGUF.
 /// - [eosToken] is the raw EOS token from the GGUF.
 /// - [request] is the OpenAI-like request.
-String fllamaApplyChatTemplate({
-  required String chatTemplate,
-  required OpenAiRequest request,
-  required String bosToken,
-  required String eosToken,
-}) {
-  final jsonMessages = <Map<String, dynamic>>[];
-  for (final message in request.messages) {
-    jsonMessages.add({
-      'role': message.role.openAiName,
-      'content': message.text,
-    });
-  }
-
-  if (request.tools.isNotEmpty) {
-    //     final tools = request.tools.map((tool) {
-    //       return tool.typescriptDefinition;
-    //     }).join('\n\n');
-    //     jsonMessages.insert(0, {
-    //       'role': 'system',
-    //       'content': '''
-    // You have access to the following functions:
-    // $tools
-
-    // You are a helpful assistant with tool calling capabilities.
-    // When you receive a tool call response, use the output to format an answer to the orginal use question.
-    // If you are using tools, respond in the format {"name": function name, "parameters": dictionary of function arguments}. If multiple tools are used, use array format.
-    // ''',
-    //     });
-  }
-
-  if (jsonMessages.isEmpty) {
-    // Add dummy message.
-    // Gemma 1.1's chat template accesses messages[0] without a condition on it
-    // being empty.
-    jsonMessages.add({'role': 'user', 'content': ''});
-  }
-
-  // There's a strange chat template first encountered in an early version of
-  // LLaVa 1.6 x Mistral 7B.
-  //
-  // It is likely to be some sort of default template used by .gguf makers.
-  //
-  // It has a raise_exception function that is not defined in the template,
-  // so it will cause an error.
-  //
-  // The template in the LLaVA 1.6 model model was incorrect in several ways,
-  // and currently templates like it (templates that contain only user and
-  // assistant roles are supported) are replaced with ChatML.
-  //
-  // However, it seems sensible to maintain this error.
-  final globals = <String, Function>{
-    'raise_exception': (String message) {
-      // ignore: avoid_print
-      print('[fllama] chat template asked to raise_exception: $message');
-      return '';
-    },
-  };
-
-  // Workaround in case of Jinja2 exception.
-  // Motivation: bartowski's dolphin 2.8 experiment 26
-  // Error: flutter: [fllama] Using ChatML because the chat template could not be applied. Exception: TemplateSyntaxError: Expected token rbracket, got :. Chat template: {% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}{% set system_message = messages[0]['content'] %}{% else %}{% set loop_messages = messages %}{% set system_message = 'You are a helpful assistant.' %}{% endif %}{% if not add_generation_prompt is defined %}{% set add_generation_prompt = false %}{% endif %}{% for message in loop_messages %}{% if loop.index0 == 0 %}{{'<|im_start|>system
-  try {
-    final env = Environment(
-      globals: globals,
-      loader: null,
-      leftStripBlocks: true,
-      trimBlocks: true,
-      keepTrailingNewLine: true,
-    );
-
-    final template = env.fromString(chatTemplate, globals: globals);
-    return template.render({
-      'messages': jsonMessages,
-      'add_generation_prompt': true,
-      'eos_token': eosToken,
-      'bos_token': bosToken,
-    });
-  } catch (e) {
-    // ignore: avoid_print
-    print('[fllama] Error applying chat template: $e');
-    // ignore: avoid_print
-    print('[fllama] chat template: $chatTemplate');
-    // ignore: avoid_print
-    // print('[fllama] messages: $jsonMessages');
-    if (chatTemplate != chatMlTemplate) {
-      final llamaChatTemplate = Llama3ChatTemplate();
-      // ignore: avoid_print
-      if (llamaChatTemplate.matches(chatTemplate)) {
-        // ex. bartowski's llama 3.2 8B cannot be parsed, but it is
-        // desirable to use. ChatML as a fallback breaks it. First response
-        // generally works, then it fails.
-
-        return fllamaApplyChatTemplate(
-          chatTemplate: llamaChatTemplate.template,
-          request: request,
-          bosToken: llamaChatTemplate.bosToken,
-          eosToken: llamaChatTemplate.eosToken,
-        );
-      }
-      return fllamaApplyChatTemplate(
-        chatTemplate: chatMlTemplate,
-        request: request,
-        bosToken: bosToken,
-        eosToken: eosToken,
-      );
-    } else {
-      // ignore: avoid_print
-      print(
-        '[fllama] Exception thrown while applying chat template. ChatML could not be used as a fallback. Returning empty string. Exception: $e. Chat template: $chatTemplate. Messages: $jsonMessages.',
-      );
-      return '';
-    }
-  }
-}
-
 const chatMlTemplate = '''
 {%- for msg in messages -%}
 <|im_start|>{{ msg.role }}
@@ -345,9 +277,6 @@ const chatMlTemplate = '''
 {% endfor %}
 <|im_start|>assistant
 ''';
-
-const chatMlBosToken = '<|im_start|>';
-const chatMlEosToken = '<|im_end|>';
 
 /// Convert a JSON schema to GBNF, a grammar format used by llama.cpp to enforce
 /// that the model returns certain outputs.

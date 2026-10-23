@@ -935,7 +935,7 @@ class _MyAppState extends State<MyApp> {
           print(
               'Download progress: $downloadProgress, Load progress: $loadProgress');
         });
-      }, (response, responseJson, done) {
+      }, (response, responseJson, done, error) {
         _parseStreamChunk(responseJson);
         setState(() {
           _webDownloadProgress = null;
@@ -970,7 +970,8 @@ class _MyAppState extends State<MyApp> {
     });
 
     List<String> allResponses = [];
-    int requestId = await fllamaChat(request, (response, responseJson, done) {
+    int requestId =
+        await fllamaChat(request, (response, responseJson, done, error) {
       _parseStreamChunk(responseJson);
       setState(() {
         allResponses.add(responseJson);

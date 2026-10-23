@@ -15,6 +15,26 @@
 
 #include "ggml-backend.h"
 
+// Receives each llama.cpp and ggml log call on the thread that set it, in
+// pieces as llama.cpp logs them. Returns true to leave the piece out of
+// stderr.
+using fllama_thread_log_sink =
+    std::function<bool(enum ggml_log_level level, const char *text)>;
+
+// Sends the llama.cpp logs of the current thread to [sink] while this object
+// exists. Logs of other threads, such as llama.cpp's server loop, still go
+// only to stderr. Scopes nest.
+class fllama_thread_log_scope {
+public:
+  explicit fllama_thread_log_scope(fllama_thread_log_sink sink);
+  ~fllama_thread_log_scope();
+  fllama_thread_log_scope(const fllama_thread_log_scope &) = delete;
+  fllama_thread_log_scope &operator=(const fllama_thread_log_scope &) = delete;
+
+private:
+  fllama_thread_log_sink previous_;
+};
+
 // Loads the ggml backends, initializes llama.cpp and installs the llama.cpp
 // log filter. Runs once per process. Thread-safe. Call it before any
 // llama.cpp model load.

@@ -325,7 +325,7 @@ Future<_GemmaMtpRun> _runGemmaInference({
       penaltyRepeat: 1.1,
       logger: _logLlamaCpp,
     ),
-    (result, responseJson, doneFlag) {
+    (result, responseJson, doneFlag, _) {
       callbacks.add(
         _FllamaCallbackEvent(
           result: result,
@@ -376,7 +376,7 @@ Future<_GemmaMtpRun> _runGemmaChat({
       repeatPenalty: 1.1,
       logger: _logLlamaCpp,
     ),
-    (result, openAiResponseJsonString, doneFlag) {
+    (result, openAiResponseJsonString, doneFlag, _) {
       callbacks.add(
         _FllamaCallbackEvent(
           result: result,

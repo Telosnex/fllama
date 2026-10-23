@@ -1,12 +1,5 @@
-import 'dart:ffi';
-
-import 'package:ffi/ffi.dart';
 import 'package:fllama/fllama.dart';
-import 'package:fllama/fllama_io.dart';
-import 'package:fllama/io/fllama_io_helpers.dart';
 
-typedef FllamaInferenceCallback =
-    void Function(String response, String openaiResponseJsonString, bool done);
 typedef FllamaWebLoadCallback =
     void Function(double downloadProgress, double loadProgress);
 
@@ -44,37 +37,21 @@ Future<String> fllamaChatTemplateGet(String modelPath) {
 
 /// Returns the BOS token embedded in the .gguf file.
 /// If none is found, returns an empty string.
-///
-/// See [fllamaApplyChatTemplate] for using sensible fallbacks for gguf
-/// files that don't have an EOS token or have incorrect EOS tokens.
-Future<String> fllamaBosTokenGet(String modelPath) async {
-  final filenamePointer = stringToPointerChar(modelPath);
-  final bosTokenPointer = fllamaBindings.fllama_get_bos_token(filenamePointer);
-  calloc.free(filenamePointer);
-  if (bosTokenPointer == nullptr) {
-    return '';
-  }
-  final bosToken = pointerCharToString(bosTokenPointer);
-  calloc.free(bosTokenPointer);
-  return bosToken;
+Future<String> fllamaBosTokenGet(String modelPath) {
+  throw UnimplementedError();
 }
 
 /// Returns the EOS token embedded in the .gguf file.
 /// If none is found, returns an empty string.
-///
-/// See [fllamaApplyChatTemplate] for using sensible fallbacks for gguf
-/// files that don't have an EOS token or have incorrect EOS tokens.
 Future<String> fllamaEosTokenGet(String modelPath) {
   throw UnimplementedError();
 }
 
-/// Runs standard LLM inference. The future returns immediately after being
-/// called. [callback] is called on each new output token with the response and
-/// a boolean indicating whether the response is the final response.
+/// Runs plain completion of [FllamaInferenceRequest.input], with no chat
+/// template. Returns the request ID soon, for [fllamaCancelInference];
+/// [callback] gets the results. See [FllamaInferenceCallback].
 ///
-/// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
-/// template and an EOS token. Use [fllamaChat] instead if you expect this
-/// sort of interface, i.e. an OpenAI-like API.
+/// Most callers want [fllamaChat], which applies the chat template.
 Future<int> fllamaInference(
   FllamaInferenceRequest request,
   FllamaInferenceCallback callback,
@@ -104,14 +81,8 @@ Future<String?> fllamaWebPickModel() async {
 
 /// Cancels the inference with the given [requestId].
 ///
-/// It is recommended you do _not_ update your state based on this.
-/// Use the callbacks, like you would generally.
-///
-/// This is supported via:
-/// - Inferences that have not yet started will call their callback with `done`
-/// set to `true` and an empty string.
-/// - Inferences that have started will call their callback with `done` set to
-/// `true` and the final output of the inference.
+/// The request then ends soon with its last callback: `done` set, the text
+/// so far, and no error. A request that has not started ends with no text.
 void fllamaCancelInference(int requestId) {
   throw UnimplementedError();
 }

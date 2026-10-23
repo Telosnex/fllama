@@ -127,10 +127,9 @@ class OpenAiRequest {
           .map(
             (m) => {
               'role': m.role.openAiName,
-              // Avoid empty content, intent is when there's a tool call,
-              // but no text, in an assistant response, two messages are not
-              // created.
-              if (m.text.trim().isNotEmpty) 'content': m.text,
+              // Always set: llama.cpp rejects a message with neither content
+              // nor tool calls, such as a reply that was only thinking.
+              'content': m.text,
               if (m.toolResponseName != null) 'name': m.toolResponseName,
               if (m.toolCalls?.isNotEmpty == true) 'tool_calls': m.toolCalls,
             },

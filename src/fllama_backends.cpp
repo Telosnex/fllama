@@ -62,9 +62,14 @@ bool is_noisy_per_token_llama_log(const char *text) {
          s == "adapters_lora_are_same: adapters = 0";
 }
 
+thread_local fllama_thread_log_sink t_log_sink;
+
 void filtered_llama_log_callback(enum ggml_log_level level, const char *text,
                                  void *user_data) {
   if (is_noisy_per_token_llama_log(text)) {
+    return;
+  }
+  if (t_log_sink && t_log_sink(level, text)) {
     return;
   }
   common_log_default_callback(level, text, user_data);
@@ -471,6 +476,15 @@ int probe_cuda_gpus() {
 #endif // FLLAMA_CUDA_PROBE
 
 } // namespace
+
+fllama_thread_log_scope::fllama_thread_log_scope(fllama_thread_log_sink sink)
+    : previous_(std::move(t_log_sink)) {
+  t_log_sink = std::move(sink);
+}
+
+fllama_thread_log_scope::~fllama_thread_log_scope() {
+  t_log_sink = std::move(previous_);
+}
 
 void fllama_backends_init_once() {
   std::lock_guard<std::mutex> lock(g_init_mutex);

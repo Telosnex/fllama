@@ -3,6 +3,7 @@ import 'dart:js_interop';
 import 'dart:convert';
 
 import 'package:fllama/fllama.dart';
+import 'package:fllama/src/web_parallel_slots.dart';
 import 'package:fllama/src/web_runtime_loader.dart';
 
 export 'package:fllama/src/web_runtime_loader.dart' show FllamaWeb;
@@ -12,9 +13,6 @@ external JSPromise<JSNumber> fllamaInferenceJs(
   JSAny request,
   JSFunction callback,
 );
-
-typedef FllamaInferenceCallback =
-    void Function(String response, String openaiResponseJsonString, bool done);
 
 Future<List<FllamaGpuMemoryInfo>> fllamaGpuMemoryInfoGetAll() async {
   return const [];
@@ -53,19 +51,15 @@ extension type _JSFllamaInferenceRequest._(JSObject _) implements JSObject {
     double? penaltyFrequency,
     double? penaltyRepeat,
     double? topP,
-    String? grammar,
-    String? eosToken,
     // INTENTIONALLY MISSING: logger
   });
 }
 
-/// Runs standard LLM inference. The future returns immediately after being
-/// called. [callback] is called on each new output token with the response and
-/// a boolean indicating whether the response is the final response.
+/// Runs plain completion of [FllamaInferenceRequest.input], with no chat
+/// template. Returns the request ID soon, for [fllamaCancelInference];
+/// [callback] gets the results. See [FllamaInferenceCallback].
 ///
-/// This is *not* what most people want to use. LLMs post-ChatGPT use a chat
-/// template and an EOS token. Use [fllamaChat] instead if you expect this
-/// sort of interface, i.e. an OpenAI-like API.
+/// Most callers want [fllamaChat], which applies the chat template.
 Future<int> fllamaInference(
   FllamaInferenceRequest dartRequest,
   FllamaInferenceCallback callback,
@@ -83,13 +77,21 @@ Future<int> fllamaInference(
     penaltyFrequency: dartRequest.penaltyFrequency,
     penaltyRepeat: dartRequest.penaltyRepeat,
     topP: dartRequest.topP,
-    grammar: dartRequest.grammar,
-    eosToken: dartRequest.eosToken,
   );
 
   final completer = Completer<int>();
-  callbackFn(String response, String responseJson, bool done) {
-    callback(response, responseJson, done);
+  callbackFn(
+    String response,
+    String responseJson,
+    bool done,
+    String? errorJson,
+  ) {
+    callback(
+      response,
+      responseJson,
+      done,
+      errorJson == null ? null : FllamaError.fromJson(errorJson),
+    );
   }
 
   fllamaInferenceJs(jsRequest, callbackFn.toJS).toDart.then((value) {
@@ -190,7 +192,7 @@ Future<int> fllamaChatWeb(
     modelPath: request.modelPath,
     modelMmprojPath: request.mmprojPath,
     contextSize: request.contextSize,
-    nParallel: request.nParallel,
+    nParallel: fllamaWebParallelSlots(request),
     temperature: request.temperature,
     penaltyFrequency: request.frequencyPenalty,
     penaltyRepeat: request.repeatPenalty,
@@ -201,8 +203,18 @@ Future<int> fllamaChatWeb(
     loadCallback(downloadProgress, loadProgress);
   }
 
-  secondCallback(String response, String responseJson, bool done) {
-    callback(response, responseJson, done);
+  secondCallback(
+    String response,
+    String responseJson,
+    bool done,
+    String? errorJson,
+  ) {
+    callback(
+      response,
+      responseJson,
+      done,
+      errorJson == null ? null : FllamaError.fromJson(errorJson),
+    );
   }
 
   fllamaChatWebJs(
@@ -280,9 +292,6 @@ external JSPromise<JSString?> fllamaBosTokenGetJs(String modelPath);
 
 /// Returns the EOS token embedded in the .gguf file.
 /// If none is found, returns an empty string.
-///
-/// See [fllamaApplyChatTemplate] for using sensible fallbacks for gguf
-/// files that don't have an EOS token or have incorrect EOS tokens.
 Future<String> fllamaBosTokenGet(String modelPath) async {
   await loadFllamaWebRuntime();
   try {
@@ -307,9 +316,6 @@ external JSPromise<JSString> fllamaEosTokenGetJs(String modelPath);
 
 /// Returns the EOS token embedded in the .gguf file.
 /// If none is found, returns an empty string.
-///
-/// See [fllamaApplyChatTemplate] for using sensible fallbacks for gguf
-/// files that don't have an EOS token or have incorrect EOS tokens.
 Future<String> fllamaEosTokenGet(String modelPath) async {
   await loadFllamaWebRuntime();
   try {
@@ -334,14 +340,8 @@ external void fllamaCancelInferenceJs(int requestId);
 
 /// Cancels the inference with the given [requestId].
 ///
-/// It is recommended you do _not_ update your state based on this.
-/// Use the callbacks, like you would generally.
-///
-/// This is supported via:
-/// - Inferences that have not yet started will call their callback with `done` set
-///  to `true` and an empty string.
-/// - Inferences that have started will call their callback with `done` set to
-/// `true` and the final output of the inference.
+/// The request then ends soon with its last callback: `done` set, the text
+/// so far, and no error. A request that has not started ends with no text.
 void fllamaCancelInference(int requestId) {
   // Before the runtime loads, no inference exists to cancel.
   if (!fllamaWebRuntimeLoaded) return;

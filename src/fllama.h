@@ -19,8 +19,24 @@
 extern "C" {
 #endif
 
-typedef void (*fllama_inference_callback)(const char *response, const char * openai_response_json_string, uint8_t done);
-typedef void (*fllama_log_callback)(const char *);
+// Called for each update of an inference request, from a native thread.
+// Each string is NULL or allocated with the Dart VM's allocator
+// (dart_alloc.h); the callee owns it and must free it.
+// - response: the text so far.
+// - openai_response_json_string: the llama-server/OpenAI-style chunk of this
+//   update, or NULL.
+// - error_json: NULL, or {"type": "...", "message": "..."} on the last call
+//   if the request failed. Types: model_load, invalid_request,
+//   exceed_context_size, backend, other.
+// - done: 1 on the last call, and only the last call. fllama makes no call
+//   for the request after it, to this callback or to the request's logger.
+//   A cancelled request ends with done and no error.
+typedef void (*fllama_inference_callback)(char *response,
+                                          char *openai_response_json_string,
+                                          char *error_json, uint8_t done);
+// Called with one log line. The callee owns the string, which is allocated
+// with the Dart VM's allocator, and must free it.
+typedef void (*fllama_log_callback)(char *message);
 
 struct fllama_gpu_memory_info {
   int32_t device_index;
@@ -45,8 +61,8 @@ struct fllama_inference_request {
   int num_gpu_layers; // Required: number of GPU layers. -1 for auto: llama.cpp
                       // fits the layers to free GPU memory. 0 for CPU only.
                       // N > 0 for N layers. Automatically 0 on iOS simulator.
-  int num_threads; // Required: 2 recommended. Platforms can be highly sensitive
-                   // to this, ex. Android stopped working with 4 suddenly.
+  int num_threads; // Required: -1 lets llama.cpp choose: one thread per
+                   // physical core, as llama-server does.
   // Sampling. NaN means not set: the value that the GGUF file recommends
   // (general.sampling.*) is used, else llama.cpp's default. This is what
   // llama-server does.
@@ -54,16 +70,10 @@ struct fllama_inference_request {
   float top_p;          // 0 < top_p <= 1. llama.cpp default: 0.95.
   float penalty_freq;   // 0 is off. llama.cpp default: 0.
   float penalty_repeat; // 1 is off. llama.cpp default: 1.
-  char *
-      grammar; // Optional: BNF-like grammar to constrain sampling. Defaults to
-               // "" (llama.cpp behavior). See
-               // https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
-  char *eos_token; // Optional: end of sequence token. Defaults to one in model file. (llama.cpp behavior)
-                   // For example, in ChatML / OpenAI, <|im_end|> means the message is complete.
-                   // Often times GGUF files were created incorrectly, and this should be overridden.
-                   // Using fllamaChat from Dart handles this automatically.
   fllama_log_callback
-      dart_logger; // Optional: Dart caller logger. Defaults to NULL.
+      dart_logger; // Optional: logger of this request, or NULL. Gets fllama's
+                   // lines and llama.cpp's lines from the request's thread,
+                   // such as a model load.
   char * openai_request_json_string; // Optional: OpenAI JSON string. Defaults to NULL.
   char * draft_model_path; // Optional: MTP assistant/drafter GGUF for speculative
                            // decoding (e.g. gemma-4-*-it-assistant). NULL/"" disables.

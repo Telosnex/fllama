@@ -53,28 +53,24 @@ final request = OpenAiRequest(
   numGpuLayers: 99, /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
   modelPath: _modelPath!,
   mmprojPath: _mmprojPath,
-  frequencyPenalty: 0.0,
-  // Don't use below 1.1, LLMs without a repeat penalty
-  // will repeat the same token.
-  presencePenalty: 1.1,
-  topP: 1.0,
+  // Sampling fields that are not set use the values that the GGUF file
+  // recommends, else llama.cpp's defaults, as llama-server does.
   // Proportional to RAM use. 
   // 4096 is a good default. 
   // 2048 should be considered on devices with low RAM (<8 GB)
   // 8192 and higher can be considered on device with high RAM (>16 GB)
   // Models are trained on <= a certain context size. Exceeding that # can/will lead to completely incoherent output.
   contextSize: 2048,
-  // Don't use 0.0, some models will repeat the same token.
-  temperature: 0.1,
   logger: (log) {
     // ignore: avoid_print
     print('[llama.cpp] $log');
   },
 );
-fllamaChat(request, (response, done) {
-    setState(() {
-      latestResult = response;
-    });
+fllamaChat(request, (response, json, done, error) {
+  // error is set only on the last call, when done is true.
+  setState(() {
+    latestResult = error?.message ?? response;
+  });
 });
 ```
 ## Tips & Tricks

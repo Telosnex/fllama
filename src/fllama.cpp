@@ -5,6 +5,7 @@
 // are batched automatically by server_context::update_slots().
 
 #include "fllama.h"
+#include "dart_alloc.h"
 #include "fllama_backends.h"
 #include "fllama_inference_queue.h"
 #include "fllama_mtmd.h"
@@ -37,60 +38,125 @@
 
 #include "ggml-backend.h"
 
+// ── Strings for Dart ─────────────────────────────────────────────────────────
+
+// A copy of [s] that Dart owns and frees (dart_alloc.h). Each callback gets
+// its own copy, so no string has to outlive a call.
+static char *dart_string(const std::string &s) {
+  char *p = dart_malloc<char>(s.size() + 1);
+  std::memcpy(p, s.data(), s.size());
+  p[s.size()] = '\0';
+  return p;
+}
+
+// JSON text. Replaces invalid UTF-8, which a model can generate, as
+// llama-server's safe_json_to_str does. dump() would throw.
+static std::string json_text(const nlohmann::ordered_json &j) {
+  return j.dump(-1, ' ', false,
+                nlohmann::ordered_json::error_handler_t::replace);
+}
+
 // ── Logging ──────────────────────────────────────────────────────────────────
 
 static constexpr bool kLogVerboseDebugMessages = false;
 
-static void log_message(const char *msg,
+static void log_message(const std::string &msg,
                         fllama_log_callback logger = nullptr) {
   if (!logger) {
-    fprintf(stderr, "%s\n", msg);
+    fprintf(stderr, "%s\n", msg.c_str());
     fflush(stderr);
     return;
   }
-  static std::mutex mtx;
-  static std::deque<std::string> q;
-  std::string s(msg);
-  for (size_t p = 0; (p = s.find('\n', p)) != std::string::npos; p += 4)
-    s.replace(p, 1, "[NL]");
-  std::lock_guard<std::mutex> lk(mtx);
-  q.push_back(std::move(s));
-  while (q.size() > 1000)
-    q.pop_front();
-  logger(q.back().c_str());
-}
-static void log_message(const std::string &m,
-                        fllama_log_callback l = nullptr) {
-  log_message(m.c_str(), l);
+  logger(dart_string(msg));
 }
 
-struct fllama_callback_payload {
-  std::string response;
-  std::string openai_json;
+// While it exists, sends llama.cpp's log lines from this thread to the
+// request's logger, and keeps the first error line. A model load runs on the
+// request's thread, so its reason for failing is here.
+class request_log_scope {
+public:
+  explicit request_log_scope(fllama_log_callback logger)
+      : logger_(logger),
+        scope_([this](enum ggml_log_level level, const char *text) {
+          add(level, text ? text : "");
+          return false; // Also to stderr.
+        }) {}
+
+  ~request_log_scope() { end_line(); }
+
+  // The first error line that llama.cpp logged, or "".
+  const std::string &first_error() const { return first_error_; }
+
+  // Sends the line that llama.cpp has not ended. Call it before the request's
+  // last callback: no log may reach Dart after it.
+  void end_line() {
+    if (!line_.empty()) {
+      send(line_);
+      line_.clear();
+    }
+  }
+
+private:
+  void add(enum ggml_log_level level, const std::string &text) {
+    if (level != GGML_LOG_LEVEL_CONT) level_ = level;
+    line_ += text;
+    for (size_t end; (end = line_.find('\n')) != std::string::npos;) {
+      send(line_.substr(0, end));
+      line_.erase(0, end + 1);
+    }
+  }
+
+  void send(const std::string &line) {
+    if (line.empty()) return;
+    if (level_ == GGML_LOG_LEVEL_ERROR && first_error_.empty()) {
+      first_error_ = line;
+    }
+    if (logger_ && level_ >= GGML_LOG_LEVEL_INFO) {
+      logger_(dart_string("[llama.cpp] " + line));
+    }
+  }
+
+  fllama_log_callback logger_;
+  enum ggml_log_level level_ = GGML_LOG_LEVEL_INFO;
+  std::string line_;
+  std::string first_error_;
+  fllama_thread_log_scope scope_; // Last: it uses the members above.
 };
 
-static void emit_inference_callback(fllama_inference_callback callback,
-                                    std::string response,
-                                    std::string openai_json,
-                                    uint8_t done) {
-  if (!callback) {
-    return;
-  }
+// ── Callbacks ────────────────────────────────────────────────────────────────
 
-  // NativeCallable.listener relays calls from worker threads back to the Dart
-  // isolate asynchronously. Pointer arguments are just addresses, so c_str()
-  // into a local std::string can be dead by the time Dart reads it. Keep a
-  // rolling native-side copy alive, same as log_message() does for logger
-  // callbacks above.
-  static std::mutex mtx;
-  static std::deque<fllama_callback_payload> q;
-  std::lock_guard<std::mutex> lk(mtx);
-  q.push_back({std::move(response), std::move(openai_json)});
-  while (q.size() > 1000) {
-    q.pop_front();
+// How a request ended: the arguments of its last callback.
+struct inference_outcome {
+  std::string content;
+  std::string json;
+  // Empty if the request did not fail. See fllama_inference_callback.
+  std::string error_type;
+  std::string error_message;
+
+  void fail(std::string type, std::string message) {
+    error_type = std::move(type);
+    error_message = std::move(message);
   }
-  const auto &payload = q.back();
-  callback(payload.response.c_str(), payload.openai_json.c_str(), done);
+};
+
+static void emit_update(fllama_inference_callback callback,
+                        const std::string &content, const std::string &json) {
+  if (!callback) return;
+  callback(dart_string(content), json.empty() ? nullptr : dart_string(json),
+           nullptr, 0);
+}
+
+static void emit_done(fllama_inference_callback callback,
+                      const inference_outcome &outcome) {
+  if (!callback) return;
+  char *error = nullptr;
+  if (!outcome.error_type.empty()) {
+    error = dart_string(json_text({{"type", outcome.error_type},
+                                   {"message", outcome.error_message}}));
+  }
+  callback(dart_string(outcome.content),
+           outcome.json.empty() ? nullptr : dart_string(outcome.json), error,
+           1);
 }
 
 // ── Sampling ─────────────────────────────────────────────────────────────────
@@ -171,12 +237,26 @@ static bool fllama_error_requires_backend_recreation(const std::string &msg) {
          msg.find("out of memory") != std::string::npos;
 }
 
+// The fllama error type of an error result from llama.cpp's server code.
+static std::string error_type_of_server_error(const nlohmann::ordered_json &e,
+                                              const std::string &message) {
+  if (fllama_error_requires_backend_recreation(message)) return "backend";
+  const std::string type = e.value("type", "");
+  if (type == "exceed_context_size_error") return "exceed_context_size";
+  if (type == "invalid_request_error") return "invalid_request";
+  return "other";
+}
+
 // ── The actual inference logic (runs on per-request thread) ──────────────────
 
-static void run_inference(fllama_inference_request request,
-                          fllama_inference_callback callback) {
-  try {
-    int64_t t0 = ggml_time_ms();
+// Runs [request] up to its last result. Sets [outcome], and sends updates on
+// the way. Does not send the last callback.
+static void run_inference_body(const fllama_inference_request &request,
+                               fllama_inference_callback callback,
+                               request_log_scope &llama_logs,
+                               inference_outcome &outcome) {
+    const int64_t t0 = ggml_time_ms();
+    const int rid = request.request_id;
     log_message("[fllama] Inference start", request.dart_logger);
 
     // One-time backend init.
@@ -269,21 +349,20 @@ static void run_inference(fllama_inference_request request,
     // ── 2. Get or create server_context ───────────────────────────────
 
     // Waits if the model is loaded with another context size and busy.
-    const int rid_wait = request.request_id;
     auto *srv = g_mgr.get_or_create(
         request.model_path, params, request.dart_logger,
-        [rid_wait] { return g_mgr.is_cancelled(rid_wait); });
+        [rid] { return g_mgr.is_cancelled(rid); });
     if (!srv || !srv->srv_ctx) {
       // Cancelled while waiting for the model: done with no output, as a
       // cancel during generation.
-      emit_inference_callback(
-          callback,
-          g_mgr.is_cancelled(rid_wait)
-              ? ""
-              : "Error: Failed to create inference context",
-          "", true);
-      g_mgr.clear_cancel(rid_wait);
-      g_mgr.unregister_request_thread(rid_wait);
+      if (!g_mgr.is_cancelled(rid)) {
+        std::string message =
+            std::string("Failed to load model ") + request.model_path;
+        if (!llama_logs.first_error().empty()) {
+          message += ": " + llama_logs.first_error();
+        }
+        outcome.fail("model_load", message);
+      }
       return;
     }
     // RAII — release when we leave scope.
@@ -295,6 +374,10 @@ static void run_inference(fllama_inference_request request,
     log_message("[fllama] Model ready (" +
                     std::to_string(ggml_time_ms() - t0) + " ms)",
                 request.dart_logger);
+
+    auto *lctx = srv->srv_ctx->get_llama_context();
+    auto *model = llama_get_model(lctx);
+    auto *vocab = llama_model_get_vocab(model);
 
     // ── 3. Build the prompt ───────────────────────────────────────────
 
@@ -319,14 +402,18 @@ static void run_inference(fllama_inference_request request,
           body.erase("jinja_template");
         }
 
-        auto *lctx  = srv->srv_ctx->get_llama_context();
-        auto *model  = llama_get_model(lctx);
-        auto  tmpls  = common_chat_templates_init(model, jinja_tmpl);
-
+        // A template that cannot be parsed or applied falls back to ChatML,
+        // and the logger says so.
+        common_chat_templates_ptr tmpls;
         try {
+          tmpls = common_chat_templates_init(model, jinja_tmpl);
           std::map<std::string, std::string> empty;
           common_chat_format_example(tmpls.get(), true, empty);
-        } catch (...) {
+        } catch (const std::exception &e) {
+          log_message(std::string("[fllama] WARNING: the chat template "
+                                  "cannot be used, so ChatML is used: ") +
+                          e.what(),
+                      request.dart_logger);
           tmpls = common_chat_templates_init(model, "chatml");
         }
 
@@ -376,9 +463,6 @@ static void run_inference(fllama_inference_request request,
           }
 
           if constexpr (kLogVerboseDebugMessages) {
-            log_message("[fllama] fllama inputs.reasoning_format=" +
-                            std::string(common_reasoning_format_name(inputs.reasoning_format)),
-                        request.dart_logger);
             log_message("[fllama] Chat format: " +
                             std::string(common_chat_format_name(
                                 result.format)),
@@ -390,12 +474,8 @@ static void run_inference(fllama_inference_request request,
           }
         }
       } catch (const std::exception &e) {
-        std::string msg = "Error: OAI parse error: " + std::string(e.what());
-        log_message(std::string("[fllama] OAI parse error: ") + e.what(),
-                    request.dart_logger);
-        emit_inference_callback(callback, msg, "", true);
-        g_mgr.clear_cancel(request.request_id);
-        g_mgr.unregister_request_thread(request.request_id);
+        outcome.fail("invalid_request",
+                     std::string("Invalid chat request: ") + e.what());
         return;
       }
     }
@@ -422,9 +502,26 @@ static void run_inference(fllama_inference_request request,
     server_task task(SERVER_TASK_TYPE_COMPLETION);
     task.id         = reader.get_new_id();
     task.index      = 0;
-    task.cli        = true;
-    task.cli_prompt = prompt;
-    task.cli_files  = std::move(files);
+
+    const bool has_delimiters =
+        is_oai && !chat_params.message_delimiters.delimiters.empty();
+    if (has_delimiters && files.empty()) {
+      // As llama-server: tokenize here, and give llama.cpp the message
+      // boundaries. Hybrid and recurrent models, such as Qwen 3.5, can then
+      // keep context checkpoints at user messages, and reuse the cache up to
+      // an edited message. With images, llama.cpp tokenizes the prompt: only
+      // it has the multimodal context.
+      task.cli = false;
+      task.tokens = server_tokens(common_tokenize(vocab, prompt, true, true),
+                                  !srv->mmproj_path.empty());
+      auto delimiters = chat_params.message_delimiters;
+      delimiters.tokenize(vocab);
+      task.params.message_spans = task.tokens.find_message_spans(delimiters);
+    } else {
+      task.cli        = true;
+      task.cli_prompt = prompt;
+      task.cli_files  = std::move(files);
+    }
 
     task.params.stream       = true;
     task.params.cache_prompt = true;
@@ -460,9 +557,6 @@ static void run_inference(fllama_inference_request request,
       task.params.sampling.generation_prompt = chat_params.generation_prompt;
       task.params.antiprompt = chat_params.additional_stops;
 
-      auto *lctx = srv->srv_ctx->get_llama_context();
-      auto *model = llama_get_model(lctx);
-      auto *vocab = llama_model_get_vocab(model);
       for (const auto &preserved_token : chat_params.preserved_tokens) {
         auto ids = common_tokenize(vocab, preserved_token, false, true);
         if (ids.size() == 1) {
@@ -485,41 +579,45 @@ static void run_inference(fllama_inference_request request,
 
     // ── 6. Read results, invoke callbacks ─────────────────────────────
 
-    int rid = request.request_id;
-    auto should_stop = [&] { return g_mgr.is_cancelled(rid); };
+    auto should_stop = [rid] { return g_mgr.is_cancelled(rid); };
 
     std::string full_content;
     std::string last_json;
 
     while (reader.has_next()) {
+      // As llama-server: check before each read. reader.next() checks only
+      // while it waits, so while tokens stream it never would.
+      if (should_stop()) {
+        reader.stop();
+        break;
+      }
       server_task_result_ptr res;
       try {
         res = reader.next(should_stop);
       } catch (const std::exception &e) {
         // Final parse can fail (e.g. doubled generated_text in update_chat_msg).
-        // Log and break — we still have the accumulated text + last good JSON.
-        if constexpr (kLogVerboseDebugMessages) {
-          log_message(std::string("[fllama] reader.next() threw: ") + e.what(),
-                      request.dart_logger);
-        }
+        // Keep the text and the last good JSON.
+        log_message(std::string("[fllama] Reading a result failed: ") +
+                        e.what(),
+                    request.dart_logger);
         break;
       }
       if (!res) break;
 
       if (res->is_error()) {
         auto ej = res->to_json();
-        std::string msg = ej.contains("message")
+        std::string msg = ej.contains("message") && ej["message"].is_string()
                               ? ej["message"].get<std::string>()
-                              : ej.dump();
-        if (fllama_error_requires_backend_recreation(msg)) {
+                              : json_text(ej);
+        const std::string type = error_type_of_server_error(ej, msg);
+        if (type == "backend") {
           log_message("[fllama] Backend compute error; marking context "
                       "unhealthy so the next request recreates it",
                       request.dart_logger);
           g_mgr.mark_unhealthy(request.model_path);
         }
-        emit_inference_callback(callback, msg, "", true);
-        g_mgr.clear_cancel(rid);
-        g_mgr.unregister_request_thread(rid);
+        outcome.content = full_content;
+        outcome.fail(type, msg);
         return;
       }
 
@@ -527,16 +625,10 @@ static void run_inference(fllama_inference_request request,
           dynamic_cast<server_task_result_cmpl_partial *>(res.get());
       if (partial) {
         full_content += partial->content;
-        if constexpr (kLogVerboseDebugMessages) {
-          log_message("[fllama] token: \"" + partial->content +
-                      "\"  cumulative(" + std::to_string(full_content.size()) +
-                      " chars)",
-                      request.dart_logger);
-        }
         auto j = res->to_json();
         if (!j.is_null()) {
-          last_json = j.dump();
-          emit_inference_callback(callback, full_content, last_json, false);
+          last_json = json_text(j);
+          emit_update(callback, full_content, last_json);
         }
         continue;
       }
@@ -548,55 +640,57 @@ static void run_inference(fllama_inference_request request,
         // empty or corrupted for tool-call / reasoning completions.
         try {
           auto j = res->to_json();
-          last_json = j.is_null() ? "" : j.dump();
-          if constexpr (kLogVerboseDebugMessages) {
-            log_message("[fllama] final to_json() is_null=" +
-                            std::to_string(j.is_null()) +
-                            " type=" + std::to_string((int)j.type()) +
-                            " size=" + std::to_string(j.size()) +
-                            " dump=" + last_json.substr(0, 200),
-                        request.dart_logger);
-          }
+          last_json = j.is_null() ? "" : json_text(j);
         } catch (const std::exception &e) {
-          if constexpr (kLogVerboseDebugMessages) {
-            log_message(std::string("[fllama] final to_json() THREW: ") + e.what(),
-                        request.dart_logger);
-          }
+          log_message(std::string("[fllama] The last result has no JSON: ") +
+                          e.what(),
+                      request.dart_logger);
           last_json = "";
         }
-        if constexpr (kLogVerboseDebugMessages) {
-          log_message("[fllama] final_r->content(" +
-                          std::to_string(final_r->content.size()) +
-                          ")=\"" + final_r->content.substr(0, 100) + "\"",
-                      request.dart_logger);
-        }
-        emit_inference_callback(callback, full_content, last_json, true);
-
+        outcome.content = full_content;
+        outcome.json = last_json;
         log_message("[fllama] Done. " +
                         std::to_string(final_r->n_decoded) + " tok, " +
                         std::to_string(ggml_time_ms() - t0) + " ms",
                     request.dart_logger);
-        g_mgr.clear_cancel(rid);
-        g_mgr.unregister_request_thread(rid);
         return;
       }
     }
 
-    // Cancelled or exhausted without final result.
-    emit_inference_callback(callback, full_content, last_json, true);
-    g_mgr.clear_cancel(rid);
-    g_mgr.unregister_request_thread(rid);
+    // Cancelled or exhausted without final result. The last callback has no
+    // JSON: the chunk of the last update was already sent.
+    outcome.content = full_content;
+    log_message("[fllama] Done. Stopped after " +
+                    std::to_string(full_content.size()) + " chars, " +
+                    std::to_string(ggml_time_ms() - t0) + " ms",
+                request.dart_logger);
+}
 
-  } catch (const std::exception &e) {
-    std::string msg = "Error: " + std::string(e.what());
-    emit_inference_callback(callback, msg, "", true);
-    g_mgr.clear_cancel(request.request_id);
-    g_mgr.unregister_request_thread(request.request_id);
-  } catch (...) {
-    emit_inference_callback(callback, "Error: Unknown exception", "", true);
-    g_mgr.clear_cancel(request.request_id);
-    g_mgr.unregister_request_thread(request.request_id);
+// Runs a request on its own thread. The last callback is the last thing that
+// uses [request] and its logger: then Dart frees the request's strings and
+// closes the callbacks.
+static void run_inference(fllama_inference_request request,
+                          fllama_inference_callback callback) {
+  inference_outcome outcome;
+  {
+    request_log_scope llama_logs(request.dart_logger);
+    try {
+      run_inference_body(request, callback, llama_logs, outcome);
+    } catch (const std::exception &e) {
+      outcome.fail("other", e.what());
+    } catch (...) {
+      outcome.fail("other", "Unknown exception");
+    }
+    if (!outcome.error_type.empty()) {
+      log_message("[fllama] Failed (" + outcome.error_type +
+                      "): " + outcome.error_message,
+                  request.dart_logger);
+    }
+    llama_logs.end_line();
   }
+  g_mgr.clear_cancel(request.request_id);
+  g_mgr.unregister_request_thread(request.request_id);
+  emit_done(callback, outcome);
 }
 
 // ── FFI entry points ─────────────────────────────────────────────────────────

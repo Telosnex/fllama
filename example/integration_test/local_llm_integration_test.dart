@@ -170,8 +170,7 @@ void main() {
           enableThinking: false,
           contextSize: 4096,
         );
-        expect(run.output, isNot(startsWith('Error')));
-        expect(run.output, isNot(contains('exceeds the available context')));
+        expect(run.error, isNull);
       },
       skip: supportedPlatform ? null : 'Native-platform test',
       timeout: const Timeout(Duration(minutes: 10)),
@@ -195,7 +194,7 @@ void main() {
             numGpuLayers: _testGpuLayers,
             enableThinking: false,
           ),
-          (result, json, isDone) {
+          (result, json, isDone, _) {
             if (!firstToken.isCompleted) firstToken.complete();
             if (isDone && !busyDone.isCompleted) busyDone.complete();
           },
@@ -220,8 +219,7 @@ void main() {
           contextSize: 16384,
         );
         await busyDone.future.timeout(const Duration(minutes: 2));
-        expect(run.output, isNot(startsWith('Error')));
-        expect(run.output, isNot(contains('exceeds the available context')));
+        expect(run.error, isNull);
       },
       skip: supportedPlatform ? null : 'Native-platform test',
       timeout: const Timeout(Duration(minutes: 10)),
@@ -244,7 +242,7 @@ void main() {
             numGpuLayers: _testGpuLayers,
             enableThinking: false,
           ),
-          (result, json, isDone) {
+          (result, json, isDone, _) {
             if (!firstToken.isCompleted) firstToken.complete();
             if (isDone && !done.isCompleted) done.complete();
           },
@@ -314,7 +312,7 @@ void main() {
           gpuDeviceKey: 'NoSuchBackend|No such GPU|0',
         );
         expect(run.events.last.done, isTrue);
-        expect(run.events.last.result, isNot(startsWith('Error')));
+        expect(run.error, isNull);
       },
       skip: supportedPlatform ? null : 'Native-platform test',
       timeout: const Timeout(Duration(minutes: 5)),
@@ -337,7 +335,7 @@ void main() {
         expect(run.events, isNotEmpty);
         expect(run.events.last.done, isTrue);
         expect(run.output.trim(), isNotEmpty);
-        expect(run.output, isNot(contains('Error:')));
+        expect(run.error, isNull);
 
         final jsonChunks = run.decodedJsonChunks;
         expect(jsonChunks, isNotEmpty);
@@ -375,7 +373,7 @@ void main() {
         );
         expect(run.events, isNotEmpty);
         expect(run.events.last.done, isTrue);
-        expect(run.output, isNot(contains('Error:')));
+        expect(run.error, isNull);
         expect(
           run.responseContent.toLowerCase().trim(),
           matches(RegExp(r'^red[.!]?$')),
@@ -404,7 +402,7 @@ void main() {
               topP: null,
               enableThinking: false,
             );
-            expect(run.output, isNot(startsWith('Error')));
+            expect(run.error, isNull);
             return run.responseContent;
           }
 
@@ -438,7 +436,7 @@ void main() {
             repeatPenalty: 1,
             enableThinking: false,
           );
-          expect(run.output, isNot(contains('Error:')));
+          expect(run.error, isNull);
           return run.responseContent;
         }
 
@@ -480,7 +478,7 @@ void main() {
           ],
         );
         print('[fllama integration] tool calls: ${run.toolCalls}');
-        expect(run.output, isNot(startsWith('Error')));
+        expect(run.error, isNull);
         expect(run.toolCalls.length, 2);
       },
       skip: supportedPlatform ? null : 'Native-platform test',
@@ -488,7 +486,7 @@ void main() {
     );
 
     test(
-      'relays an OpenAI parser error through the callback',
+      'reports an invalid request as an error, not as output',
       () async {
         final run = await _runChat(
           modelPath: modelFile.absolute.path,
@@ -502,17 +500,213 @@ void main() {
           maxTokens: 8,
         );
 
-        expect(run.events, isNotEmpty);
         expect(run.events.last.done, isTrue);
-        expect(run.events.last.openAiResponseJsonString, isEmpty);
+        expect(run.error?.type, fllama.FllamaErrorType.invalidRequest);
         expect(
-          run.output,
-          allOf(
-            contains('Error:'),
-            contains('OAI parse error'),
-            contains('System message must be at the beginning'),
-          ),
+          run.error?.message,
+          contains('System message must be at the beginning'),
         );
+        expect(run.output, isEmpty);
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'reports a prompt longer than the context as an error',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(
+              fllama.Role.user,
+              List.filled(2500, 'apple').join(' '),
+            ),
+          ],
+          maxTokens: 4,
+          enableThinking: false,
+          contextSize: 1024,
+        );
+        expect(run.error?.type, fllama.FllamaErrorType.contextSizeExceeded);
+        expect(run.error?.message, contains('context'));
+        expect(run.output, isEmpty);
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    group('a model that cannot load', () {
+      late Directory dir;
+      late File notGguf;
+
+      setUp(() async {
+        dir = await Directory.systemTemp.createTemp('fllama_bad_model');
+        notGguf = File(path.join(dir.path, 'not_a_model.gguf'))
+          ..writeAsStringSync('This is not a GGUF file.');
+      });
+
+      tearDown(() => _deleteTemp(dir));
+
+      Future<void> expectLoadErrorWithReason() async {
+        final run = await _runChat(
+          modelPath: notGguf.path,
+          messages: [fllama.Message(fllama.Role.user, 'Hi')],
+          maxTokens: 4,
+        );
+        expect(run.error?.type, fllama.FllamaErrorType.modelLoad);
+        // llama.cpp's reason, not only that the load failed.
+        expect(run.error?.message, contains('invalid magic'));
+        expect(run.logs.join('\n'), contains('invalid magic'));
+        expect(run.output, isEmpty);
+      }
+
+      test(
+        'reports llama.cpp\'s reason',
+        expectLoadErrorWithReason,
+        skip: supportedPlatform ? null : 'Native-platform test',
+      );
+
+      test(
+        'reports llama.cpp\'s reason after a tokenize call',
+        () async {
+          await fllama.fllamaTokenize(
+            fllama.FllamaTokenizeRequest(
+              input: 'Hello',
+              modelPath: modelFile.absolute.path,
+            ),
+          );
+          await expectLoadErrorWithReason();
+        },
+        skip: supportedPlatform ? null : 'Native-platform test',
+      );
+    });
+
+    test(
+      'stops generating soon after a cancel',
+      () async {
+        var chunks = 0;
+        final firstChunk = Completer<void>();
+        final done = Completer<void>();
+        fllama.FllamaError? error;
+        final id = await fllama.fllamaChat(
+          fllama.OpenAiRequest(
+            modelPath: modelFile.absolute.path,
+            messages: [
+              fllama.Message(
+                fllama.Role.user,
+                'Count from 1 to 2000, one number per line.',
+              ),
+            ],
+            contextSize: 8192,
+            maxTokens: 3000,
+            numGpuLayers: _testGpuLayers,
+            enableThinking: false,
+          ),
+          (result, json, isDone, e) {
+            chunks++;
+            if (!firstChunk.isCompleted) firstChunk.complete();
+            if (isDone && !done.isCompleted) {
+              error = e;
+              done.complete();
+            }
+          },
+        );
+        await firstChunk.future.timeout(const Duration(minutes: 5));
+        final chunksAtCancel = chunks;
+        fllama.fllamaCancelInference(id);
+        await done.future.timeout(const Duration(minutes: 3));
+        print('[fllama integration] chunks after cancel: '
+            '${chunks - chunksAtCancel}');
+        expect(chunks - chunksAtCancel, lessThan(50));
+        expect(error, isNull, reason: 'A cancel is not an error.');
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'accepts a message that is only whitespace',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(fllama.Role.user, 'Hi.'),
+            fllama.Message(fllama.Role.assistant, '  \n'),
+            fllama.Message(fllama.Role.user, 'Reply with OK.'),
+          ],
+          maxTokens: 4,
+          enableThinking: false,
+        );
+        expect(run.error, isNull);
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'logs when a chat template cannot be used',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [fllama.Message(fllama.Role.user, 'Reply with OK.')],
+          maxTokens: 4,
+          enableThinking: false,
+          jinjaTemplate: '{% if %}',
+        );
+        expect(run.error, isNull);
+        expect(run.logs.join('\n'), contains('ChatML'));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'logs every line before the last callback',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [fllama.Message(fllama.Role.user, 'Reply with OK.')],
+          maxTokens: 4,
+          enableThinking: false,
+        );
+        expect(run.error, isNull);
+        expect(run.logs.last, startsWith('[fllama] Done.'));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'reuses the cache up to an edited last message',
+      () async {
+        // Qwen 3.5 is a hybrid model: it can reuse a cached prompt only up to
+        // a context checkpoint. Message boundaries let llama.cpp make one at
+        // the start of the last user message.
+        Future<_ChatRun> ask(String lastMessage) => _runChat(
+              modelPath: modelFile.absolute.path,
+              messages: [
+                fllama.Message(
+                  fllama.Role.user,
+                  'Remember this list: ${List.filled(800, 'apple').join(' ')}',
+                ),
+                fllama.Message(fllama.Role.assistant, 'OK.'),
+                fllama.Message(fllama.Role.user, lastMessage),
+              ],
+              maxTokens: 4,
+              temperature: 0,
+              enableThinking: false,
+              contextSize: 8192,
+            );
+
+        final pears = List.filled(1200, 'pear').join(' ');
+        final first = await ask('$pears\nReply with OK.');
+        expect(first.error, isNull);
+        final second = await ask('Plums. $pears\nReply with OK.');
+        expect(second.error, isNull);
+        print('[fllama integration] cached prompt tokens: '
+            '${second.cachedPromptTokens}');
+        // The first two messages are about 800 tokens.
+        expect(second.cachedPromptTokens, greaterThan(700));
       },
       skip: supportedPlatform ? null : 'Native-platform test',
       timeout: const Timeout(Duration(minutes: 10)),
@@ -702,8 +896,10 @@ Future<_ChatRun> _runChat({
   String? gpuDeviceKey,
   int contextSize = 2048,
   List<fllama.Tool> tools = const [],
+  String? jinjaTemplate,
 }) async {
   final events = <_CallbackEvent>[];
+  final logs = <String>[];
   final done = Completer<void>();
 
   await fllama.fllamaChat(
@@ -723,14 +919,19 @@ Future<_ChatRun> _runChat({
       tools: tools,
       enableThinking: enableThinking,
       gpuDeviceKey: gpuDeviceKey,
-      logger: (message) => print('[llama.cpp] $message'),
+      jinjaTemplate: jinjaTemplate,
+      logger: (message) {
+        logs.add(message);
+        print('[llama.cpp] $message');
+      },
     ),
-    (result, openAiResponseJsonString, doneFlag) {
+    (result, openAiResponseJsonString, doneFlag, error) {
       events.add(
         _CallbackEvent(
           result: result,
           openAiResponseJsonString: openAiResponseJsonString,
           done: doneFlag,
+          error: error,
         ),
       );
       if (doneFlag && !done.isCompleted) done.complete();
@@ -738,15 +939,33 @@ Future<_ChatRun> _runChat({
   );
 
   await done.future.timeout(const Duration(minutes: 8));
-  return _ChatRun(events);
+  // Logs come on the same isolate, before the last callback.
+  await Future<void>.delayed(Duration.zero);
+  return _ChatRun(events, logs);
 }
 
 class _ChatRun {
   final List<_CallbackEvent> events;
 
-  const _ChatRun(this.events);
+  /// Log lines that reached the request's logger.
+  final List<String> logs;
+
+  const _ChatRun(this.events, [this.logs = const []]);
+
+  /// timings.cache_n of the last chunk: prompt tokens reused from the cache.
+  int? get cachedPromptTokens {
+    for (final chunk in decodedJsonChunks.reversed) {
+      final timings = chunk['timings'];
+      if (timings is Map && timings['cache_n'] is int) {
+        return timings['cache_n'] as int;
+      }
+    }
+    return null;
+  }
 
   String get output => events.last.result;
+
+  fllama.FllamaError? get error => events.last.error;
 
   String get responseContent {
     final buffer = StringBuffer();
@@ -814,11 +1033,13 @@ class _CallbackEvent {
   final String result;
   final String openAiResponseJsonString;
   final bool done;
+  final fllama.FllamaError? error;
 
   const _CallbackEvent({
     required this.result,
     required this.openAiResponseJsonString,
     required this.done,
+    this.error,
   });
 }
 
