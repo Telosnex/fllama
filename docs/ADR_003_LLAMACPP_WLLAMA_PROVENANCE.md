@@ -152,8 +152,11 @@ Dawn WebGPU package:  v20260317.182325
 Node:                 22.16.0
 ```
 
-Only the default JSPI runtime was built for fllama (`SKIP_COMPAT=1`). fllama does
-not bundle wllama's compatibility package.
+fllama builds both wllama runtimes, with `web_build/wllama.patch`: the default
+JSPI and Memory64 build, and the compat build (Asyncify, 32-bit memory) for
+browsers without those features, such as Safari. fllama does not use wllama's
+`@wllama/wllama-compat` package: it is a different wllama build, without the
+fllama patch.
 
 ---
 

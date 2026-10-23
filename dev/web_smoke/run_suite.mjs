@@ -30,6 +30,7 @@ async function runSmoke(test, extraArgs = []) {
       'fllama_web_smoke.mjs',
       '--runtime=current',
       '--ctx=4096',
+      `--browser=${browserName}`,
       `--out=${outDir}`,
       ...extraArgs,
     ];
@@ -153,6 +154,23 @@ const tests = [
     ],
   },
   {
+    id: 'compat_solid_red',
+    description: 'the compat build (Safari) with 4 threads identifies a solid-red image',
+    // wllama never uses the compat build on Firefox.
+    skipBrowsers: ['firefox'],
+    args: [
+      '--force-compat',
+      '--n-threads=4',
+      '--prompt=What single color fills this image? Answer with only the color name.',
+      '--temperature=0',
+      '--max-tokens=16',
+      '--no-think',
+      `--mmproj=${process.env.FLLAMA_SMOKE_MMPROJ || 'default'}`,
+      `--image=${path.join(repoRoot, 'test/assets/test_red.png')}`,
+      '--expect-content-regex=^red[.!]?$',
+    ],
+  },
+  {
     id: 'image_title',
     description: 'model + mmproj + fllama_header.png asks for image title',
     args: [
@@ -183,9 +201,10 @@ const selectedIds = (argValue('--only', process.env.FLLAMA_SMOKE_ONLY || '') || 
   .split(',')
   .map((value) => value.trim())
   .filter(Boolean);
-const selected = selectedIds.length > 0
+const browserName = argValue('--browser', process.env.FLLAMA_SMOKE_BROWSER || 'chromium');
+const selected = (selectedIds.length > 0
   ? tests.filter((test) => selectedIds.includes(test.id))
-  : tests;
+  : tests).filter((test) => !(test.skipBrowsers ?? []).includes(browserName));
 
 if (selected.length === 0) {
   console.error(`No smoke tests selected. Known ids: ${tests.map((test) => test.id).join(', ')}`);

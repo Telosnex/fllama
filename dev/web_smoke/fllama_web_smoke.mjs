@@ -168,6 +168,8 @@ const contextSize = Number(argValue('--ctx', process.env.FLLAMA_SMOKE_CTX || '40
 const concurrentRequests = Number(argValue('--concurrent', process.env.FLLAMA_SMOKE_CONCURRENT || '1'));
 const nParallelArg = argValue('--n-parallel', process.env.FLLAMA_SMOKE_N_PARALLEL || '');
 const nParallel = nParallelArg === '' ? null : Number(nParallelArg);
+const nThreadsArg = argValue('--n-threads', process.env.FLLAMA_SMOKE_N_THREADS || '');
+const nThreads = nThreadsArg === '' ? null : Number(nThreadsArg);
 const mixedJinja = hasFlag('--mixed-jinja') || process.env.FLLAMA_SMOKE_MIXED_JINJA === '1';
 const url = argValue('--url', process.env.FLLAMA_SMOKE_URL || 'http://localhost:8080');
 const shouldBuild = hasFlag('--build') || process.env.FLLAMA_SMOKE_BUILD === '1';
@@ -297,6 +299,10 @@ try {
 
   // Without a locale, Playwright's Firefox has no navigator.language and Flutter stops.
   const page = await browser.newPage({ locale: 'en-US' });
+  // --force-compat: hide JSPI, so wllama loads its compat build (Safari's).
+  if (hasFlag('--force-compat') || process.env.FLLAMA_SMOKE_FORCE_COMPAT === '1') {
+    await page.addInitScript(() => { delete WebAssembly.Suspending; });
+  }
   const logs = [];
   page.on('console', (message) => {
     const text = `[${message.type()}] ${message.text()}`;
@@ -355,7 +361,7 @@ try {
   heartbeat = setInterval(() => {
     console.log(`[smoke] Waiting for inference: ${Math.round((Date.now() - requestStartedAt) / 1000)}s / ${options.timeoutMs / 1000}s`);
   }, 15000);
-  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, mixedJinja, options }) => {
+  const result = await page.evaluate(async ({ modelPath, mmprojPath, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, nThreads, mixedJinja, options }) => {
     const imageTags = images
       .map((image) => `<img src="data:${image.mimeType};base64,${image.base64}">`)
       .join('\n');
@@ -385,7 +391,7 @@ try {
       penaltyFrequency: 0,
       penaltyRepeat: 1.1,
       topP: 1,
-      numThreads: Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4)),
+      numThreads: nThreads ?? Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4)),
       numGpuLayers: options.numGpuLayers,
       ...(nParallel === null ? {} : { nParallel }),
     };
@@ -565,7 +571,7 @@ try {
         hardwareConcurrency: navigator.hardwareConcurrency,
       },
     };
-  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, mixedJinja, options });
+  }, { modelPath: modelToken, mmprojPath: mmprojToken, prompt, maxTokens, contextSize, temperature, images, concurrentRequests, nParallel, nThreads, mixedJinja, options });
   clearInterval(heartbeat);
 
   await writeFile(path.join(outputDir, 'console.log'), logs.join('\n') + '\n');
@@ -594,6 +600,10 @@ try {
   }, null, 2));
 
   checkSmokeResult(result, { ...options, expectRegex, expectContentRegex, expectErrorType, nParallel });
+  const forceCompat = hasFlag('--force-compat') || process.env.FLLAMA_SMOKE_FORCE_COMPAT === '1';
+  if (forceCompat && !logs.some((line) => line.includes('/wllama/compat/wllama.wasm'))) {
+    throw new Error('--force-compat: the compat wllama.wasm did not load');
+  }
 } finally {
   clearInterval(heartbeat);
   if (browser) await browser.close();

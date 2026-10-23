@@ -151,15 +151,14 @@ Useful result fields:
 - Use `--model=/path/to/model.gguf` to test a different local GGUF.
 - 100 tokens/sec with Qwen3.5-0.8B-Q4_K_M.gguf is baseline (26-05-20, MacBook Pro M4 Max)
 
-## WebKit (Safari)
+## WebKit (Safari) and Firefox
 
 `--browser=webkit` (or `FLLAMA_SMOKE_BROWSER=webkit`) runs Playwright's WebKit
-build. Install it once with `npx playwright install webkit`. `--browser=firefox` runs Playwright's
-Firefox (`npx playwright install firefox`); it has no JSPI, so wllama runs on
-the CPU. WebKit has no WebAssembly Memory64, so the wllama build cannot run. A request
-ends at once with a `model_load` error. To check that:
+build, the engine of Safari: `npx playwright install webkit` once. WebKit has
+no WebAssembly Memory64 or JSPI, so wllama loads the compat build.
+`--browser=firefox` runs Playwright's Firefox (`npx playwright install
+firefox`); it has no JSPI, and wllama runs the default build on the CPU.
 
-```bash
-node fllama_web_smoke.mjs --browser=webkit --prompt=hi --mmproj=none \
-  --timeout-ms=60000 --expect-error-type=model_load
-```
+`--force-compat` hides JSPI from the page, so Chrome loads the compat build;
+the run fails if the compat wasm did not load. `--n-threads=N` sets the
+threads of the request.

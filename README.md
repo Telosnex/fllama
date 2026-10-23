@@ -148,7 +148,9 @@ fllama has two llama.cpp delivery paths:
   ```text
   src/llama.cpp
   ```
-- **Web** uses wllama (`wllama/index.js`, `wllama/wasm/wllama.{js,wasm}`).
+- **Web** uses wllama (`wllama/index.js`, `wllama/wasm/wllama.{js,wasm}`, and
+  `wllama/compat/wllama.{js,wasm}` for browsers without Memory64 or JSPI, such
+  as Safari).
   The release workflow builds it with `tool/build_web.dart` from wllama and
   llama.cpp at the commits of `web_build/wllama.json`, with
   `web_build/wllama.patch`. `native_artifacts/web.json` pins the files.

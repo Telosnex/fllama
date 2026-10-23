@@ -483,6 +483,32 @@ index 2b3cca7..400b90e 100644
    // by default, all layers are offloaded if WebGPU is available
    n_gpu_layers?: number;
    // by default, on multi-thread build, we take half number of available threads (hardwareConcurrency / 2)
+diff --git a/src/utils.ts b/src/utils.ts
+index 6627f35..f86cae0 100644
+--- a/src/utils.ts
++++ b/src/utils.ts
+@@ -272,15 +272,12 @@ export const isSupportWebGPU = () => {
+  * @returns true if browser support WASM Memory64
+  */
+ export const isSupportMem64 = (): boolean => {
+-  try {
+-    new WebAssembly.Memory({
+-      address: 'i64',
+-      initial: 1n, // 1 page (64 KiB)
+-    } as any);
+-    return true;
+-  } catch {
+-    return false;
+-  }
++  // A module with one 64-bit memory. WebKit accepts
++  // new WebAssembly.Memory({ address: 'i64' }) and makes a 32-bit memory, and
++  // then cannot compile a Memory64 module.
++  return WebAssembly.validate(
++    new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 5, 3, 1, 4, 0])
++  );
+ };
+ 
+ /**
 diff --git a/src/wllama.ts b/src/wllama.ts
 index ce74b2b..3add4da 100644
 --- a/src/wllama.ts
@@ -679,7 +705,7 @@ index ce74b2b..3add4da 100644
  
    getWorkerResources(): WllamaWorkerResources {
 diff --git a/src/worker.ts b/src/worker.ts
-index 10e6fc9..db27e6e 100644
+index 10e6fc9..8e19364 100644
 --- a/src/worker.ts
 +++ b/src/worker.ts
 @@ -92,7 +92,7 @@ export class ProxyToWorker {
@@ -745,7 +771,25 @@ index 10e6fc9..db27e6e 100644
    }
  
    /**
-@@ -414,17 +419,21 @@ export class ProxyToWorker {
+@@ -382,13 +387,15 @@ export class ProxyToWorker {
+       }
+       (async () => {
+         let stack = '';
+-        let newMsg = message.replace(
++        // Emscripten passes an Error, not a string, when the wasm does not
++        // compile. Without String(), this throws and no task is rejected.
++        let newMsg = String(message ?? '').replace(
+           'Build with -sASSERTIONS for more info.',
+           ''
+         );
+         if (signalType === 'abort') {
+           newMsg = `(ABORT) ${newMsg}`;
+-          stack = rawStack.replace(/\|/g, '\n');
++          stack = String(rawStack ?? '').replace(/\|/g, '\n');
+         } else if (signalType === 'exception') {
+           stack = rawStack;
+         }
+@@ -414,17 +421,21 @@ export class ProxyToWorker {
        );
        if (idx !== -1) {
          const waitingTask = this.resultQueue.splice(idx, 1)[0];
@@ -767,10 +811,31 @@ index 10e6fc9..db27e6e 100644
      const error = new WllamaRuntimeError(
        text.length == 0 ? '(unknown error)' : text,
        stack
-@@ -439,5 +448,6 @@ export class ProxyToWorker {
+@@ -439,5 +450,6 @@ export class ProxyToWorker {
        if (!pendingTask) break;
        pendingTask.reject(error);
      }
 +    this.runTaskLoop();
    }
  }
+diff --git a/src/workers-code/llama-cpp.js b/src/workers-code/llama-cpp.js
+index be62030..60a485c 100644
+--- a/src/workers-code/llama-cpp.js
++++ b/src/workers-code/llama-cpp.js
+@@ -41,11 +41,14 @@ const toSizeT = (num) => {
+ // Get module config that forwards stdout/err to main thread
+ const getWModuleConfig = (_argMainScriptBlob) => {
+   var pathConfig = RUN_OPTIONS.pathConfig;
+-  var pthreadPoolSize = RUN_OPTIONS.nbThread;
++  // The text model and the mtmd image encoder each start n_threads - 1
++  // pthreads. In Safari, a pthread beyond the pool never starts, and image
++  // encoding waits forever. So the pool has room for both.
++  var pthreadPoolSize = RUN_OPTIONS.nbThread * 2;
+   var argMainScriptBlob = _argMainScriptBlob;
+ 
+   isCompat = RUN_OPTIONS.compat;
+-  hasMultithread = pthreadPoolSize > 1;
++  hasMultithread = RUN_OPTIONS.nbThread > 1;
+ 
+   msg({
+     verb: 'console.debug',

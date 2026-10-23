@@ -1,7 +1,10 @@
 # Runbook: Rebuilding the fllama Web Runtime
 
 The web runtime is wllama: `wllama/index.js`, `wllama/wasm/wllama.js` and
-`wllama/wasm/wllama.wasm`. GitHub Actions builds it in the native release
+`wllama/wasm/wllama.wasm`, and the compat build `wllama/compat/wllama.js` and
+`wllama/compat/wllama.wasm`. The compat build has no Memory64 or JSPI. wllama
+loads it when the browser does not have them (Safari), but never on Firefox,
+which runs the default build on the CPU. GitHub Actions builds it in the native release
 workflow (native_prebuilt ADR 002). No developer machine makes a released
 file.
 
@@ -12,8 +15,8 @@ file.
   Node 22.16.0.
 - `web_build/wllama.patch`: all fllama changes to wllama (ADR 003 §3).
 - `tool/build_web.dart`: the build. It runs the steps of wllama's
-  `build:wasm` (with `SKIP_COMPAT=1`), `build:worker` and `build:tsup`, and
-  stops at the first failed step.
+  `build:wasm` (the default and the compat build), `build:worker` and
+  `build:tsup`, and stops at the first failed step.
 - `lib/web/fllama_web_init.js`: the hand-written bridge. It is in git.
 
 All of these are inputs of the source key. A change to any of them makes a
@@ -59,7 +62,8 @@ HEADLESS=1 npm run smoke:current -- --max-tokens=100 --ctx=4096
 
 It serves the built Flutter example, overlays `lib/web/` into
 `example/build/web/native_prebuilt/fllama/`, and calls `fllamaChatWebJs()`.
-See `dev/web_smoke/README.md`.
+See `dev/web_smoke/README.md`. `--browser=webkit` runs Safari's engine, and
+`--force-compat` makes Chrome load the compat build.
 
 ## Common pitfalls
 

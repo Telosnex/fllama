@@ -1,7 +1,9 @@
 /// Builds the fllama web runtime: wllama at the commit of
 /// web_build/wllama.json, with web_build/wllama.patch and llama.cpp at its
 /// pinned commit. It writes wllama/index.js, wllama/wasm/wllama.js and
-/// wllama/wasm/wllama.wasm to --out.
+/// wllama/wasm/wllama.wasm to --out, and the compat build for browsers without
+/// WebAssembly Memory64 or JSPI (Safari): wllama/compat/wllama.js and
+/// wllama/compat/wllama.wasm.
 ///
 /// It runs in the emsdk image of wllama.json (native_prebuilt ADR 002 D10,
 /// D11): the release workflow runs it there, and so does a local build:
@@ -14,8 +16,8 @@
 ///
 ///     dart run native_prebuilt:web install-dev --from /tmp/fllama_web
 ///
-/// These are the steps of wllama's own build (`npm run build:wasm` with
-/// SKIP_COMPAT=1, `build:worker`, `build:tsup`), with every step checked.
+/// These are the steps of wllama's own build (`npm run build:wasm`,
+/// `build:worker`, `build:tsup`), with every step checked.
 library;
 
 import 'dart:convert';
@@ -27,6 +29,8 @@ const _outputs = {
   'esm/index.js': 'wllama/index.js',
   'src/wasm/wllama.js': 'wllama/wasm/wllama.js',
   'src/wasm/wllama.wasm': 'wllama/wasm/wllama.wasm',
+  'compat/wasm/wllama.js': 'wllama/compat/wllama.js',
+  'compat/wasm/wllama.wasm': 'wllama/compat/wllama.wasm',
 };
 
 Future<void> main(List<String> args) async {
@@ -138,27 +142,43 @@ Future<void> main(List<String> args) async {
     emdawn.path,
   ], root);
 
-  // npm run build:wasm, with SKIP_COMPAT=1 (only the default JSPI build).
-  final build = '$wllama/build';
-  await _run([
-    'emcmake',
-    'cmake',
-    '..',
-    '-DGGML_WEBGPU=ON',
-    '-DGGML_WEBGPU_JSPI=ON',
-    '-DEMDAWNWEBGPU_DIR=${emdawn.path}/emdawnwebgpu_pkg',
-    '-DWLLAMA_TEST_BACKEND=OFF',
-  ], build);
-  await _run([
-    'emmake',
-    'make',
-    'wllama',
-    '-j${Platform.numberOfProcessors}',
-  ], build);
-  await Directory('$wllama/src/wasm').create(recursive: true);
-  for (final name in ['wllama.js', 'wllama.wasm']) {
-    await File('$build/$name').copy('$wllama/src/wasm/$name');
+  // npm run build:wasm (scripts/docker-compose.yml): the default build, with
+  // JSPI and Memory64, then the compat build, with Asyncify and 32-bit memory.
+  final builds = {
+    'build': (flags: ['-DGGML_WEBGPU_JSPI=ON'], wasmDir: 'src/wasm'),
+    'build-compat': (
+      flags: [
+        '-DWLLAMA_COMPAT=ON',
+        '-DLLAMA_WASM_MEM64=OFF',
+        '-DGGML_WEBGPU_JSPI=OFF',
+      ],
+      wasmDir: 'compat/wasm',
+    ),
+  };
+  for (final MapEntry(key: dir, value: (:flags, :wasmDir)) in builds.entries) {
+    final build = '$wllama/$dir';
+    await Directory(build).create(recursive: true);
+    await _run([
+      'emcmake',
+      'cmake',
+      '..',
+      '-DGGML_WEBGPU=ON',
+      ...flags,
+      '-DEMDAWNWEBGPU_DIR=${emdawn.path}/emdawnwebgpu_pkg',
+      '-DWLLAMA_TEST_BACKEND=OFF',
+    ], build);
+    await _run([
+      'emmake',
+      'make',
+      'wllama',
+      '-j${Platform.numberOfProcessors}',
+    ], build);
+    await Directory('$wllama/$wasmDir').create(recursive: true);
+    for (final name in ['wllama.js', 'wllama.wasm']) {
+      await File('$build/$name').copy('$wllama/$wasmDir/$name');
+    }
   }
+  // Reads build/ and build-compat/: function names for both stack traces.
   await _run(['node', 'scripts/build_source_map.js'], wllama);
   await _run(['npm', 'run', 'build:glue'], wllama);
 

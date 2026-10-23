@@ -38,6 +38,8 @@ require_file lib/web/fllama_web_init.js
 require_file lib/web/wllama/index.js
 require_file lib/web/wllama/wasm/wllama.js
 require_file lib/web/wllama/wasm/wllama.wasm
+require_file lib/web/wllama/compat/wllama.js
+require_file lib/web/wllama/compat/wllama.wasm
 require_file native_artifacts/web.json
 
 require_absent assets/web
@@ -46,6 +48,11 @@ require_absent example/web/wllama
 
 require_grep "import\\(versionedAsset\\('\\./wllama/index\\.js'\\)\\)" lib/web/fllama_web_init.js
 require_grep 'default:' lib/web/fllama_web_init.js
+require_grep "setCompat\\(WLLAMA_COMPAT\\)" lib/web/fllama_web_init.js
+
+# The compat build is also the llama-server build.
+compat_wasm="lib/web/wllama/compat/wllama.wasm"
+[[ "$(strings "$compat_wasm" | grep -cE 'server_context|chat_completion' || true)" != "0" ]] || fail "$compat_wasm is missing server/chat markers"
 
 wasm="lib/web/wllama/wasm/wllama.wasm"
 old_markers="$(count_markers "$wasm" 'WaitAny returned|Failed to submit commands')"
