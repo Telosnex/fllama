@@ -451,6 +451,43 @@ void main() {
     );
 
     test(
+      'makes parallel tool calls when the chat template supports them',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(
+              fllama.Role.user,
+              'What is the weather in Paris and in Tokyo? Call get_weather '
+              'once for each city, both now.',
+            ),
+          ],
+          maxTokens: 160,
+          temperature: 0,
+          enableThinking: false,
+          tools: [
+            fllama.Tool(
+              name: 'get_weather',
+              description: 'Gets the current weather in a city.',
+              jsonSchema: jsonEncode({
+                'type': 'object',
+                'properties': {
+                  'city': {'type': 'string'},
+                },
+                'required': ['city'],
+              }),
+            ),
+          ],
+        );
+        print('[fllama integration] tool calls: ${run.toolCalls}');
+        expect(run.output, isNot(startsWith('Error')));
+        expect(run.toolCalls.length, 2);
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
       'relays an OpenAI parser error through the callback',
       () async {
         final run = await _runChat(

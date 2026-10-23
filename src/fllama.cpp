@@ -356,6 +356,11 @@ static void run_inference(fllama_inference_request request,
                           body["tool_choice"]
                               .template get<std::string>())
                     : COMMON_CHAT_TOOL_CHOICE_AUTO;
+            // As llama-server: on if the chat template supports it.
+            const auto caps = common_chat_templates_get_caps(tmpls.get());
+            const auto cap = caps.find("supports_parallel_tool_calls");
+            inputs.parallel_tool_calls = body.value(
+                "parallel_tool_calls", cap != caps.end() && cap->second);
           }
 
           auto result =
