@@ -139,6 +139,10 @@ static void run_inference(fllama_inference_request request,
     params.n_ubatch         = std::min<int32_t>(params.n_batch, 512);
     params.flash_attn_type  = LLAMA_FLASH_ATTN_TYPE_AUTO;
     params.n_parallel       = ServerManager::DEFAULT_N_PARALLEL;
+    // One KV cache shared by the slots, as llama-server does by default.
+    // Without it each slot gets n_ctx / n_parallel, so one request could use
+    // only a quarter of the context the user chose.
+    params.kv_unified       = true;
     params.n_predict        = request.max_tokens;
     params.sampling.temp    = request.temperature;
     params.sampling.top_p   = request.top_p;

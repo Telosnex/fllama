@@ -147,6 +147,31 @@ void main() {
     );
 
     test(
+      'one request can use the whole context size',
+      () async {
+        // About 2,500 tokens in a 4,096 context: more than the quarter of it
+        // that a slot had before the KV cache was unified.
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(
+              fllama.Role.user,
+              '${List.filled(2500, 'apple').join(' ')}\n'
+              'Reply with OK.',
+            ),
+          ],
+          maxTokens: 4,
+          enableThinking: false,
+          contextSize: 4096,
+        );
+        expect(run.output, isNot(startsWith('Error')));
+        expect(run.output, isNot(contains('exceeds the available context')));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
       'a new context size is not given the context of a busy model',
       () async {
         // Telosnex TEL: a Context Size change while a request ran was
