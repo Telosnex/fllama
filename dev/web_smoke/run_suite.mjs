@@ -85,13 +85,37 @@ const tests = [
     args: ['--prompt=hi', '--max-tokens=24', '--mmproj=none', '--no-think', '--expect-content-regex=.'],
   },
   {
+    id: 'load_error',
+    description: 'a PNG as the model ends with a model_load error',
+    args: [
+      '--prompt=hi',
+      '--max-tokens=8',
+      '--mmproj=none',
+      `--model=${path.join(repoRoot, 'test/assets/test_red.png')}`,
+      '--expect-error-type=model_load',
+    ],
+  },
+  {
     id: 'concurrent_hi',
     description: 'two simultaneous bare-model requests; result records delta interleaving',
     args: [
       '--prompt=Respond with a short friendly greeting.',
       '--max-tokens=100',
       '--concurrent=2',
+      '--n-parallel=2',
       '--mmproj=none',
+    ],
+  },
+  {
+    id: 'more_requests_than_slots',
+    description: 'three simultaneous requests with one slot all finish',
+    args: [
+      '--prompt=hi',
+      '--max-tokens=24',
+      '--concurrent=3',
+      '--n-parallel=1',
+      '--mmproj=none',
+      '--no-think',
     ],
   },
   {
@@ -101,6 +125,7 @@ const tests = [
       '--prompt=Respond with a short friendly greeting.',
       '--max-tokens=100',
       '--concurrent=2',
+      '--n-parallel=2',
       '--mmproj=none',
       '--mixed-jinja',
     ],
@@ -148,6 +173,7 @@ const tests = [
       '--max-tokens=128',
       `--mmproj=${process.env.FLLAMA_SMOKE_MMPROJ || 'default'}`,
       '--images=default',
+      '--no-think',
       '--expect-regex=apple orange',
     ],
   },

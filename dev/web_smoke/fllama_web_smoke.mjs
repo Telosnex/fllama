@@ -156,6 +156,10 @@ const prompt = argValue('--prompt', process.env.FLLAMA_SMOKE_PROMPT || 'Write a 
 const maxTokens = Number(argValue('--max-tokens', process.env.FLLAMA_SMOKE_MAX_TOKENS || '100'));
 const temperature = Number(argValue('--temperature', process.env.FLLAMA_SMOKE_TEMPERATURE || '0.1'));
 const expectRegex = argValue('--expect-regex', process.env.FLLAMA_SMOKE_EXPECT_REGEX || '');
+const expectErrorType = argValue(
+  '--expect-error-type',
+  process.env.FLLAMA_SMOKE_EXPECT_ERROR_TYPE || '',
+);
 const expectContentRegex = argValue(
   '--expect-content-regex',
   process.env.FLLAMA_SMOKE_EXPECT_CONTENT_REGEX || '',
@@ -379,6 +383,7 @@ try {
     let finalContent = '';
     let finalReasoning = '';
     let finalTimings = null;
+    let error = null;
     const startedAt = performance.now();
     if (concurrentRequests > 1) {
       const events = [];
@@ -398,6 +403,7 @@ try {
         let localFinalText = '';
         let localFinalContent = '';
         let localFinalTimings = null;
+        let localError = null;
         const requestId = await window.fllamaChatWebJs(
           localRequest,
           (downloadProgress, loadProgress) => {
@@ -405,8 +411,9 @@ try {
             localChunks.push(event);
             events.push(event);
           },
-          (text, json, done) => {
+          (text, json, done, errorJson) => {
             localFinalText = text || localFinalText;
+            if (errorJson) localError = JSON.parse(errorJson);
             if (json) {
               try {
                 const parsed = JSON.parse(json);
@@ -447,6 +454,7 @@ try {
           finalTextPrefix: localFinalText.slice(0, 500),
           finalContent: localFinalContent,
           finalTimings: localFinalTimings,
+          error: localError,
           chunks: localChunks,
         };
       };
@@ -472,6 +480,7 @@ try {
         finalTextPrefix: requests.map((item) => `[${item.requestIndex}] ${item.finalTextPrefix}`).join('\n'),
         finalContent: requests.map((item) => item.finalContent).join('\n'),
         finalTimings: requests[requests.length - 1]?.finalTimings ?? null,
+        error: requests.find((item) => item.error)?.error ?? null,
         chunkCount: inferenceEvents.length,
         interleavingTransitions,
         eventOrder: inferenceEvents.map((event) => event.requestIndex),
@@ -491,8 +500,9 @@ try {
       (downloadProgress, loadProgress) => {
         chunks.push({ type: 'load', downloadProgress, loadProgress, atMs: performance.now() - startedAt });
       },
-      (text, json, done) => {
+      (text, json, done, errorJson) => {
         finalText = text || finalText;
+        if (errorJson) error = JSON.parse(errorJson);
         if (json) {
           try {
             const parsed = JSON.parse(json);
@@ -535,6 +545,7 @@ try {
       finalContent,
       finalReasoningPrefix: finalReasoning.slice(0, 500),
       finalTimings,
+      error,
       chunks,
       support: {
         hasWebGpu: Boolean(navigator.gpu),
@@ -557,6 +568,7 @@ try {
     finalTextLength: result.finalTextLength,
     finalContent: result.finalContent,
     finalTimings: result.finalTimings,
+    error: result.error,
     runtime,
     legacyRef: runtime === 'legacy' || runtime === 'reese' || runtime === 'reeselevine' ? legacyRef : undefined,
     hasMmproj: Boolean(mmprojToken),
@@ -569,7 +581,7 @@ try {
     outputDir,
   }, null, 2));
 
-  checkSmokeResult(result, { ...options, expectRegex, expectContentRegex });
+  checkSmokeResult(result, { ...options, expectRegex, expectContentRegex, expectErrorType, nParallel });
 } finally {
   clearInterval(heartbeat);
   if (browser) await browser.close();

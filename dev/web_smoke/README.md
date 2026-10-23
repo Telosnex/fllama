@@ -65,6 +65,8 @@ Cases:
 4. model + mmproj + a solid-red image; expects `red`
 5. model + mmproj + `fllama_header.png` image, prompted: `Do not think. Respond with one word only, the title in the image.` at temperature `0`; expects an OCR-like `FLLAMA` / `FLLLAMA` match
 6. model + mmproj + `test/assets/test_apple.png` and `test/assets/test_orange.png`, prompted to read both words in order; expects `apple ... orange`
+7. a PNG file as the model; expects a `model_load` error, the 4th callback argument
+8. three simultaneous requests with one slot; all must finish
 
 The mmproj/image scripts use these defaults:
 

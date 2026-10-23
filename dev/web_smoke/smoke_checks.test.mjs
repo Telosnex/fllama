@@ -52,3 +52,19 @@ test('invalid limits cannot silently disable the deadline', () => {
   }
   assert.throws(() => smokeOptions(['--min-tokens-per-second=-1'], {}), /Invalid/);
 });
+test('an error on the last callback fails the check', () => {
+  assert.throws(() => checkSmokeResult({ ...red, error: { type: 'backend', message: 'x' } }), /Inference failed/);
+});
+test('an expected error type passes only with that type and a message', () => {
+  const failed = { done: true, finalTextLength: 0, error: { type: 'model_load', message: 'bad magic' } };
+  assert.doesNotThrow(() => checkSmokeResult(failed, { expectErrorType: 'model_load' }));
+  assert.throws(() => checkSmokeResult(failed, { expectErrorType: 'invalid_request' }), /Expected a invalid_request/);
+  assert.throws(() => checkSmokeResult(red, { expectErrorType: 'model_load' }), /got null/);
+  assert.throws(() => checkSmokeResult({ ...failed, error: { type: 'model_load' } }, { expectErrorType: 'model_load' }), /no message/);
+});
+test('concurrent requests must interleave only with more than one slot', () => {
+  const serial = { ...red, concurrent: true, concurrentRequests: 3, interleavingTransitions: 0 };
+  assert.doesNotThrow(() => checkSmokeResult(serial, { nParallel: 1 }));
+  assert.doesNotThrow(() => checkSmokeResult(serial, {}));
+  assert.throws(() => checkSmokeResult(serial, { nParallel: 2 }), /interleaved/);
+});

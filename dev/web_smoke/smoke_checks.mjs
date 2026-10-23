@@ -25,13 +25,26 @@ export function checkSmokeResult(result, {
   minTokensPerSecond = 0,
   expectRegex = '',
   expectContentRegex = '',
+  expectErrorType = '',
+  nParallel = null,
 } = {}) {
   if (!result.done) throw new Error(`Inference did not complete within ${timeoutMs}ms`);
+  // The 4th callback argument: error JSON, {type, message}, on the last call.
+  if (expectErrorType) {
+    if (result.error?.type !== expectErrorType) {
+      throw new Error(`Expected a ${expectErrorType} error, got ${JSON.stringify(result.error ?? null)}`);
+    }
+    if (!result.error.message) throw new Error('Error has no message');
+    return;
+  }
+  if (result.error) throw new Error(`Inference failed: ${JSON.stringify(result.error)}`);
   if (!result.finalTextLength) throw new Error('Inference completed with empty output');
   if (result.chunks?.some((chunk) => chunk.type === 'json-parse-error')) {
     throw new Error('Inference returned invalid JSON');
   }
-  if (result.concurrent && result.concurrentRequests > 1 && result.interleavingTransitions <= 0) {
+  // With one slot (the web default), requests run one after another.
+  if (result.concurrent && result.concurrentRequests > 1 && nParallel > 1 &&
+      result.interleavingTransitions <= 0) {
     throw new Error('Concurrent inference completed without interleaved deltas');
   }
   if (expectRegex) {
