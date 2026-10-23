@@ -214,11 +214,22 @@ static void run_inference(fllama_inference_request request,
 
     // ── 2. Get or create server_context ───────────────────────────────
 
+    // Waits if the model is loaded with another context size and busy.
+    const int rid_wait = request.request_id;
     auto *srv = g_mgr.get_or_create(
-        request.model_path, params, request.dart_logger);
+        request.model_path, params, request.dart_logger,
+        [rid_wait] { return g_mgr.is_cancelled(rid_wait); });
     if (!srv || !srv->srv_ctx) {
+      // Cancelled while waiting for the model: done with no output, as a
+      // cancel during generation.
       emit_inference_callback(
-          callback, "Error: Failed to create inference context", "", true);
+          callback,
+          g_mgr.is_cancelled(rid_wait)
+              ? ""
+              : "Error: Failed to create inference context",
+          "", true);
+      g_mgr.clear_cancel(rid_wait);
+      g_mgr.unregister_request_thread(rid_wait);
       return;
     }
     // RAII — release when we leave scope.

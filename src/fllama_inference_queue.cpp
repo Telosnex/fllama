@@ -61,16 +61,22 @@ static bool params_match(const ServerResources &r,
          r.devices      == params.devices;
 }
 
+// A context that a new request may use.
+static bool reusable(const ServerResources &r, const common_params &params) {
+  return !r.shutting_down.load() && !r.retiring.load() &&
+         params_match(r, params);
+}
+
 ServerResources *
 ServerManager::get_or_create(const std::string &model_path,
                              const common_params &params,
-                             fllama_log_callback logger) {
+                             fllama_log_callback logger,
+                             const std::function<bool()> &should_stop) {
   // Fast path — server exists with matching params.
   {
     std::shared_lock<std::shared_mutex> lk(servers_lock);
     auto it = servers.find(model_path);
-    if (it != servers.end() && !it->second->shutting_down.load() &&
-        params_match(*it->second, params)) {
+    if (it != servers.end() && reusable(*it->second, params)) {
       auto *r = it->second.get();
       r->last_used = std::chrono::steady_clock::now();
       r->active_users.fetch_add(1);
@@ -89,22 +95,38 @@ ServerManager::get_or_create(const std::string &model_path,
       auto it = servers.find(model_path);
       if (it != servers.end()) {
         const bool shutting_down = it->second->shutting_down.load();
-        const bool matches = params_match(*it->second, params);
         if (it->second->active_users.load() > 0) {
-          if (!shutting_down) {
-            if (!matches) {
-              std::cerr << "[ServerManager] Params changed but server is busy, "
-                           "using existing context for: " << model_path << "\n";
-            }
+          if (shutting_down) {
+            std::cerr << "[ServerManager] Server context is unhealthy and "
+                         "still busy; refusing reuse: " << model_path << "\n";
+            return nullptr;
+          }
+          if (reusable(*it->second, params)) {
             auto *r = it->second.get();
             r->last_used = std::chrono::steady_clock::now();
             r->active_users.fetch_add(1);
             return r;
           }
-
-          std::cerr << "[ServerManager] Server context is unhealthy and still "
-                       "busy; refusing reuse: " << model_path << "\n";
-          return nullptr;
+          // Other params, such as a new context size. Using this context
+          // would ignore them, so wait for its requests to finish. Requests
+          // that come meanwhile wait too, so they cannot keep it busy.
+          it->second->retiring.store(true);
+          std::cout << "[ServerManager] Params changed; waiting for running "
+                       "requests before reloading: " << model_path << "\n";
+          while (true) {
+            if (should_stop && should_stop()) return nullptr;
+            if (done.load()) return nullptr;
+            auto cur = servers.find(model_path);
+            if (cur == servers.end() ||
+                cur->second->active_users.load() == 0) {
+              break;
+            }
+            // Timed, so should_stop() is checked while a request runs.
+            servers_idle.wait_for(lk, std::chrono::milliseconds(100));
+          }
+          // Again from the top: the context may be gone, idle, or a match.
+          lk.unlock();
+          return get_or_create(model_path, params, logger, should_stop);
         }
 
         std::cout << "[ServerManager] "
@@ -132,8 +154,7 @@ ServerManager::get_or_create(const std::string &model_path,
   {
     std::shared_lock<std::shared_mutex> lk(servers_lock);
     auto it = servers.find(model_path);
-    if (it != servers.end() && !it->second->shutting_down.load() &&
-        params_match(*it->second, params)) {
+    if (it != servers.end() && reusable(*it->second, params)) {
       auto *r = it->second.get();
       r->last_used = std::chrono::steady_clock::now();
       r->active_users.fetch_add(1);
@@ -170,7 +191,7 @@ ServerManager::get_or_create(const std::string &model_path,
     lk.unlock();
     registry_lk.unlock();
     // Recursive call will hit the fast path now.
-    return get_or_create(model_path, params, logger);
+    return get_or_create(model_path, params, logger, should_stop);
   }
   std::cout << "[ServerManager] Created server_context: " << model_path << "\n";
   return it->second.get();
@@ -190,6 +211,7 @@ void ServerManager::release(const std::string &model_path) {
       it->second->active_users.store(0);
       return;
     }
+    if (previous_users == 1) servers_idle.notify_all();
 
     it->second->last_used = std::chrono::steady_clock::now();
     if (previous_users == 1 && it->second->shutting_down.load()) {

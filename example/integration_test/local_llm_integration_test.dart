@@ -147,6 +147,56 @@ void main() {
     );
 
     test(
+      'a new context size is not given the context of a busy model',
+      () async {
+        // Telosnex TEL: a Context Size change while a request ran was
+        // ignored; the next request got the old context.
+        final firstToken = Completer<void>();
+        final busyDone = Completer<void>();
+        await fllama.fllamaChat(
+          fllama.OpenAiRequest(
+            modelPath: modelFile.absolute.path,
+            messages: [
+              fllama.Message(fllama.Role.user, 'Count from 1 to 200.'),
+            ],
+            contextSize: 2048,
+            maxTokens: 400,
+            numGpuLayers: _testGpuLayers,
+            enableThinking: false,
+          ),
+          (result, json, isDone) {
+            if (!firstToken.isCompleted) firstToken.complete();
+            if (isDone && !busyDone.isCompleted) busyDone.complete();
+          },
+        );
+        await firstToken.future.timeout(const Duration(minutes: 5));
+        expect(busyDone.isCompleted, isFalse,
+            reason: 'The first request must still run for this test.');
+
+        // About 2,500 tokens: more than a slot of the 2,048 context, less
+        // than a slot of the 16,384 one.
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(
+              fllama.Role.user,
+              '${List.filled(2500, 'apple').join(' ')}\n'
+              'Reply with OK.',
+            ),
+          ],
+          maxTokens: 4,
+          enableThinking: false,
+          contextSize: 16384,
+        );
+        await busyDone.future.timeout(const Duration(minutes: 2));
+        expect(run.output, isNot(startsWith('Error')));
+        expect(run.output, isNot(contains('exceeds the available context')));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
       'refuses to load a GPU pack while a request runs',
       () async {
         final dir = await _unpackGpuPack(packFiles);
@@ -418,6 +468,7 @@ Future<_ChatRun> _runChat({
   double temperature = 0.1,
   bool? enableThinking,
   String? gpuDeviceKey,
+  int contextSize = 2048,
 }) async {
   final events = <_CallbackEvent>[];
   final done = Completer<void>();
@@ -427,7 +478,7 @@ Future<_ChatRun> _runChat({
       modelPath: modelPath,
       mmprojPath: mmprojPath,
       messages: messages,
-      contextSize: 2048,
+      contextSize: contextSize,
       maxTokens: maxTokens,
       numGpuLayers: _testGpuLayers,
       temperature: temperature,

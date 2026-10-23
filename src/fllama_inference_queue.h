@@ -3,6 +3,7 @@
 #define FLLAMA_INFERENCE_QUEUE_H
 
 #include <atomic>
+#include <functional>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
@@ -31,6 +32,9 @@ struct ServerResources {
   std::chrono::steady_clock::time_point last_used;
   std::atomic<int> active_users{0};
   std::atomic<bool> shutting_down{false};
+  // A request wants other load-time params. No new request gets this context;
+  // it is replaced once its requests finish.
+  std::atomic<bool> retiring{false};
 
   // Params that require a fresh server_context if changed.
   int n_ctx         = 0;
@@ -62,10 +66,14 @@ public:
   ~ServerManager();
 
   // Get or create a server_context for a model.  Increments active_users.
-  // Returns nullptr on failure.  Thread-safe.
+  // If the model is loaded with other load-time params (such as n_ctx) and a
+  // request uses it, waits for that request to finish, then reloads: the
+  // request gets the params it asked for. Returns nullptr on failure, or if
+  // should_stop() returns true while waiting.  Thread-safe.
   ServerResources *get_or_create(const std::string &model_path,
                                  const common_params &params,
-                                 fllama_log_callback logger);
+                                 fllama_log_callback logger,
+                                 const std::function<bool()> &should_stop = {});
 
   // Decrement active_users (call when your request finishes).
   void release(const std::string &model_path);
@@ -92,6 +100,8 @@ private:
   void cleanup_loop();
 
   mutable std::shared_mutex servers_lock;
+  // Notified when a context loses its last user or is removed.
+  std::condition_variable_any servers_idle;
   std::unordered_map<std::string, std::unique_ptr<ServerResources>> servers;
 
   std::mutex cancel_lock;
