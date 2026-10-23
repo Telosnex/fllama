@@ -5,7 +5,6 @@
 // are batched automatically by server_context::update_slots().
 
 #include "fllama.h"
-#include "dart_alloc.h"
 #include "fllama_backends.h"
 #include "fllama_inference_queue.h"
 #include "fllama_mtmd.h"
@@ -37,6 +36,9 @@
 #include <vector>
 
 #include "ggml-backend.h"
+
+// Last: on Windows it includes windows.h.
+#include "dart_alloc.h"
 
 // ── Strings for Dart ─────────────────────────────────────────────────────────
 
