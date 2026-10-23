@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { checkSmokeResult, smokeOptions } from './smoke_checks.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -258,13 +258,23 @@ switch (runtime) {
 
 console.log(`Using runtime=${runtime}${runtime === 'legacy' || runtime === 'reese' || runtime === 'reeselevine' ? ` ref=${legacyRef}` : ''}`);
 
+const browserName = argValue('--browser', process.env.FLLAMA_SMOKE_BROWSER || 'chromium');
+if (!['chromium', 'webkit'].includes(browserName)) {
+  console.error(`Unknown --browser=${browserName}. Use chromium or webkit.`);
+  process.exit(2);
+}
+console.log(`Using browser=${browserName}`);
+
 const server = spawnServer();
 let browser;
 let heartbeat;
 try {
   await waitForHttp(url);
 
-  try {
+  // webkit is Playwright's WebKit build, the engine of Safari.
+  if (browserName === 'webkit') {
+    browser = await webkit.launch({ headless });
+  } else try {
     browser = await chromium.launch({
       channel,
       headless,

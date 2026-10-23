@@ -150,3 +150,15 @@ Useful result fields:
 - `HEADLESS=0` opens a visible browser.
 - Use `--model=/path/to/model.gguf` to test a different local GGUF.
 - 100 tokens/sec with Qwen3.5-0.8B-Q4_K_M.gguf is baseline (26-05-20, MacBook Pro M4 Max)
+
+## WebKit (Safari)
+
+`--browser=webkit` (or `FLLAMA_SMOKE_BROWSER=webkit`) runs Playwright's WebKit
+build. Install it once with `npx playwright install webkit`. WebKit has no
+WebAssembly Memory64 or JSPI, so the fast wllama build cannot run. A request
+ends at once with a `model_load` error. To check that:
+
+```bash
+node fllama_web_smoke.mjs --browser=webkit --prompt=hi --mmproj=none \
+  --timeout-ms=60000 --expect-error-type=model_load
+```
