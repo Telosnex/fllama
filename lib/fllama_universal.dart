@@ -45,10 +45,13 @@ class FllamaInferenceRequest {
   // - 4 threads / 99 layers: 35.5
   // - 8 threads / 99 layers: 38.9
   int numThreads;
-  double temperature;
-  double penaltyFrequency;
-  double penaltyRepeat;
-  double topP;
+
+  /// Sampling. null uses the value that the GGUF file recommends, else
+  /// llama.cpp's default, as llama-server does.
+  double? temperature;
+  double? penaltyFrequency;
+  double? penaltyRepeat;
+  double? topP;
   String? grammar;
   Function(String)? logger;
   String? eosToken;
@@ -79,10 +82,10 @@ class FllamaInferenceRequest {
     required this.maxTokens,
     required this.modelPath,
     required this.numGpuLayers,
-    required this.penaltyFrequency,
-    required this.penaltyRepeat,
-    required this.temperature,
-    required this.topP,
+    this.penaltyFrequency,
+    this.penaltyRepeat,
+    this.temperature,
+    this.topP,
     this.grammar,
     this.eosToken,
     this.modelMmprojPath,
@@ -197,7 +200,7 @@ Future<int> fllamaChat(
     modelMmprojPath: request.mmprojPath,
     numGpuLayers: request.numGpuLayers,
     penaltyFrequency: request.frequencyPenalty,
-    penaltyRepeat: request.presencePenalty,
+    penaltyRepeat: request.repeatPenalty,
     temperature: request.temperature,
     topP: request.topP,
     grammar: '', // deprecated, llama.cpp handles tools internally now

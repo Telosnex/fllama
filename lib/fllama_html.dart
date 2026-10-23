@@ -49,10 +49,10 @@ extension type _JSFllamaInferenceRequest._(JSObject _) implements JSObject {
     String? modelMmprojPath,
     required int numGpuLayers,
     required int numThreads,
-    required double temperature,
-    required double penaltyFrequency,
-    required double penaltyRepeat,
-    required double topP,
+    double? temperature,
+    double? penaltyFrequency,
+    double? penaltyRepeat,
+    double? topP,
     String? grammar,
     String? eosToken,
     // INTENTIONALLY MISSING: logger
@@ -126,10 +126,10 @@ extension type _JSFllamaWebInferenceRequest._(JSObject _) implements JSObject {
     String? modelMmprojPath,
     required int contextSize,
     int? nParallel,
-    required double temperature,
-    required double penaltyFrequency,
-    required double penaltyRepeat,
-    required double topP,
+    double? temperature,
+    double? penaltyFrequency,
+    double? penaltyRepeat,
+    double? topP,
   });
 }
 
@@ -193,7 +193,7 @@ Future<int> fllamaChatWeb(
     nParallel: request.nParallel,
     temperature: request.temperature,
     penaltyFrequency: request.frequencyPenalty,
-    penaltyRepeat: request.presencePenalty,
+    penaltyRepeat: request.repeatPenalty,
     topP: request.topP,
   );
   final completer = Completer<int>();

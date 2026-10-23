@@ -373,7 +373,7 @@ Future<_GemmaMtpRun> _runGemmaChat({
       topP: 1.0,
       frequencyPenalty: 0.0,
       // Mirrors the example app's OpenAI presence_penalty setting.
-      presencePenalty: 1.1,
+      repeatPenalty: 1.1,
       logger: _logLlamaCpp,
     ),
     (result, openAiResponseJsonString, doneFlag) {

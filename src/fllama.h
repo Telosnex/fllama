@@ -47,13 +47,13 @@ struct fllama_inference_request {
                       // N > 0 for N layers. Automatically 0 on iOS simulator.
   int num_threads; // Required: 2 recommended. Platforms can be highly sensitive
                    // to this, ex. Android stopped working with 4 suddenly.
-  float
-      temperature; // Optional: temperature. Defaults to 0. (llama.cpp behavior)
-  float top_p; // Optional: 0 < top_p <= 1. Defaults to 1. (llama.cpp behavior)
-  float penalty_freq;   // Optional: 0 <= penalty_freq <= 1. Defaults to 0.0,
-                        // which means disabled. (llama.cpp behavior)
-  float penalty_repeat; // Optional: 0 <= penalty_repeat <= 1. Defaults to 1.0,
-                        // which means disabled. (llama.cpp behavior)
+  // Sampling. NaN means not set: the value that the GGUF file recommends
+  // (general.sampling.*) is used, else llama.cpp's default. This is what
+  // llama-server does.
+  float temperature;    // llama.cpp default: 0.8.
+  float top_p;          // 0 < top_p <= 1. llama.cpp default: 0.95.
+  float penalty_freq;   // 0 is off. llama.cpp default: 0.
+  float penalty_repeat; // 1 is off. llama.cpp default: 1.
   char *
       grammar; // Optional: BNF-like grammar to constrain sampling. Defaults to
                // "" (llama.cpp behavior). See

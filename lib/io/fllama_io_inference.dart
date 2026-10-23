@@ -122,10 +122,11 @@ Pointer<fllama_inference_request> _toNative(
   request.max_tokens = dart.maxTokens;
   request.num_gpu_layers = dart.numGpuLayers;
   request.num_threads = dart.numThreads;
-  request.temperature = dart.temperature;
-  request.top_p = dart.topP;
-  request.penalty_freq = dart.penaltyFrequency;
-  request.penalty_repeat = dart.penaltyRepeat;
+  // NaN means not set: native uses the model's recommended value.
+  request.temperature = dart.temperature ?? double.nan;
+  request.top_p = dart.topP ?? double.nan;
+  request.penalty_freq = dart.penaltyFrequency ?? double.nan;
+  request.penalty_repeat = dart.penaltyRepeat ?? double.nan;
 
   // Convert the Dart string to a C string (null-terminated).
   Pointer<Utf8> inputCstr = dart.input.toNativeUtf8();

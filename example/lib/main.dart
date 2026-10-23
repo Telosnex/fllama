@@ -869,7 +869,7 @@ class _MyAppState extends State<MyApp> {
       frequencyPenalty: 0.0,
       // Don't use below 1.1, LLMs without a repeat penalty
       // will repeat the same token.
-      presencePenalty: 1.1,
+      repeatPenalty: 1.1,
       topP: _topP,
       // Keep the browser default modest. Large contexts reserve substantially
       // more WebGPU KV/compute memory and are rarely needed for the example.

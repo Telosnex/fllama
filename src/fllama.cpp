@@ -16,12 +16,15 @@
 
 #include "llama.cpp/common/chat.h"
 #include "llama.cpp/common/common.h"
+#include "llama.cpp/common/sampling.h"
 #include "llama.cpp/ggml/include/ggml.h"
 #include "llama.cpp/include/llama.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -90,6 +93,57 @@ static void emit_inference_callback(fllama_inference_callback callback,
   callback(payload.response.c_str(), payload.openai_json.c_str(), done);
 }
 
+// ── Sampling ─────────────────────────────────────────────────────────────────
+
+// The sampling settings that a GGUF file recommends (general.sampling.*),
+// on top of llama.cpp's defaults. llama-server starts every request from
+// these. common_init_sampler_from_model() in common.cpp does the same, but it
+// is static.
+static common_params_sampling model_sampling(const llama_model *model) {
+  common_params_sampling s;
+  auto meta = [&](llama_model_meta_key key, std::string &out) {
+    char buf[512] = {0};
+    if (llama_model_meta_val_str(model, llama_model_meta_key_str(key), buf,
+                                 sizeof(buf)) <= 0) {
+      return false;
+    }
+    out = buf;
+    return true;
+  };
+  auto get_int = [&](llama_model_meta_key key, int32_t &dst) {
+    std::string v;
+    if (!meta(key, v)) return;
+    char *end = nullptr;
+    const long n = strtol(v.c_str(), &end, 10);
+    if (end != v.c_str()) dst = (int32_t)n;
+  };
+  auto get_float = [&](llama_model_meta_key key, float &dst) {
+    std::string v;
+    if (!meta(key, v)) return;
+    char *end = nullptr;
+    const float f = strtof(v.c_str(), &end);
+    if (end != v.c_str()) dst = f;
+  };
+
+  std::string sequence;
+  if (meta(LLAMA_MODEL_META_KEY_SAMPLING_SEQUENCE, sequence)) {
+    const auto names = string_split<std::string>(sequence, ';');
+    if (!names.empty()) s.samplers = common_sampler_types_from_names(names);
+  }
+  get_int(LLAMA_MODEL_META_KEY_SAMPLING_TOP_K, s.top_k);
+  get_float(LLAMA_MODEL_META_KEY_SAMPLING_TOP_P, s.top_p);
+  get_float(LLAMA_MODEL_META_KEY_SAMPLING_MIN_P, s.min_p);
+  get_float(LLAMA_MODEL_META_KEY_SAMPLING_XTC_PROBABILITY, s.xtc_probability);
+  get_float(LLAMA_MODEL_META_KEY_SAMPLING_XTC_THRESHOLD, s.xtc_threshold);
+  get_float(LLAMA_MODEL_META_KEY_SAMPLING_TEMP, s.temp);
+  get_int(LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_LAST_N, s.penalty_last_n);
+  get_float(LLAMA_MODEL_META_KEY_SAMPLING_PENALTY_REPEAT, s.penalty_repeat);
+  get_int(LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT, s.mirostat);
+  get_float(LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_TAU, s.mirostat_tau);
+  get_float(LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_ETA, s.mirostat_eta);
+  return s;
+}
+
 // ── Globals ──────────────────────────────────────────────────────────────────
 
 // Intentionally leaked — avoids static destruction order crash on exit.
@@ -144,10 +198,6 @@ static void run_inference(fllama_inference_request request,
     // only a quarter of the context the user chose.
     params.kv_unified       = true;
     params.n_predict        = request.max_tokens;
-    params.sampling.temp    = request.temperature;
-    params.sampling.top_p   = request.top_p;
-    params.sampling.penalty_freq   = request.penalty_freq;
-    params.sampling.penalty_repeat = request.penalty_repeat;
     params.cpuparams.n_threads     = request.num_threads;
     params.use_jinja = true;
     params.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
@@ -252,12 +302,15 @@ static void run_inference(fllama_inference_request request,
     common_chat_parser_params parser_params;
     common_chat_params chat_params;
     bool is_oai = false;
+    nlohmann::ordered_json sampling_body;
 
     if (request.openai_request_json_string) {
       is_oai = true;
       try {
         auto body = nlohmann::ordered_json::parse(
             request.openai_request_json_string);
+
+        sampling_body = body;
 
         std::string jinja_tmpl;
         if (body.contains("jinja_template") &&
@@ -371,12 +424,27 @@ static void run_inference(fllama_inference_request request,
     task.params.stream       = true;
     task.params.cache_prompt = true;
     task.params.n_predict    = request.max_tokens;
-    task.params.sampling.temp           = request.temperature;
-    task.params.sampling.top_p          = request.top_p;
-    task.params.sampling.penalty_freq   = request.penalty_freq;
-    task.params.sampling.penalty_repeat = request.penalty_repeat;
+    // Start from the model's recommended settings, as llama-server does. A
+    // NaN request value means: not set.
+    task.params.sampling = model_sampling(
+        llama_get_model(srv->srv_ctx->get_llama_context()));
+    if (!std::isnan(request.temperature))
+      task.params.sampling.temp = request.temperature;
+    if (!std::isnan(request.top_p))
+      task.params.sampling.top_p = request.top_p;
+    if (!std::isnan(request.penalty_freq))
+      task.params.sampling.penalty_freq = request.penalty_freq;
+    if (!std::isnan(request.penalty_repeat))
+      task.params.sampling.penalty_repeat = request.penalty_repeat;
 
     if (is_oai) {
+      auto &sampling = task.params.sampling;
+      sampling.top_k = sampling_body.value("top_k", sampling.top_k);
+      sampling.min_p = sampling_body.value("min_p", sampling.min_p);
+      sampling.penalty_present = sampling_body.value(
+          "presence_penalty", sampling.penalty_present);
+      sampling.penalty_repeat = sampling_body.value(
+          "repeat_penalty", sampling.penalty_repeat);
       if (!chat_params.grammar.empty()) {
         task.params.sampling.grammar = common_grammar(
             COMMON_GRAMMAR_TYPE_TOOL_CALLS,

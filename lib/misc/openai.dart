@@ -75,11 +75,21 @@ enum ToolChoice {
 class OpenAiRequest {
   final List<Message> messages;
   final List<Tool> tools;
-  final double temperature;
   final int maxTokens;
-  final double topP;
-  final double frequencyPenalty;
-  final double presencePenalty;
+
+  /// Sampling. null uses the value that the GGUF file recommends, else
+  /// llama.cpp's default, as llama-server does.
+  final double? temperature;
+  final double? topP;
+  final int? topK;
+  final double? minP;
+  final double? frequencyPenalty;
+
+  /// Additive penalty for a token that already appeared. 0 is off.
+  final double? presencePenalty;
+
+  /// Multiplicative repetition penalty. 1 is off.
+  final double? repeatPenalty;
   // Not in OpenAI, but used by llama.
   final String modelPath;
   final String? mmprojPath;
@@ -136,11 +146,14 @@ class OpenAiRequest {
           },
         };
       }).toList(),
-      'temperature': temperature,
       'max_tokens': maxTokens,
-      'top_p': topP,
-      'frequency_penalty': frequencyPenalty,
-      'presence_penalty': presencePenalty,
+      if (temperature != null) 'temperature': temperature,
+      if (topP != null) 'top_p': topP,
+      if (topK != null) 'top_k': topK,
+      if (minP != null) 'min_p': minP,
+      if (repeatPenalty != null) 'repeat_penalty': repeatPenalty,
+      if (frequencyPenalty != null) 'frequency_penalty': frequencyPenalty,
+      if (presencePenalty != null) 'presence_penalty': presencePenalty,
       if (toolChoice != null) 'tool_choice': toolChoice?.jsonName,
       if (jinjaTemplate != null) 'jinja_template': jinjaTemplate,
       if (enableThinking != null) 'enable_thinking': enableThinking,
@@ -155,15 +168,16 @@ class OpenAiRequest {
     // Randomness of the output.
     // Higher numbers mean more likelihood of non-top tokens being chosen.
     // 0 <= temperature <= any positive number
-    this.temperature = 0.7,
+    this.temperature,
     // 333 * 3/4 word per token ~= 250 words ~= 1 page ~= 1 minute reading time
     this.maxTokens = 333,
-    // Percent of tokens to consider. 1.0 means all tokens are considered.
-    // 0.05 means only the top 5% of tokens are considered.
-    this.topP = 1.0,
-    this.frequencyPenalty = 0.0,
-    // Match default penalty_repeat of 1.1 in llama.cpp.
-    this.presencePenalty = 1.1,
+    // Share of probability to consider. 1.0 considers all tokens.
+    this.topP,
+    this.topK,
+    this.minP,
+    this.repeatPenalty,
+    this.frequencyPenalty,
+    this.presencePenalty,
     //
     // Following arguments aren't actually in OpenAI, but are used by Fllama.
     //

@@ -58,6 +58,12 @@ void main() {
         expect(template, isNotEmpty);
         expect(eosToken, isNotEmpty);
         expect(tokenCount, greaterThan(0));
+        expect(fllama.fllamaTrainedContextLength(modelPath), 262144);
+        expect(
+          fllama.fllamaTrainedContextLength(mmprojFile.absolute.path),
+          isNull,
+          reason: 'An mmproj file has no context length.',
+        );
       },
       skip: supportedPlatform ? null : 'Native-platform test',
       timeout: const Timeout(Duration(minutes: 5)),
@@ -381,6 +387,70 @@ void main() {
     );
 
     test(
+      'starts from the sampling settings that the GGUF file recommends',
+      () async {
+        // A copy of the model whose file recommends top-k 1: always the most
+        // likely token. Then even a high temperature gives the same reply.
+        final greedy = await _copyWithTopK1(modelFile);
+        try {
+          Future<String> reply() async {
+            final run = await _runChat(
+              modelPath: greedy.path,
+              messages: [
+                fllama.Message(fllama.Role.user, 'Write a poem about rain.'),
+              ],
+              maxTokens: 24,
+              temperature: 2.0,
+              topP: null,
+              enableThinking: false,
+            );
+            expect(run.output, isNot(startsWith('Error')));
+            return run.responseContent;
+          }
+
+          final first = await reply();
+          final second = await reply();
+          print('[fllama integration] top-k 1 replies: "$first" "$second"');
+          expect(first, isNotEmpty);
+          expect(second, first);
+        } finally {
+          await _deleteFile(greedy);
+        }
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'applies top-k, min-p and separate penalties from chat JSON',
+      () async {
+        Future<String> reply() async {
+          final run = await _runChat(
+            modelPath: modelFile.absolute.path,
+            messages: [
+              fllama.Message(fllama.Role.user, 'Write a poem about rain.'),
+            ],
+            maxTokens: 24,
+            temperature: 2,
+            topK: 1,
+            minP: 0,
+            presencePenalty: 1.5,
+            repeatPenalty: 1,
+            enableThinking: false,
+          );
+          expect(run.output, isNot(contains('Error:')));
+          return run.responseContent;
+        }
+
+        final first = await reply();
+        expect(first, isNotEmpty);
+        expect(await reply(), first);
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
       'relays an OpenAI parser error through the callback',
       () async {
         final run = await _runChat(
@@ -458,6 +528,101 @@ Future<void> _deleteTemp(Directory dir) async {
   }
 }
 
+/// A copy of the GGUF file [model] with one more metadata value:
+/// general.sampling.top_k = 1. Tensor offsets are relative to the start of
+/// the tensor data, so only the header changes.
+Future<File> _copyWithTopK1(File model) async {
+  // The header of the test model, with its tokenizer, is a few MB.
+  final raf = await model.open();
+  final head = await raf.read(32 << 20);
+  await raf.close();
+  final data = ByteData.sublistView(head);
+  var pos = 0;
+  int u32() => data.getUint32((pos += 4) - 4, Endian.little);
+  int u64() => data.getUint64((pos += 8) - 8, Endian.little);
+  String str() {
+    final length = u64();
+    pos += length;
+    return utf8.decode(head.sublist(pos - length, pos));
+  }
+
+  const sizes = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8};
+  void skip(int type) {
+    if (type == 8) {
+      str();
+    } else if (type == 9) {
+      final elementType = u32();
+      final count = u64();
+      for (var i = 0; i < count; i++) {
+        skip(elementType);
+      }
+    } else {
+      pos += sizes[type] ?? 8;
+    }
+  }
+
+  expect(u32(), 0x46554747, reason: 'GGUF magic');
+  u32();
+  final tensorCount = u64();
+  final keyCountAt = pos;
+  final keyCount = u64();
+  var alignment = 32;
+  for (var i = 0; i < keyCount; i++) {
+    final key = str();
+    final type = u32();
+    if (key == 'general.alignment') {
+      alignment = data.getUint32(pos, Endian.little);
+    }
+    skip(type);
+  }
+  final keysEnd = pos;
+  for (var i = 0; i < tensorCount; i++) {
+    str();
+    final dimensions = u32();
+    pos += 8 * dimensions + 4 + 8; // Dimensions, type, offset.
+  }
+  final tensorInfosEnd = pos;
+  int aligned(int n) => (n + alignment - 1) ~/ alignment * alignment;
+
+  final key = utf8.encode('general.sampling.top_k');
+  final extra = BytesBuilder()
+    ..add((ByteData(8)..setUint64(0, key.length, Endian.little))
+        .buffer
+        .asUint8List())
+    ..add(key)
+    ..add((ByteData(4)..setUint32(0, 5, Endian.little)).buffer.asUint8List())
+    ..add((ByteData(4)..setInt32(0, 1, Endian.little)).buffer.asUint8List());
+  final header = BytesBuilder()
+    ..add(head.sublist(0, keyCountAt))
+    ..add((ByteData(8)..setUint64(0, keyCount + 1, Endian.little))
+        .buffer
+        .asUint8List())
+    ..add(head.sublist(keyCountAt + 8, keysEnd))
+    ..add(extra.takeBytes())
+    ..add(head.sublist(keysEnd, tensorInfosEnd));
+  final headerBytes = header.takeBytes();
+  final padding = aligned(headerBytes.length) - headerBytes.length;
+
+  final dir = await Directory.systemTemp.createTemp('fllama_top_k_1');
+  final copy = File(path.join(dir.path, 'top_k_1.gguf'));
+  final sink = copy.openWrite();
+  sink.add(headerBytes);
+  sink.add(Uint8List(padding));
+  await sink.addStream(model.openRead(aligned(tensorInfosEnd)));
+  await sink.close();
+  return copy;
+}
+
+/// Deletes [file] and its directory if the OS allows it. Windows can keep a
+/// loaded model file open.
+Future<void> _deleteFile(File file) async {
+  try {
+    await file.parent.delete(recursive: true);
+  } on FileSystemException catch (e) {
+    print('[fllama integration] could not delete ${file.path}: ${e.osError}');
+  }
+}
+
 Future<Directory> _modelCacheDirectory() async {
   // Mobile apps cannot access Codemagic's host filesystem even if the simulator
   // happens to inherit MODEL_CACHE_DIR. They receive the cached files from the
@@ -491,9 +656,15 @@ Future<_ChatRun> _runChat({
   required List<fllama.Message> messages,
   required int maxTokens,
   double temperature = 0.1,
+  double? topP = 1.0,
+  int? topK,
+  double? minP,
+  double? presencePenalty,
+  double? repeatPenalty,
   bool? enableThinking,
   String? gpuDeviceKey,
   int contextSize = 2048,
+  List<fllama.Tool> tools = const [],
 }) async {
   final events = <_CallbackEvent>[];
   final done = Completer<void>();
@@ -507,7 +678,12 @@ Future<_ChatRun> _runChat({
       maxTokens: maxTokens,
       numGpuLayers: _testGpuLayers,
       temperature: temperature,
-      topP: 1.0,
+      topP: topP,
+      topK: topK,
+      minP: minP,
+      presencePenalty: presencePenalty,
+      repeatPenalty: repeatPenalty,
+      tools: tools,
       enableThinking: enableThinking,
       gpuDeviceKey: gpuDeviceKey,
       logger: (message) => print('[llama.cpp] $message'),
@@ -553,6 +729,34 @@ class _ChatRun {
       }
     }
     return buffer.toString();
+  }
+
+  /// The tool calls in the streamed deltas, by index: name and arguments.
+  List<String> get toolCalls {
+    final calls = <int, StringBuffer>{};
+    for (final chunk in decodedJsonChunks) {
+      final choices = chunk['choices'];
+      if (choices is! List) continue;
+      for (final choice in choices) {
+        if (choice is! Map) continue;
+        final delta = choice['delta'];
+        final toolCalls = delta is Map ? delta['tool_calls'] : null;
+        if (toolCalls is! List) continue;
+        for (final call in toolCalls) {
+          if (call is! Map) continue;
+          final buffer = calls.putIfAbsent(
+            call['index'] as int? ?? 0,
+            StringBuffer.new,
+          );
+          final function = call['function'];
+          if (function is Map) {
+            buffer.write(function['name'] ?? '');
+            buffer.write(function['arguments'] ?? '');
+          }
+        }
+      }
+    }
+    return [for (final buffer in calls.values) buffer.toString()];
   }
 
   List<Map<String, dynamic>> get decodedJsonChunks {
