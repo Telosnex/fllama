@@ -144,9 +144,7 @@ Future<void> _buildFromSource({
   final release = source.release;
 
   // ── GPU SDK ────────────────────────────────────────────────────────
-  // Android splits only for its CPU variants; it has no GPU backend (ADR
-  // 004, NG2).
-  final gpuSplit = split && targetOS != OS.android;
+  final gpuSplit = usesGpuBackends(targetOS, targetArch);
   final vulkan = gpuSplit ? findVulkanSdk(targetOS, targetArch) : null;
   if (gpuSplit && vulkan == null) {
     if (release != null && targetArch == Architecture.x64) {
@@ -195,6 +193,9 @@ Future<void> _buildFromSource({
     gpuPackUrlTemplate: release?.assetUrl(gpuPackUrlNamePlaceholder),
   );
 
+  final clang = compilesWithClang(targetOS, targetArch);
+  if (clang) requireClang(findOnPath);
+
   // ── Compute build key ──────────────────────────────────────────────
   final buildKey = computeBuildKey(
     os: targetOS.name,
@@ -207,6 +208,7 @@ Future<void> _buildFromSource({
       if (vulkan != null) 'vulkan_header': '${vulkan.headerVersion}',
       if (split && targetOS == OS.windows && targetArch == Architecture.arm64)
         'arm64_cpu_variants': windowsArm64CpuVariants.keys.join(','),
+      if (clang) 'compiler': 'clang',
     },
   );
 
@@ -265,7 +267,16 @@ Future<void> _buildFromSource({
             // This is the critical move — the expensive artifacts live in
             // one stable, shared location.
             outDir: job.outDir,
-            defines: job.defines,
+            defines: {
+              ...job.defines,
+              // An absolute path, so not in the build key.
+              if (clang)
+                'CMAKE_TOOLCHAIN_FILE': p.join(
+                  Directory.fromUri(sourceDir).path,
+                  'cmake',
+                  linuxArm64ClangToolchain,
+                ),
+            },
             toolset: toolset,
             targets: job.targets,
             logger: logger,
@@ -511,13 +522,54 @@ String _targetVariant(CodeConfig config) {
 /// run-time backend selection (ADR 004, D1). Other targets link everything
 /// into the one fllama library.
 ///
-/// Android arm64 splits for its CPU variants: phones range from ARMv8.0
-/// (Cortex-A53) to ARMv9.2 with SME, and code for a newer CPU crashes an
-/// older one.
+/// Android and Linux arm64 split for their CPU variants: their CPUs range
+/// from ARMv8.0 (Cortex-A53) to ARMv9.2 with SME, and code for a newer CPU
+/// crashes an older one.
 bool usesSplitLibraries(OS targetOS, Architecture targetArch) =>
     targetOS == OS.windows ||
-    (targetOS == OS.linux && targetArch == Architecture.x64) ||
+    targetOS == OS.linux ||
     (targetOS == OS.android && targetArch == Architecture.arm64);
+
+/// Whether [targetOS] and [targetArch] compile with clang, through
+/// [linuxArm64ClangToolchain].
+///
+/// Linux arm64: two of ggml's Linux arm64 CPU variants need
+/// -march=armv9.2-a+sme, which GCC knows from version 14, and Ubuntu 22.04
+/// has GCC 11. Flutter's Linux setup installs clang. native_toolchain_cmake
+/// ignores the hook input's C compiler, and its own toolchain file sets GCC.
+bool compilesWithClang(OS targetOS, Architecture targetArch) =>
+    targetOS == OS.linux && targetArch == Architecture.arm64;
+
+/// The toolchain file in src/cmake for [compilesWithClang] targets.
+const linuxArm64ClangToolchain = 'linux-arm64-clang.toolchain.cmake';
+
+/// Throws a [StateError] if clang or clang++ is not on PATH.
+void requireClang(String? Function(String name) findOnPath) {
+  if (findOnPath('clang') == null || findOnPath('clang++') == null) {
+    throw StateError(
+      'fllama builds Linux arm64 with clang, and clang is not on PATH. '
+      'Install it, for example: sudo apt-get install clang',
+    );
+  }
+}
+
+/// The path of [name] in a PATH directory, or null.
+String? findOnPath(String name) {
+  for (final dir in (Platform.environment['PATH'] ?? '').split(':')) {
+    if (dir.isEmpty) continue;
+    final file = File(p.join(dir, name));
+    if (file.existsSync()) return file.path;
+  }
+  return null;
+}
+
+/// Whether [targetOS] and [targetArch] ship GPU backend libraries (Vulkan,
+/// and CUDA packs). Android (ADR 004, NG2) and Linux arm64 split only for
+/// their CPU variants.
+bool usesGpuBackends(OS targetOS, Architecture targetArch) =>
+    usesSplitLibraries(targetOS, targetArch) &&
+    targetOS != OS.android &&
+    !(targetOS == OS.linux && targetArch == Architecture.arm64);
 
 /// Windows ARM64 CPU backends: published file suffix → GGML_CPU_ARM_ARCH.
 /// The first entry is the baseline that every ARM64 CPU can run. The loader
@@ -696,8 +748,11 @@ Map<String, String> computeDefines(
     defines['BUILD_SHARED_LIBS'] = 'ON';
     defines['GGML_BACKEND_DL'] = 'ON';
     defines['GGML_NATIVE'] = 'OFF';
-    if (targetArch == Architecture.x64 || targetOS == OS.android) {
-      // Android arm64: ggml's 7 android_armv* variants.
+    if (targetArch == Architecture.x64 ||
+        targetOS == OS.android ||
+        targetOS == OS.linux) {
+      // Android arm64: ggml's 7 android_armv* variants. Linux arm64: its 8
+      // armv* variants.
       defines['GGML_CPU_ALL_VARIANTS'] = 'ON';
     } else if (targetOS == OS.windows && targetArch == Architecture.arm64) {
       defines['GGML_CPU_ARM_ARCH'] = windowsArm64CpuVariants.values.first;

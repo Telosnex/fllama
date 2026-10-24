@@ -82,7 +82,7 @@ void main() {
         }
 
         final splitLibraries = Platform.isWindows ||
-            Abi.current() == Abi.linuxX64 ||
+            Platform.isLinux ||
             Abi.current() == Abi.androidArm64;
         if (splitLibraries) {
           // Exactly one CPU variant, chosen for this CPU (ADR 004, I2).
@@ -90,6 +90,10 @@ void main() {
           if (Platform.isAndroid) {
             // Audit item 1: one of ggml's Android variants.
             expect(loaded.single, startsWith('libggml-cpu-android_armv'));
+          }
+          if (Abi.current() == Abi.linuxArm64) {
+            // Audit 3, #1: one of ggml's Linux arm64 variants.
+            expect(loaded.last, startsWith('libggml-cpu-armv'));
           }
         } else {
           expect(loaded, isEmpty);

@@ -119,3 +119,16 @@ Not done: 6 (Intel Mac CPU variants). Rosetta here has SSE4.2 only.
   and returns (size_t)-1 on overflow, not 0; slot waiters remove their abort
   listener; README: no Codemagic badges, no Feb 2024 notes, current
   numGpuLayers/contextSize meanings, no 2024 model list.
+- 1: Linux arm64 splits like Android arm64: ggml's 8 Linux armv* variants,
+  no GPU backend (usesGpuBackends). GCC 11 (Ubuntu 22.04, the release
+  runner) fails on -march=armv9.2-a+sme; clang 14, 15 and 19 build all 8.
+  native_toolchain_cmake's aarch64 toolchain file sets GCC and overrides a
+  -DCMAKE_C_COMPILER, so the hook passes src/cmake/linux-arm64-clang
+  .toolchain.cmake after it. CI installs clang for linux-arm64.
+  Checked in an arm64 ubuntu:22.04 container with `native_prebuilt:build
+  --target linux-arm64`: 13 files, RUNPATH $ORIGIN, GLIBC <= 2.34 and
+  GLIBCXX <= 3.4.30 (as the old release); fllama/llama/ggml/mtmd/armv8.0
+  have no sdot/i8mm/SVE/fp16. The VM (dotprod, fp16) loads armv8.2_2:
+  prompt 200 -> 490-520 tok/s, generation 89 -> 138-150 tok/s, against the
+  armv8.0 variant alone. Size: 19.1 MB (was 11.9 MB). Not run: the Flutter
+  integration test on Linux arm64, a real Pi.

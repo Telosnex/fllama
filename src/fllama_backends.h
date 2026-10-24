@@ -1,6 +1,6 @@
 // fllama_backends.h — ggml backend loading and GPU device selection.
 //
-// On Windows, Linux x64 and Android arm64, ggml ships as separate libraries
+// On Windows, Linux and Android arm64, ggml ships as separate libraries
 // and fllama selects the backends at run time
 // (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D4). On other targets the backends
 // are linked into fllama, and loading is a no-op.

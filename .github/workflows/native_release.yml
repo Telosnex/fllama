@@ -177,6 +177,14 @@ jobs:
           }
           Get-ChildItem -Recurse -Filter clang-cl.exe "$vs\VC\Tools\Llvm" | Select-Object -First 3 FullName
 
+      # hook/build.dart builds Linux arm64 with clang (cmakeCompilers): GCC 11
+      # does not know -march=armv9.2-a+sme, which two CPU variants need.
+      - name: Install clang (Linux arm64)
+        if: matrix.target == 'linux-arm64'
+        run: |
+          command -v clang++ || { sudo apt-get update -qq && sudo apt-get install -y -qq clang; }
+          clang++ --version | sed -n 1p
+
       - name: Install the NDK
         if: startsWith(matrix.target, 'android-')
         run: |
@@ -194,6 +202,7 @@ jobs:
               if [[ "${{ matrix.target }}" == windows-x64 ]]; then t="$t, MSVC, Vulkan SDK $VULKAN_SDK_VERSION"; else t="$t, ClangCL"; fi ;;
             macos-*|ios-*) t="$(xcodebuild -version | sed -n 1p)" ;;
             linux-x64) t="$(gcc --version | sed -n 1p), Vulkan SDK $VULKAN_SDK_VERSION" ;;
+            linux-arm64) t="$(clang --version | sed -n 1p)" ;;
             linux-*) t="$(gcc --version | sed -n 1p)" ;;
           esac
           echo "Toolchain: $t"

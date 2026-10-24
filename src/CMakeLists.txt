@@ -8,7 +8,7 @@ project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 # Include build info generation
 include("${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/cmake/build-info.cmake")
 
-# hook/build.dart sets BUILD_SHARED_LIBS=ON for Windows, Linux x64 and Android
+# hook/build.dart sets BUILD_SHARED_LIBS=ON for Windows, Linux and Android
 # arm64, which ship ggml as separate libraries with run-time backend selection
 # (docs/ADR_004_DESKTOP_GPU_BACKENDS.md). Other targets link everything into
 # the one fllama library.

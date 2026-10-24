@@ -7,11 +7,11 @@ import '../hook/build.dart' as hook;
 
 void main() {
   group('split libraries (ADR 004, D1)', () {
-    test('Windows, Linux x64 and Android arm64 split', () {
+    test('Windows, Linux and Android arm64 split', () {
       expect(hook.usesSplitLibraries(OS.windows, Architecture.x64), isTrue);
       expect(hook.usesSplitLibraries(OS.windows, Architecture.arm64), isTrue);
       expect(hook.usesSplitLibraries(OS.linux, Architecture.x64), isTrue);
-      expect(hook.usesSplitLibraries(OS.linux, Architecture.arm64), isFalse);
+      expect(hook.usesSplitLibraries(OS.linux, Architecture.arm64), isTrue);
       expect(hook.usesSplitLibraries(OS.macOS, Architecture.arm64), isFalse);
       expect(hook.usesSplitLibraries(OS.iOS, Architecture.arm64), isFalse);
       expect(hook.usesSplitLibraries(OS.android, Architecture.arm64), isTrue);
@@ -29,6 +29,48 @@ void main() {
       expect(defines['CMAKE_PLATFORM_NO_VERSIONED_SONAME'], 'ON');
       expect(defines, isNot(contains('GGML_CPU_ARM_ARCH')));
       expect(defines, isNot(contains('GGML_VULKAN')));
+    });
+
+    // Audit 3, #1: Linux arm64 was one ARMv8.0 build, with no dotprod.
+    test('Linux arm64 builds every CPU variant, with no GPU', () {
+      final defines = hook.computeDefines(OS.linux, Architecture.arm64, '');
+      expect(defines['BUILD_SHARED_LIBS'], 'ON');
+      expect(defines['GGML_BACKEND_DL'], 'ON');
+      expect(defines['GGML_CPU_ALL_VARIANTS'], 'ON');
+      expect(defines['GGML_NATIVE'], 'OFF');
+      expect(defines['CMAKE_PLATFORM_NO_VERSIONED_SONAME'], 'ON');
+      expect(defines, isNot(contains('GGML_VULKAN')));
+      expect(hook.usesGpuBackends(OS.linux, Architecture.arm64), isFalse);
+      expect(hook.usesGpuBackends(OS.android, Architecture.arm64), isFalse);
+      expect(hook.usesGpuBackends(OS.linux, Architecture.x64), isTrue);
+      expect(hook.usesGpuBackends(OS.windows, Architecture.arm64), isTrue);
+    });
+
+    // GCC before 14 does not know -march=armv9.2-a+sme, which two of the
+    // Linux arm64 variants need. Ubuntu 22.04 has GCC 11; its clang works.
+    test('Linux arm64 compiles with clang', () {
+      for (final os in OS.values) {
+        for (final arch in [Architecture.x64, Architecture.arm64]) {
+          expect(
+            hook.compilesWithClang(os, arch),
+            os == OS.linux && arch == Architecture.arm64,
+            reason: '$os $arch',
+          );
+        }
+      }
+      // native_toolchain_cmake's own toolchain file sets GCC, so a -D for
+      // the compiler has no effect: the file must set clang.
+      final toolchain = File(
+        'src/cmake/${hook.linuxArm64ClangToolchain}',
+      ).readAsStringSync();
+      expect(toolchain, contains('set(CMAKE_C_COMPILER clang)'));
+      expect(toolchain, contains('set(CMAKE_CXX_COMPILER clang++)'));
+
+      hook.requireClang((name) => '/usr/bin/$name');
+      expect(
+        () => hook.requireClang((_) => null),
+        throwsA(isA<StateError>()),
+      );
     });
 
     test('src/CMakeLists.txt sets no CPU architecture for Android', () {
@@ -75,7 +117,6 @@ void main() {
         (OS.iOS, Architecture.arm64, 'iphoneos'),
         (OS.android, Architecture.arm, ''),
         (OS.android, Architecture.x64, ''),
-        (OS.linux, Architecture.arm64, ''),
       ]) {
         final defines = hook.computeDefines(os, arch, variant);
         expect(defines['BUILD_SHARED_LIBS'], 'OFF', reason: os.name);
