@@ -127,6 +127,9 @@ class FllamaInferenceRequest {
   /// unknown key is logged and treated as Auto. Native-only.
   String? gpuDeviceKey;
 
+  /// Web only: request slots of the model; see [OpenAiRequest.nParallel].
+  int? nParallel;
+
   /// The request that [fllamaChat] runs for [request]: llama.cpp's
   /// OpenAI-compatible chat path, with an empty plain [input].
   factory FllamaInferenceRequest.fromOpenAiRequest(OpenAiRequest request) =>
@@ -147,6 +150,7 @@ class FllamaInferenceRequest {
         draftNMax: request.draftNMax,
         draftPMin: request.draftPMin,
         gpuDeviceKey: request.gpuDeviceKey,
+        nParallel: request.nParallel,
       );
 
   FllamaInferenceRequest({
@@ -167,6 +171,7 @@ class FllamaInferenceRequest {
     this.draftNMax,
     this.draftPMin,
     this.gpuDeviceKey,
+    this.nParallel,
   });
 }
 

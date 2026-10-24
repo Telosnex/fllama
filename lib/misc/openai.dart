@@ -155,7 +155,11 @@ class OpenAiRequest {
       if (presencePenalty != null) 'presence_penalty': presencePenalty,
       if (toolChoice != null) 'tool_choice': toolChoice?.jsonName,
       if (jinjaTemplate != null) 'jinja_template': jinjaTemplate,
+      // Native fllama reads the top-level field. wllama reads only
+      // chat_template_kwargs, as llama-server does.
       if (enableThinking != null) 'enable_thinking': enableThinking,
+      if (enableThinking != null)
+        'chat_template_kwargs': {'enable_thinking': enableThinking},
     };
     return jsonEncode(json);
   }

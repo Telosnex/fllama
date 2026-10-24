@@ -2,6 +2,8 @@
 @Timeout(Duration(seconds: 90))
 library;
 
+import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 
 import 'package:fllama/fllama.dart';
@@ -40,6 +42,52 @@ void main() {
     expect(count, inInclusiveRange(3, 8));
   });
 
+  // Audit item 2: fllamaChat on web sent `input` ('') and dropped the
+  // conversation in openAiRequestJsonString.
+  test('fllamaChat sends the conversation to the model', () async {
+    final message = List.filled(
+      5,
+      'Lily went to the park with her dog and saw a big red ball.',
+    ).join(' ');
+    final done = Completer<int>();
+    await fllamaChat(
+      OpenAiRequest(
+        modelPath: model,
+        maxTokens: 4,
+        messages: [Message(Role.user, message)],
+      ),
+      (response, responseJson, isDone, error) {
+        if (error != null && !done.isCompleted) done.completeError(error);
+        if (responseJson.isEmpty || done.isCompleted) return;
+        final timings = (jsonDecode(responseJson) as Map)['timings'];
+        if (timings is Map && timings['prompt_n'] is int) {
+          done.complete(timings['prompt_n'] as int);
+        }
+      },
+    );
+    // The message alone is about 75 tokens; the template around an empty
+    // message is 28. stories15M has a context of 128 tokens.
+    expect(await done.future, greaterThan(70));
+  });
+
+  // Audit item 8: the picker waited forever when the user closed it.
+  test('fllamaWebPickModel returns null when the user cancels', () async {
+    await loadFllamaWebRuntime();
+    _eval('''
+      (() => {
+        const click = HTMLInputElement.prototype.click;
+        HTMLInputElement.prototype.click = function () {
+          HTMLInputElement.prototype.click = click;
+          setTimeout(() => this.dispatchEvent(new Event('cancel')), 0);
+        };
+      })()
+    ''');
+    expect(
+      await fllamaWebPickModel().timeout(const Duration(seconds: 5)),
+      isNull,
+    );
+  });
+
   // ADR 002 D7, I3.
   test('the runtime files load with the webVersion query', () async {
     await loadFllamaWebRuntime();
@@ -56,6 +104,9 @@ void main() {
     }
   });
 }
+
+@JS('eval')
+external void _eval(String source);
 
 @JS('performance.clearResourceTimings')
 external void _clearResourceTimings();

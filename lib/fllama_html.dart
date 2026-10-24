@@ -55,16 +55,40 @@ extension type _JSFllamaInferenceRequest._(JSObject _) implements JSObject {
   });
 }
 
-/// Runs plain completion of [FllamaInferenceRequest.input], with no chat
-/// template. Returns the request ID soon, for [fllamaCancelInference];
+/// Runs [FllamaInferenceRequest.openAiRequestJsonString] as a chat, if set,
+/// as native fllama does. Else runs [FllamaInferenceRequest.input] as one
+/// user message. Returns the request ID soon, for [fllamaCancelInference];
 /// [callback] gets the results. See [FllamaInferenceCallback].
 ///
-/// Most callers want [fllamaChat], which applies the chat template.
+/// Most callers want [fllamaChat].
 Future<int> fllamaInference(
   FllamaInferenceRequest dartRequest,
   FllamaInferenceCallback callback,
 ) async {
   await loadFllamaWebRuntime();
+  final openAiRequestJsonString = dartRequest.openAiRequestJsonString;
+  if (openAiRequestJsonString != null) {
+    return _runWebChat(
+      _JSFllamaWebInferenceRequest(
+        openAiRequestJsonString: openAiRequestJsonString,
+        messagesAsJsonString: '[]',
+        toolsAsJsonString: '[]',
+        maxTokens: dartRequest.maxTokens,
+        modelPath: dartRequest.modelPath,
+        modelMmprojPath: dartRequest.modelMmprojPath,
+        contextSize: dartRequest.contextSize,
+        nParallel: dartRequest.nParallel != null && dartRequest.nParallel! > 0
+            ? dartRequest.nParallel
+            : kFllamaWebDefaultParallelSlots,
+        temperature: dartRequest.temperature,
+        penaltyFrequency: dartRequest.penaltyFrequency,
+        penaltyRepeat: dartRequest.penaltyRepeat,
+        topP: dartRequest.topP,
+      ),
+      (_, _) {},
+      callback,
+    );
+  }
   final jsRequest = _JSFllamaInferenceRequest(
     contextSize: dartRequest.contextSize,
     input: dartRequest.input,
@@ -198,6 +222,14 @@ Future<int> fllamaChatWeb(
     penaltyRepeat: request.repeatPenalty,
     topP: request.topP,
   );
+  return _runWebChat(jsRequest, loadCallback, callback);
+}
+
+Future<int> _runWebChat(
+  _JSFllamaWebInferenceRequest jsRequest,
+  FllamaWebLoadCallback loadCallback,
+  FllamaInferenceCallback callback,
+) {
   final completer = Completer<int>();
   firstCallback(double downloadProgress, double loadProgress) {
     loadCallback(downloadProgress, loadProgress);
