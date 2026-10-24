@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:code_assets/code_assets.dart';
 import 'package:test/test.dart';
 
@@ -5,14 +7,35 @@ import '../hook/build.dart' as hook;
 
 void main() {
   group('split libraries (ADR 004, D1)', () {
-    test('only Windows and Linux x64 split', () {
+    test('Windows, Linux x64 and Android arm64 split', () {
       expect(hook.usesSplitLibraries(OS.windows, Architecture.x64), isTrue);
       expect(hook.usesSplitLibraries(OS.windows, Architecture.arm64), isTrue);
       expect(hook.usesSplitLibraries(OS.linux, Architecture.x64), isTrue);
       expect(hook.usesSplitLibraries(OS.linux, Architecture.arm64), isFalse);
       expect(hook.usesSplitLibraries(OS.macOS, Architecture.arm64), isFalse);
       expect(hook.usesSplitLibraries(OS.iOS, Architecture.arm64), isFalse);
-      expect(hook.usesSplitLibraries(OS.android, Architecture.arm64), isFalse);
+      expect(hook.usesSplitLibraries(OS.android, Architecture.arm64), isTrue);
+      expect(hook.usesSplitLibraries(OS.android, Architecture.arm), isFalse);
+      expect(hook.usesSplitLibraries(OS.android, Architecture.x64), isFalse);
+    });
+
+    // Audit item 1: one build for ARMv8.2 dotprod crashed on older phones.
+    test('Android arm64 builds every CPU variant with backend loading', () {
+      final defines = hook.computeDefines(OS.android, Architecture.arm64, '');
+      expect(defines['BUILD_SHARED_LIBS'], 'ON');
+      expect(defines['GGML_BACKEND_DL'], 'ON');
+      expect(defines['GGML_CPU_ALL_VARIANTS'], 'ON');
+      expect(defines['GGML_NATIVE'], 'OFF');
+      expect(defines['CMAKE_PLATFORM_NO_VERSIONED_SONAME'], 'ON');
+      expect(defines, isNot(contains('GGML_CPU_ARM_ARCH')));
+      expect(defines, isNot(contains('GGML_VULKAN')));
+    });
+
+    test('src/CMakeLists.txt sets no CPU architecture for Android', () {
+      // A global -march applies to ggml-base, llama and fllama too, so a CPU
+      // without the feature crashes whatever variant it loads.
+      final cmake = File('src/CMakeLists.txt').readAsStringSync();
+      expect(cmake, isNot(contains('-march=arm')));
     });
 
     test('x64 builds every CPU variant with backend loading', () {
@@ -50,7 +73,8 @@ void main() {
       for (final (os, arch, variant) in [
         (OS.macOS, Architecture.arm64, ''),
         (OS.iOS, Architecture.arm64, 'iphoneos'),
-        (OS.android, Architecture.arm64, ''),
+        (OS.android, Architecture.arm, ''),
+        (OS.android, Architecture.x64, ''),
         (OS.linux, Architecture.arm64, ''),
       ]) {
         final defines = hook.computeDefines(os, arch, variant);

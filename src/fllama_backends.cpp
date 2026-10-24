@@ -224,7 +224,41 @@ int cpu_variant_score(const fs::path &path) {
 }
 #endif
 
+// Names of the CPU variant libraries in [dir].
+std::vector<std::string> cpu_backend_files(const fs::path &dir) {
+  std::vector<std::string> cpu_files;
+#if defined(FLLAMA_CPU_BACKEND_FILES)
+  // Android: the libraries can be inside the APK, so [dir] cannot be
+  // listed. CMake gives the names.
+  (void)dir;
+  const std::string names = FLLAMA_CPU_BACKEND_FILES;
+  size_t start = 0;
+  while (start < names.size()) {
+    size_t end = names.find(',', start);
+    if (end == std::string::npos) end = names.size();
+    cpu_files.push_back(names.substr(start, end - start));
+    start = end + 1;
+  }
+#else
+  const std::string cpu_prefix = std::string(kLibPrefix) + "ggml-cpu";
+  std::error_code ec;
+  for (const auto &entry : fs::directory_iterator(dir, ec)) {
+    const std::string name = entry.path().filename().string();
+    if (name.rfind(cpu_prefix, 0) == 0 &&
+        entry.path().extension() == kLibSuffix) {
+      cpu_files.push_back(name);
+    }
+  }
+#endif
+  return cpu_files;
+}
+
 void load_backends_from(const fs::path &dir) {
+#if defined(__ANDROID__)
+  // dlopen of a file name finds the library in the app's library path, also
+  // inside the APK. Android has no GPU backend library (ADR 004, NG2).
+  (void)dir;
+#else
   if (dir.empty()) {
     log_line("Cannot find the fllama library directory; no backends loaded");
     return;
@@ -245,18 +279,10 @@ void load_backends_from(const fs::path &dir) {
   } else {
     log_line("GPU backends disabled");
   }
+#endif
 
   // CPU: exactly one variant, the best one this CPU can run.
-  const std::string cpu_prefix = std::string(kLibPrefix) + "ggml-cpu";
-  std::vector<std::string> cpu_files;
-  std::error_code ec;
-  for (const auto &entry : fs::directory_iterator(dir, ec)) {
-    const std::string name = entry.path().filename().string();
-    if (name.rfind(cpu_prefix, 0) == 0 &&
-        entry.path().extension() == kLibSuffix) {
-      cpu_files.push_back(name);
-    }
-  }
+  const std::vector<std::string> cpu_files = cpu_backend_files(dir);
 
   std::string best;
 #if defined(FLLAMA_WINDOWS_ARM64)
@@ -493,7 +519,9 @@ void fllama_backends_init_once() {
   }
   g_initialized = true;
   llama_log_set(filtered_llama_log_callback, nullptr);
-#if defined(FLLAMA_BACKEND_DL)
+#if defined(FLLAMA_BACKEND_DL) && defined(__ANDROID__)
+  load_backends_from({});
+#elif defined(FLLAMA_BACKEND_DL)
   load_backends_from(fllama_library_dir());
 #endif
   llama_backend_init();

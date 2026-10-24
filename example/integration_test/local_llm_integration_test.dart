@@ -83,11 +83,16 @@ void main() {
           );
         }
 
-        final splitLibraries =
-            Platform.isWindows || Abi.current() == Abi.linuxX64;
+        final splitLibraries = Platform.isWindows ||
+            Abi.current() == Abi.linuxX64 ||
+            Abi.current() == Abi.androidArm64;
         if (splitLibraries) {
           // Exactly one CPU variant, chosen for this CPU (ADR 004, I2).
           expect(loaded.where((f) => f.contains('ggml-cpu')), hasLength(1));
+          if (Platform.isAndroid) {
+            // Audit item 1: one of ggml's Android variants.
+            expect(loaded.single, startsWith('libggml-cpu-android_armv'));
+          }
         } else {
           expect(loaded, isEmpty);
         }

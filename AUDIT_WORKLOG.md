@@ -6,7 +6,7 @@ Audit of 2026-10-23. Each item: a red test, the fix, then the test is green.
 
 | # | Item | Test | Status |
 |---|---|---|---|
-| 1 | Android arm64 needs ARMv8.2 dotprod; no fallback | none (needs old-phone hardware) | open: needs a decision on CPU variants |
+| 1 | Android arm64 needs ARMv8.2 dotprod; no fallback | hook: `build_hook_split_test.dart`; integration: loaded backend is `android_armv*`; disassembly scan | done: all 7 ggml Android variants |
 | 2 | Web `fllamaChat` sends an empty prompt | `test/web_runtime_test.dart` (prompt_n 28 → >70) | done |
 | 3 | Web ignores top-level `enable_thinking` | `test/openai_request_test.dart` | done; sends both forms |
 | 8 | Web file picker never returns on cancel | `test/web_runtime_test.dart` | done |
@@ -46,3 +46,12 @@ Audit of 2026-10-23. Each item: a red test, the fix, then the test is green.
   - Two web chats for different models at once can unload each other.
   - DISABLE_SERVER_REQUEST_QUEUE dead code; codemagic.yaml unused.
   - fllamaChatWeb passes no numThreads/numGpuLayers.
+- 1: Android arm64 splits (BUILD_SHARED_LIBS, GGML_BACKEND_DL,
+  GGML_CPU_ALL_VARIANTS), with no global -march. fllama dlopens the variant
+  names that CMake lists, since the libraries can be inside the APK.
+  Sizes: 16.8 MB installed, 6.5 MB gzipped (was 11.1 / 4.3).
+  Disassembly: old libfllama.so has 907 sdot; fllama, llama, ggml,
+  ggml-base, mtmd and armv8.0_1 have no dotprod/fp16/i8mm/SVE.
+  Emulator (dotprod, fp16, SVE i8mm): loads android_armv8.2_2; full native
+  file 25 pass, 3 skipped. A 2 GB AVD is OOM-killed by lmkd at the
+  whole-context test; 4 GB passes. Not run on an ARMv8.0 phone.

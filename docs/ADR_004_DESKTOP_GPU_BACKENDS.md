@@ -897,7 +897,7 @@ null-terminated list of the devices that the model can use.
 | `LLAMA_VULKAN` has no effect | Fixed by D3 | Fixed in step 3 |
 | x64 CPU code is SSE2 only | Fixed by D2 | Fixed in step 3 |
 | Windows ARM64 CPU code is ARMv8.0 only | Fixed by D11 | Fixed in fllama. Telosnex ARM64 package open (step 8) |
-| Android arm64 builds use `-march=armv8.2-a+dotprod` for all devices (`src/CMakeLists.txt`). CPUs without the dot-product extension, for example Cortex-A53, cannot run this code. | Independent defect. Inferred. | Track separately |
+| Android arm64 builds use `-march=armv8.2-a+dotprod` for all devices (`src/CMakeLists.txt`). CPUs without the dot-product extension, for example Cortex-A53, cannot run this code. | Independent defect. Confirmed: the library had 907 `sdot` instructions. | Fixed: Android arm64 ships ggml's 7 `android_armv*` CPU variants (`GGML_CPU_ALL_VARIANTS`, D1 split). The libraries that every phone loads have no dotprod, fp16, i8mm or SVE instructions. |
 | Telosnex enables the draft model only for `gpuLayers > 0` | Fixed by D5 | Fixed in Telosnex `b37eef6417` |
 | `fllama_get_gpu_devices` skips integrated GPUs, so Telosnex shows no GPU memory on PCs with only an integrated GPU | Fixed by D9 | Fixed in fllama step 4. Telosnex estimates open (step 5) |
 | Android release libraries contained debug information (129.6 MiB for ARM64) | Independent defect | Fixed in native_prebuilt ADR 001 (release `native-580a44799cc1e0f1`) |

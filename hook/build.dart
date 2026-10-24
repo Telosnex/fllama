@@ -144,8 +144,11 @@ Future<void> _buildFromSource({
   final release = source.release;
 
   // ── GPU SDK ────────────────────────────────────────────────────────
-  final vulkan = split ? findVulkanSdk(targetOS, targetArch) : null;
-  if (split && vulkan == null) {
+  // Android splits only for its CPU variants; it has no GPU backend (ADR
+  // 004, NG2).
+  final gpuSplit = split && targetOS != OS.android;
+  final vulkan = gpuSplit ? findVulkanSdk(targetOS, targetArch) : null;
+  if (gpuSplit && vulkan == null) {
     if (release != null && targetArch == Architecture.x64) {
       // ADR 004 D7: a release for Windows x64 or Linux x64 has a GPU pack.
       throw StateError(
@@ -507,9 +510,14 @@ String _targetVariant(CodeConfig config) {
 /// Whether [targetOS] and [targetArch] ship ggml as separate libraries with
 /// run-time backend selection (ADR 004, D1). Other targets link everything
 /// into the one fllama library.
+///
+/// Android arm64 splits for its CPU variants: phones range from ARMv8.0
+/// (Cortex-A53) to ARMv9.2 with SME, and code for a newer CPU crashes an
+/// older one.
 bool usesSplitLibraries(OS targetOS, Architecture targetArch) =>
     targetOS == OS.windows ||
-    (targetOS == OS.linux && targetArch == Architecture.x64);
+    (targetOS == OS.linux && targetArch == Architecture.x64) ||
+    (targetOS == OS.android && targetArch == Architecture.arm64);
 
 /// Windows ARM64 CPU backends: published file suffix → GGML_CPU_ARM_ARCH.
 /// The first entry is the baseline that every ARM64 CPU can run. The loader
@@ -688,12 +696,13 @@ Map<String, String> computeDefines(
     defines['BUILD_SHARED_LIBS'] = 'ON';
     defines['GGML_BACKEND_DL'] = 'ON';
     defines['GGML_NATIVE'] = 'OFF';
-    if (targetArch == Architecture.x64) {
+    if (targetArch == Architecture.x64 || targetOS == OS.android) {
+      // Android arm64: ggml's 7 android_armv* variants.
       defines['GGML_CPU_ALL_VARIANTS'] = 'ON';
     } else if (targetOS == OS.windows && targetArch == Architecture.arm64) {
       defines['GGML_CPU_ARM_ARCH'] = windowsArm64CpuVariants.values.first;
     }
-    if (targetOS == OS.linux) {
+    if (targetOS == OS.linux || targetOS == OS.android) {
       // Plain file names (libllama.so, not libllama.so.0), so the NEEDED
       // entries match the files that the code assets publish.
       defines['CMAKE_PLATFORM_NO_VERSIONED_SONAME'] = 'ON';

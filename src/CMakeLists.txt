@@ -8,8 +8,8 @@ project(fllama_library VERSION 0.0.1 LANGUAGES CXX)
 # Include build info generation
 include("${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/cmake/build-info.cmake")
 
-# hook/build.dart sets BUILD_SHARED_LIBS=ON for Windows and Linux x64, which
-# ship ggml as separate libraries with run-time backend selection
+# hook/build.dart sets BUILD_SHARED_LIBS=ON for Windows, Linux x64 and Android
+# arm64, which ship ggml as separate libraries with run-time backend selection
 # (docs/ADR_004_DESKTOP_GPU_BACKENDS.md). Other targets link everything into
 # the one fllama library.
 if(NOT DEFINED BUILD_SHARED_LIBS)
@@ -49,27 +49,18 @@ if(ANDROID)
     # Android-specific settings for llama.cpp (apply to all Android builds)
     set(GGML_LLAMAFILE OFF CACHE BOOL "Disable llamafile for Android" FORCE)
     set(GGML_OPENMP OFF CACHE BOOL "Disable OpenMP for Android" FORCE)
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Use static libs for Android" FORCE)
-    
-    # Only apply ARM-specific optimizations for ARM64 builds
-    if(CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-        message(STATUS "ARM64 Android build - enabling dot product optimizations with KleiDiAI support")
-        # ARMv8.2-A with dot product only (i8mm not supported on this device)
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.2-a+dotprod -O3")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.2-a+dotprod -O3")
-        
-        # Enable KleiDiAI ONLY for ARM64 builds (it's ARM64-specific)
-        # Disabled: it requires CMake 4.0+ and src/CMakeLists.txt (via flutter template)
-        # strongly suggests not going over 3.22, i.e. what is required for Flutter.
-        # Because KleidiAI showed a small lift on performance (well within variation, 3-5%) 
-        # for Android CPU on Pixel Fold, it is better to disable it for now. It is also
-        # worth leaving here as ersatz documentation of how to get it working.
-        # set(GGML_CPU_KLEIDIAI ON CACHE BOOL "Enable KleiDiAI optimizations" FORCE)
-    else()
-        message(STATUS "Non-ARM64 Android build (${CMAKE_ANDROID_ARCH_ABI}) - skipping ARM optimizations")
-        # Explicitly disable KleiDiAI for non-ARM64 architectures
-        # set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "Disable KleiDiAI for non-ARM64" FORCE)
-    endif()
+    # Support Android 15 16 KB pages in every library: fllama, and on arm64
+    # the ggml libraries too.
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+
+    # No global CPU architecture. On arm64, hook/build.dart builds ggml's
+    # Android CPU variants (GGML_CPU_ALL_VARIANTS), and fllama loads the best
+    # one that the phone can run. A global flag would also apply to
+    # ggml-base, llama and fllama, so phones without the feature, for
+    # example Cortex-A53 without dotprod, would crash.
+    #
+    # KleidiAI is off: it requires CMake 4.0+, and showed only a 3-5% lift
+    # (within variation) on a Pixel Fold CPU.
 endif()
 
 if(APPLE)
@@ -233,10 +224,6 @@ set_target_properties(fllama PROPERTIES
 target_compile_definitions(fllama PUBLIC DART_SHARED_LIB)
 target_compile_features(fllama PRIVATE cxx_std_17)
 
-if (ANDROID)
-  # Support Android 15 16k page size.
-  target_link_options(fllama PRIVATE "-Wl,-z,max-page-size=16384")
-endif()
 target_include_directories(fllama PUBLIC .)
 target_include_directories(fllama PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common
@@ -248,6 +235,25 @@ if(GGML_BACKEND_DL)
   # fllama loads the ggml backend libraries itself (src/fllama_backends.cpp).
   target_compile_definitions(fllama PRIVATE FLLAMA_BACKEND_DL)
   target_link_libraries(fllama PRIVATE ${CMAKE_DL_LIBS})
+  if(ANDROID)
+    # The Android CPU variant libraries, by file name. Android can load app
+    # libraries from inside the APK, where fllama cannot list them.
+    get_property(FLLAMA_GGML_TARGETS DIRECTORY llama.cpp/ggml/src
+      PROPERTY BUILDSYSTEM_TARGETS)
+    set(FLLAMA_CPU_BACKEND_FILES "")
+    foreach(target IN LISTS FLLAMA_GGML_TARGETS)
+      if(target MATCHES "^ggml-cpu-")
+        list(APPEND FLLAMA_CPU_BACKEND_FILES "lib${target}.so")
+      endif()
+    endforeach()
+    if(NOT FLLAMA_CPU_BACKEND_FILES)
+      message(FATAL_ERROR "No ggml CPU variants; set GGML_CPU_ALL_VARIANTS")
+    endif()
+    message(STATUS "fllama CPU backends: ${FLLAMA_CPU_BACKEND_FILES}")
+    string(REPLACE ";" "," FLLAMA_CPU_BACKEND_FILES "${FLLAMA_CPU_BACKEND_FILES}")
+    target_compile_definitions(fllama PRIVATE
+      "FLLAMA_CPU_BACKEND_FILES=\"${FLLAMA_CPU_BACKEND_FILES}\"")
+  endif()
   if(GGML_VULKAN)
     # fllama_has_vulkan_gpu() loads the Vulkan loader at run time. It needs
     # only the headers, not vulkan-1.lib.
