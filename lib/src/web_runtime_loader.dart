@@ -8,10 +8,10 @@ abstract final class FllamaWeb {
   /// `wllama/`.
   ///
   /// In a Flutter web build, the fllama build hook installs them in
-  /// `web/native_prebuilt/fllama/` of the app, which is the default
-  /// (native_prebuilt ADR 002). A relative URI resolves against the document
+  /// `web/kiln/fllama/` of the app, which is the default
+  /// (kiln ADR 002). A relative URI resolves against the document
   /// base URI. Set it before the first fllama call.
-  static Uri runtimeUri = Uri.parse('native_prebuilt/fllama/');
+  static Uri runtimeUri = Uri.parse('kiln/fllama/');
 }
 
 Future<void>? _loaded;

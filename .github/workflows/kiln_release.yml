@@ -1,0 +1,105 @@
+# Builds the native libraries for every target and the web runtime, and
+# publishes them as a GitHub release. Telosnex/telosnex_ci_tools has the
+# jobs; tool/kiln/ has the fllama steps:
+#
+#   prepare.dart     The Vulkan SDK (Windows and Linux x64), ClangCL
+#                    (Windows arm64), clang (Linux arm64).
+#   build_web.dart   Builds wllama with web_build/wllama.patch in the emsdk
+#                    image of web_build/wllama.json.
+#   test_web.dart    Loads a model with the web files in Chrome.
+#   release.dart     Checks the GPU packs, then runs kiln:release.
+#
+# Windows x64 and Linux x64 embed the CUDA pack that cuda_pack.yml published
+# for these ggml sources (ADR 004 D16). The run fails in its first job if
+# that pack is not published; run cuda_pack.yml first.
+#
+# Start it with
+#   git push -f origin HEAD:kiln-release       (release)
+#   git push -f origin HEAD:kiln-release-dry   (build only, no upload)
+# or with workflow_dispatch. On success it pushes the branch
+# kiln-manifest/<tag>. Merge that branch to use the release.
+name: Kiln release
+run-name: Kiln release / ${{ (github.ref_name == 'kiln-release-dry' || inputs.dry_run) && 'build only' || 'publish' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build only, upload nothing.
+        type: boolean
+        default: false
+  push:
+    branches: [kiln-release, kiln-release-dry]
+
+permissions:
+  contents: read
+
+jobs:
+  # ADR 004 D16: the release embeds the published CUDA pack of these ggml
+  # sources and never compiles CUDA. Fail in a minute, before any build, if
+  # the pack is not published.
+  cuda-packs:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@194f8afa2c284d309e6249b540badacd6f342017 # v0.2.2
+      - run: flutter pub get --no-example
+      # ADR 004 I5: fails if ggml-base or ggml-cuda includes a file that is
+      # not in the CUDA pack key. Run as a script: `dart test` would first
+      # run fllama's build hook, a 7 minute source build here.
+      - name: Test the CUDA pack key
+        run: dart test/cuda_pack_test.dart
+      - name: Resolve the CUDA packs
+        run: |
+          status=0
+          for t in windows-x64 linux-x64; do
+            dart scripts/cuda_pack.dart resolve --target "$t" \
+              --descriptor "$RUNNER_TEMP/cuda-packs/$t.json" || status=1
+          done
+          if [[ $status != 0 ]]; then
+            echo "::error::A CUDA pack is not published for these ggml sources. Run the CUDA pack workflow (cuda_pack.yml) for this commit, wait for it, then run this release again."
+          fi
+          exit $status
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cuda-packs
+          path: ${{ runner.temp }}/cuda-packs/
+          if-no-files-found: error
+          retention-days: 90
+
+  kiln-release:
+    needs: cuda-packs
+    uses: Telosnex/telosnex_ci_tools/.github/workflows/kiln_release.yml@194f8afa2c284d309e6249b540badacd6f342017 # v0.2.2
+    permissions:
+      contents: write
+    with:
+      dry-run: ${{ inputs.dry_run == true }}
+      # The 10 default targets, and the Intel macOS and iOS simulator.
+      targets: >-
+        ["windows-x64", "windows-arm64", "linux-x64", "linux-arm64",
+        "macos-arm64", "macos-x64", "ios-arm64-iphoneos",
+        "ios-arm64-iphonesimulator", "ios-x64-iphonesimulator",
+        "android-arm", "android-arm64", "android-x64"]
+      # Each build job gets the CUDA pack descriptors in $OUT/cuda-packs.
+      # The hook checks the descriptor against these sources.
+      input-artifact: cuda-packs
+      build-args: >-
+        {"windows-x64": ["--define", "cuda_pack=${OUT}/cuda-packs/windows-x64.json"],
+        "linux-x64": ["--define", "cuda_pack=${OUT}/cuda-packs/linux-x64.json"]}
+      # The unstripped libraries, for crash symbolication. android-arm64
+      # has the split layout (CPU variants): its libraries are in out/.
+      debug-symbols-path: |
+        ~/.cache/fllama/*/libfllama.so
+        ~/.cache/fllama/*/out/*.so
+      # The emsdkImage of web_build/wllama.json (emscripten/emsdk:4.0.20).
+      # tool/kiln/build_web.dart checks the Emscripten and Node versions.
+      web-container: emscripten/emsdk@sha256:460fff8f8ac87e11b16447fbd66538a686eafa0e4fb977aa0989ed19fe2079f7
+      # The test model of tool/kiln/test_web.dart.
+      web-test-cache-path: test/web_models

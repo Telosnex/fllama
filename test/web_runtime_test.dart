@@ -11,9 +11,9 @@ import 'package:fllama/src/web_runtime.g.dart';
 import 'package:fllama/src/web_runtime_loader.dart';
 import 'package:test/test.dart';
 
-/// The fllama web runtime on the files in lib/web/ (native_prebuilt ADR 002
+/// The fllama web runtime on the files in lib/web/ (kiln ADR 002
 /// D13). Install the generated files first:
-/// `dart run native_prebuilt:web install-dev`.
+/// `dart run kiln:web install-dev`.
 ///
 /// The model is stories15M-q4_0.gguf from ggml-org/models, in
 /// test/web_models/ (not in git; the release workflow downloads it).

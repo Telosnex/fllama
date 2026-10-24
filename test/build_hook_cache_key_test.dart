@@ -21,7 +21,7 @@ void main() {
     sourceKey: sourceKey,
   );
 
-  test('changes with the source key (native_prebuilt ADR 001 D4)', () {
+  test('changes with the source key (kiln ADR 001 D4)', () {
     expect(key(sourceKey: 'a'), key(sourceKey: 'a'));
     expect(key(sourceKey: 'a'), isNot(key(sourceKey: 'b')));
   });

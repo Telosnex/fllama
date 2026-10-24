@@ -15,7 +15,7 @@
 ## CI
 The `Native release` GitHub Actions workflow builds the native libraries for
 every platform and the web runtime, and runs the web runtime tests (see
-`.github/workflows/native_release.yml`). Run the integration tests locally:
+`.github/workflows/kiln_release.yml`). Run the integration tests locally:
 see `example/integration_test/README.md`.
 
 ## Integrate
@@ -67,12 +67,12 @@ fllamaChat(request, (response, json, done, error) {
 ```
 ## Tips & Tricks
 ### Web
-  Web uses a wllama/WebGPU runtime. In a Flutter web build, the fllama build hook installs it in `web/native_prebuilt/fllama/` of the app, and fllama loads it at the first call; the app needs no script tag (native_prebuilt ADR 002). Other embedders serve those files and set `FllamaWeb.runtimeUri`.
+  Web uses a wllama/WebGPU runtime. In a Flutter web build, the fllama build hook installs it in `web/kiln/fllama/` of the app, and fllama loads it at the first call; the app needs no script tag (kiln ADR 002). Other embedders serve those files and set `FllamaWeb.runtimeUri`.
   For best performance, serve the app with cross-origin isolation enabled so the multi-threaded WebAssembly backend can run.
 
   To check the web runtime locally:
   ```sh
-  dart run native_prebuilt:web install-dev
+  dart run kiln:web install-dev
   scripts/check_web_assets.sh
   ```
 ### Models
@@ -136,7 +136,7 @@ fllama has two llama.cpp delivery paths:
 - **Web** uses wllama (`wllama/index.js`, `wllama/wasm/wllama.{js,wasm}`, and
   `wllama/compat/wllama.{js,wasm}` for browsers without Memory64 or JSPI, such
   as Safari).
-  The release workflow builds it with `tool/build_web.dart` from wllama and
+  The release workflow builds it with `tool/kiln/build_web.dart` from wllama and
   llama.cpp at the commits of `web_build/wllama.json`, with
   `web_build/wllama.patch`. `native_artifacts/web.json` pins the files.
 
@@ -207,17 +207,17 @@ flutter build macos --debug
 Change `web_build/wllama.json` or `web_build/wllama.patch`, then run the native
 release workflow: its web job builds the files and its browser test loads a
 model with them. For a local build, run the script in the pinned image (see
-the comment at the top of `tool/build_web.dart`), then:
+the comment at the top of `tool/kiln/build_web.dart`), then:
 
 ```sh
-dart run native_prebuilt:web install-dev --from /tmp/fllama_web
+dart run kiln:web install-dev --from /tmp/fllama_web
 node --check lib/web/fllama_web_init.js
 scripts/check_web_assets.sh
 flutter test --platform chrome test/web_runtime_test.dart
 ```
 
 After a change to `lib/web/fllama_web_init.js`, run
-`dart run native_prebuilt:web stamp`.
+`dart run kiln:web stamp`.
 
 # Web development
 - The web example uses wllama's server backend and requires cross-origin isolation for SharedArrayBuffer/pthreads.

@@ -1,4 +1,4 @@
-# Files that the native build does not read (native_prebuilt ADR 001 D3). The
+# Files that the native build does not read (kiln ADR 001 D3). The
 # hook reads hook/, src/ and pubspec.yaml.
 analysis_options.yaml
 dev/
@@ -9,3 +9,5 @@ ios/
 macos/
 scripts/
 windows/
+tool/kiln/release.dart
+tool/kiln/test_web.dart

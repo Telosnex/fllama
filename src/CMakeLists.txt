@@ -136,7 +136,7 @@ target_link_libraries(server-context PUBLIC llama-common mtmd ${CMAKE_THREAD_LIB
 # GPU packs (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D13): backend libraries
 # that the app downloads instead of bundling. fllama contains the SHA-256 and
 # the URL of each pack file and loads only files that match. Only a release
-# build (native_prebuilt docs/ADR_001_PREBUILT_NATIVE_LIBRARIES.md, D7) sets
+# build (kiln docs/ADR_001_PREBUILT_NATIVE_LIBRARIES.md, D7) sets
 # the URL template; CMake puts the file name at @FILE@. Without it,
 # ggml-vulkan is a normal library next to fllama.
 #

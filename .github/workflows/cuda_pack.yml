@@ -5,7 +5,7 @@
 # ggml-cuda sources, src/cuda_pack/, the CUDA version and the pinned CUDA
 # archives. A target whose pack is published is skipped in about a minute.
 #
-# The native release workflow fails if the pack of its sources is not
+# The kiln release workflow fails if the pack of its sources is not
 # published. Start this workflow first:
 #   gh workflow run cuda_pack.yml --ref <branch>
 # A push that changes a key input starts it too.
@@ -57,7 +57,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The runners of the native release (native_prebuilt ADR 001 D8): the
+          # The runners of the native release (kiln ADR 001 D8): the
           # same glibc and the same Visual Studio major version.
           - { target: windows-x64, runner: windows-2022 }
           - { target: linux-x64, runner: ubuntu-22.04 }

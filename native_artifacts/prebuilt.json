@@ -1,136 +1,320 @@
 {
   "schema": 1,
-  "sourceKey": "b28896aeee6d9ce06c90d2026d20275c0058b74869cf8dd303bb246c88198437",
-  "release": "https://github.com/Telosnex/fllama/releases/tag/native-b28896aeee6d9ce0",
+  "sourceKey": "47a361cf63e78751139ade99061c9324a3acf847b6a3b7cffaa6bf2cfae685d7",
+  "release": "https://github.com/Telosnex/fllama/releases/tag/native-47a361cf63e78751",
   "targets": {
     "android-arm": {
-      "runner": "ubuntu-22.04",
-      "toolchain": "Android NDK 28.2.13676358",
+      "runner": "ubuntu22 20261023.322.3",
+      "toolchain": "Android NDK 28.2.13676358, cmake version 3.31.6",
       "minOSVersion": 24,
       "files": [
         {
           "name": "libfllama.so",
-          "sha256": "d952c2bb971717203479e00e314e01efae0b26cbe5545435f0e91b3b389eae6e",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/android-arm-libfllama.so.gz",
-          "downloadSha256": "52120d8321299b94326a21156df1fdae3a832c87c268b2c7edc069fba54041c3",
+          "sha256": "08a1f9a29fa38f2d6dec2cb5f8a9c4646fcafcebd57f3525352c325dd3e01e44",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm-libfllama.so.gz",
+          "downloadSha256": "0c2a206283a0c0ab558c2765dd33102c8d6bb9dce985d77f57ebe1f2783a7307",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         }
       ]
     },
     "android-arm64": {
-      "runner": "ubuntu-22.04",
-      "toolchain": "Android NDK 28.2.13676358",
+      "runner": "ubuntu22 20261023.322.3",
+      "toolchain": "Android NDK 28.2.13676358, cmake version 3.31.6",
       "minOSVersion": 24,
       "files": [
         {
           "name": "libfllama.so",
-          "sha256": "84fbfafc2da00e3526a6116f62bce62239f8a705a198dc82ce1d7bd255afdfaf",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/android-arm64-libfllama.so.gz",
-          "downloadSha256": "e8531099c8687e858eb68e5b033dcb65e24934b18f8072e388b418d6fbc85105",
+          "sha256": "30be2b819788f59d86e5fb3f5d7407297ade02630178d77f67619bd6395c332d",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libfllama.so.gz",
+          "downloadSha256": "91084bfaf77e86946d22fdde4e8ddcb52279fde188d90cf9c1e0be8760acafd4",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
+        },
+        {
+          "name": "libggml-base.so",
+          "sha256": "5857b3010923e9d364ccb5c8b8f3fe9d511213628642287a3c4ca40920d04d29",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libggml-base.so.gz",
+          "downloadSha256": "a1950d1713eedd1f4b183bb3b61ae8c041f0120684dfe54ac2b749a389e03175",
+          "delivery": "bundle",
+          "asset": "native/libggml-base"
+        },
+        {
+          "name": "libggml-cpu-android_armv8.0_1.so",
+          "sha256": "8b0caa2987933312255f080082bf243f175b9848f73d574873632882a7f6af47",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libggml-cpu-android_armv8.0_1.so.gz",
+          "downloadSha256": "dd17e5c281427e0f60ac4e6880f4b9c8988a9cc67e05e0bfeb02f27ff39dac52",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-android_armv8.0_1"
+        },
+        {
+          "name": "libggml-cpu-android_armv8.2_1.so",
+          "sha256": "cf5f3dcd76f0295c7baeb59781529bf268656e9f86fb8873c25ec82cb6beca5d",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libggml-cpu-android_armv8.2_1.so.gz",
+          "downloadSha256": "f535d06fd2b0f335ab705b55ad9a26e9413e0e781fb6b6f30bcf9c5940e484a8",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-android_armv8.2_1"
+        },
+        {
+          "name": "libggml-cpu-android_armv8.2_2.so",
+          "sha256": "3e908ea167e2746554891686381cc09503621c771323fe9d4486ed71c32be14b",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libggml-cpu-android_armv8.2_2.so.gz",
+          "downloadSha256": "2856649b865a5d68a9905c4b42e25d175db1f18b6aa284c8d870c0acedc5b5c0",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-android_armv8.2_2"
+        },
+        {
+          "name": "libggml-cpu-android_armv8.6_1.so",
+          "sha256": "708a93c07117cc36e1eb5cb217564b15425180a8093e12f2431ef604fd3226c9",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libggml-cpu-android_armv8.6_1.so.gz",
+          "downloadSha256": "994d5b4cf51b73f0e2dafb239db755fd4b2fc04f8e666e1d39f140afb1c64e31",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-android_armv8.6_1"
+        },
+        {
+          "name": "libggml-cpu-android_armv9.0_1.so",
+          "sha256": "3e66502ba5701ac4765129db7ace61d554cbaf5d43a2ff16aaafb48f03b9c0b0",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libggml-cpu-android_armv9.0_1.so.gz",
+          "downloadSha256": "cd961bad2294c43ca1a3a0e88eb0f737de6918e4723d63c659037b36578abfce",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-android_armv9.0_1"
+        },
+        {
+          "name": "libggml-cpu-android_armv9.2_1.so",
+          "sha256": "0ebdb87378449e8663ad61ef00c42480b4e41516f9da33851972c5bb5166c2e3",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libggml-cpu-android_armv9.2_1.so.gz",
+          "downloadSha256": "8c89733c27fb27e0d9a6e9b6d32fbc2d88532b65216b71d5af47859813ce3ee4",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-android_armv9.2_1"
+        },
+        {
+          "name": "libggml-cpu-android_armv9.2_2.so",
+          "sha256": "c6669c54d88cc7a325d4617f617c3aabf270794a027ff3864c7d517f2c8098b4",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libggml-cpu-android_armv9.2_2.so.gz",
+          "downloadSha256": "8e84e09da717b9e242d8c8fe10c537240bf9986c1b29e581b463f33d964a1b5e",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-android_armv9.2_2"
+        },
+        {
+          "name": "libggml.so",
+          "sha256": "fbad0ae5687356e4d5a089c6cb5148f54e307f1c9cf85914899d70421d41bf5e",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libggml.so.gz",
+          "downloadSha256": "dddcbbfb702fb296576c64b9dac3a404253e67ac8721e836104ffe7d0e8db090",
+          "delivery": "bundle",
+          "asset": "native/libggml"
+        },
+        {
+          "name": "libllama.so",
+          "sha256": "657a7926d82a069377afa917fc7bdab014e4d38f6c8c38800a8f285020df6e96",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libllama.so.gz",
+          "downloadSha256": "d07c5f55efebc0030ae1c10ad11c7a2598e36637252fa4d48f75609f52e6e283",
+          "delivery": "bundle",
+          "asset": "native/libllama"
+        },
+        {
+          "name": "libmtmd.so",
+          "sha256": "db70685ee4df6ab3edf1de4e706903929be668ee8c212d20b3f497f3d5b787bc",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-arm64-libmtmd.so.gz",
+          "downloadSha256": "e7bb3b83acb942ab82e3f7b832acae110e326d94bec2605c58e1d1d453b0d4f2",
+          "delivery": "bundle",
+          "asset": "native/libmtmd"
         }
       ]
     },
     "android-x64": {
-      "runner": "ubuntu-22.04",
-      "toolchain": "Android NDK 28.2.13676358",
+      "runner": "ubuntu22 20261023.322.3",
+      "toolchain": "Android NDK 28.2.13676358, cmake version 3.31.6",
       "minOSVersion": 24,
       "files": [
         {
           "name": "libfllama.so",
-          "sha256": "48ad6432a0ce72e87438ae765dd2560c982cd55995b6f14d9bfcb094b19cecf1",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/android-x64-libfllama.so.gz",
-          "downloadSha256": "8875cfd808d48e9722e240256d76ef0d64ebe6c52647a9b4dc6592ca6b911608",
+          "sha256": "3bda1e96979b1ec8aaff2e1131524e3986c94d6e59b353323f216e6f4eb47386",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/android-x64-libfllama.so.gz",
+          "downloadSha256": "d30ef616a88cc802418c5340ac2dd2bce8ef386c5dfa01118fd7647dd85cc0ee",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         }
       ]
     },
     "ios-arm64-iphoneos": {
-      "runner": "macos-15",
-      "toolchain": "Xcode 16.4",
+      "runner": "macos15 20260907.0337.1",
+      "toolchain": "Xcode 16.4, cmake version 4.4.3",
       "minOSVersion": 13,
       "files": [
         {
           "name": "libfllama.dylib",
-          "sha256": "ea484e1f6e8ad8d8ece64d04b97316e5b7af8bb16706004f8dc995f9ccb26c0e",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/ios-arm64-iphoneos-libfllama.dylib.gz",
-          "downloadSha256": "3eb43f01b588d8d5452d9cc751b684957f090a60e1117003232e8f35dfcaf91d",
+          "sha256": "d953526ca50050a26dfc1374d7c9375f93eba0f39b193ef3424b577a3907290d",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/ios-arm64-iphoneos-libfllama.dylib.gz",
+          "downloadSha256": "eaedb2486398a9e5353e370d3ce075bf27c3e95126bd70c367ffc9072718a91c",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         }
       ]
     },
     "ios-arm64-iphonesimulator": {
-      "runner": "macos-15",
-      "toolchain": "Xcode 16.4",
+      "runner": "macos15 20260907.0337.1",
+      "toolchain": "Xcode 16.4, cmake version 4.4.3",
       "minOSVersion": 13,
       "files": [
         {
           "name": "libfllama.dylib",
-          "sha256": "44186d5dfd1ee3da9f6f1fe963d788efa805a29d1707c29c7684e3bf556b467e",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/ios-arm64-iphonesimulator-libfllama.dylib.gz",
-          "downloadSha256": "d18a0f1226e9e8f2dfec5a5a77cc764decf91dd38b3de7b6b7cdd0b2f49e6fa0",
+          "sha256": "9cec7b9387a02f338c3cf2b3d5f8fd92dd988f548205c21f0527c6b1adc0edd2",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/ios-arm64-iphonesimulator-libfllama.dylib.gz",
+          "downloadSha256": "2598197325c26a7c3305837a26c76c4df489ea582f3874bf9812fdfb5681a8aa",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         }
       ]
     },
     "ios-x64-iphonesimulator": {
-      "runner": "macos-15",
-      "toolchain": "Xcode 16.4",
+      "runner": "macos15 20260907.0337.1",
+      "toolchain": "Xcode 16.4, cmake version 4.4.3",
       "minOSVersion": 13,
       "files": [
         {
           "name": "libfllama.dylib",
-          "sha256": "c32f03920ca36834c52d482612cf0f8c9dc1b0ee408a552613bcaacc363d8b54",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/ios-x64-iphonesimulator-libfllama.dylib.gz",
-          "downloadSha256": "1354dc0a979f6d816d6d42565dedc94b62996233369f1097b25c9ab9577aeed9",
+          "sha256": "3526ae438f6117827355454dfbd0de292c63e7847bac831441c00c5d0f00cdfc",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/ios-x64-iphonesimulator-libfllama.dylib.gz",
+          "downloadSha256": "f7297ba6167de2f4d5f24c76419b306f70d1dfb9c7a72951b0aa098a21f31ed5",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         }
       ]
     },
     "linux-arm64": {
-      "runner": "ubuntu-22.04-arm",
-      "toolchain": "gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0",
+      "runner": "ubuntu22-arm64 20261023.156.3",
+      "toolchain": "Ubuntu clang version 14.0.0-1ubuntu1.1",
       "files": [
         {
           "name": "libfllama.so",
-          "sha256": "787da86af52414ea4d0d57a108c7452369088a3527a9ffca93ee26391d43c7f0",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-arm64-libfllama.so.gz",
-          "downloadSha256": "31b207ccc4ec91c825bf9f03cc91aafa41ddf0043d3388d6903c342da883fc1c",
-          "delivery": "bundle",
-          "asset": "fllama_io.dart"
-        }
-      ]
-    },
-    "linux-x64": {
-      "runner": "ubuntu-22.04",
-      "toolchain": "gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0, Vulkan SDK 1.4.357.0",
-      "files": [
-        {
-          "name": "libfllama.so",
-          "sha256": "1e6e32d68d0c6729551545619e67762659b8bd8f72f09eab2c2381e9ea7f95e7",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libfllama.so.gz",
-          "downloadSha256": "83b0e4554100202fc9315b3d27aa534cace789d98a05a3619852db5d427eef7d",
+          "sha256": "642429487f413f0b39df2b3ac054660017eb4aa9030fd3bb4ba9f526285602a1",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libfllama.so.gz",
+          "downloadSha256": "4c2085cd1bec6182b97b88a2c2e184cd36fac3bd716f357fcb8b0bafc4a36738",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         },
         {
           "name": "libggml-base.so",
-          "sha256": "d1d005c08c3191ff9b3b5fd271fe6d9c92e7e40c54b9294cd74546fcb5470474",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-base.so.gz",
-          "downloadSha256": "8b5b3d9a7094fd8ad2c3e98e8023e029dc6b1e855bd0911852ba0acd7cbe5798",
+          "sha256": "0ab54ede6c0f74ec3cc4afe9ff2b0af6f3258e8f15b15bcdb792c837d91c9781",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml-base.so.gz",
+          "downloadSha256": "d191ddd235280327b1e2ca757c0fbbf55ddcfcace77a826ac836b324fae57a10",
+          "delivery": "bundle",
+          "asset": "native/libggml-base"
+        },
+        {
+          "name": "libggml-cpu-armv8.0_1.so",
+          "sha256": "c588d5e18c69ee38fd935d7cb54951d8513a3f376b4c64046d1c14d71a546502",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml-cpu-armv8.0_1.so.gz",
+          "downloadSha256": "5c62a986b7a172980d456360c2f2625633aebc425e6a3690c6958cdc4141c2cc",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-armv8.0_1"
+        },
+        {
+          "name": "libggml-cpu-armv8.2_1.so",
+          "sha256": "c0cf903933bd8dbbb78b3bb296ad2a39f9c1e4ac775cc3bc7d01cdb9f5a806ba",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml-cpu-armv8.2_1.so.gz",
+          "downloadSha256": "ba7bfce185af25c754095a4932014161264db205c13e442f1b34c601b67a6312",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-armv8.2_1"
+        },
+        {
+          "name": "libggml-cpu-armv8.2_2.so",
+          "sha256": "aa7ebda1f7a14509cda59671caa562b96e8c6cbda666ff7093fbb629d0a71701",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml-cpu-armv8.2_2.so.gz",
+          "downloadSha256": "8e0e418cddc7a72949aa1950da02ef90f49fb7309a995e14443eebb68c9a68b3",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-armv8.2_2"
+        },
+        {
+          "name": "libggml-cpu-armv8.2_3.so",
+          "sha256": "4bbbdea171b6324f34cbe6cfc46a605182857948b3650db96ce94d782e459dda",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml-cpu-armv8.2_3.so.gz",
+          "downloadSha256": "a130e4f2f6fd82d5d45c31c85238fddb3551822ad6a1a802609d08acd2666c7e",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-armv8.2_3"
+        },
+        {
+          "name": "libggml-cpu-armv8.6_1.so",
+          "sha256": "a1ce352934af7aa40da29b4efdd9d4e9919428348d394f2f03db4fc848bdb904",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml-cpu-armv8.6_1.so.gz",
+          "downloadSha256": "74d6d95b06bf5603c5368c41953a6a7d9c63cde6ed5bdbd1a9356e647cfae97c",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-armv8.6_1"
+        },
+        {
+          "name": "libggml-cpu-armv8.6_2.so",
+          "sha256": "a1e5d9a1a90b185302348fa13dcf75c8b997fa1ab54e7561316dccde894d52c5",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml-cpu-armv8.6_2.so.gz",
+          "downloadSha256": "20e7772098fef5e36144418a01385b152ab87206c3eeb328899b422d2f074cc0",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-armv8.6_2"
+        },
+        {
+          "name": "libggml-cpu-armv9.2_1.so",
+          "sha256": "02d100fb4e32b7d0633731041a4c7dc5b983feb2408e14e47efa7d779838a710",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml-cpu-armv9.2_1.so.gz",
+          "downloadSha256": "ff138c78b3fc3e5a0432b9d11c4261f8892139aa3e7340a8ae1bc0c5d0814c09",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-armv9.2_1"
+        },
+        {
+          "name": "libggml-cpu-armv9.2_2.so",
+          "sha256": "08a0752c9ab6326d51e8fb19d1c478259e572f39b97213ee93148a9bb79f47c4",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml-cpu-armv9.2_2.so.gz",
+          "downloadSha256": "ebb079be1bec775703e657f56f16adf6607ce6fef4704bd48a580e6284e14aa5",
+          "delivery": "bundle",
+          "asset": "native/libggml-cpu-armv9.2_2"
+        },
+        {
+          "name": "libggml.so",
+          "sha256": "297bfaf961f0e5baa4ea57687d193fa9f21813a6fc1118adf6f995d13d8b5a85",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libggml.so.gz",
+          "downloadSha256": "bd073dc8a2a151967bd96ad92c8318b1e2f71a88651de775a2f085e0d943f6e2",
+          "delivery": "bundle",
+          "asset": "native/libggml"
+        },
+        {
+          "name": "libllama.so",
+          "sha256": "acc386b0e7e5bdfafdfbceb5e2aa723bd2dc8c29894b4139e57b404ba20a6e4f",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libllama.so.gz",
+          "downloadSha256": "bb748fa2ee0dd945a3a09d393892920a9540908364b72febc602977000c88d76",
+          "delivery": "bundle",
+          "asset": "native/libllama"
+        },
+        {
+          "name": "libmtmd.so",
+          "sha256": "3e4b331beb97fb4abd49ae75de5aa25628d318f63ce4f2ee85b7f38a61f1d39a",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-arm64-libmtmd.so.gz",
+          "downloadSha256": "ef922589c7291657849b4f84f0a2a1118f29dbb3c95d8bbcda75dd8c8b3643fb",
+          "delivery": "bundle",
+          "asset": "native/libmtmd"
+        }
+      ]
+    },
+    "linux-x64": {
+      "runner": "ubuntu22 20261023.322.3",
+      "toolchain": "gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0, cmake version 3.31.6, Vulkan SDK 1.4.357.0",
+      "files": [
+        {
+          "name": "libfllama.so",
+          "sha256": "62becd91c2851dcee8040ee72f0dd9abacd171bf392c3a36189b653efd2a18dc",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libfllama.so.gz",
+          "downloadSha256": "b2f75a64c4e5742440732525dc2894b76b7165fda08a145baf00ef154f5f2911",
+          "delivery": "bundle",
+          "asset": "fllama_io.dart"
+        },
+        {
+          "name": "libggml-base.so",
+          "sha256": "eb12bf6c45024809a6a6ee44d36c15a7c500c88c120836edab962bf974d7e3ec",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-base.so.gz",
+          "downloadSha256": "231b911204d26101af9717fdb5b6945ec1af5d341e6b84dd067e68031d389e75",
           "delivery": "bundle",
           "asset": "native/libggml-base"
         },
         {
           "name": "libggml-cpu-alderlake.so",
           "sha256": "87ce943f00f813c32ddeb45e896064e027d925f6ae35ed04b664105f98ba77eb",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-alderlake.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-alderlake.so.gz",
           "downloadSha256": "c5cd074c06f6cb84a0658e4871f27e7db86f776551ec33f2fcf68bd6825fcf16",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-alderlake"
@@ -138,7 +322,7 @@
         {
           "name": "libggml-cpu-cannonlake.so",
           "sha256": "3c88fe7937736dcaa15bdad1530183a7a8bac1b551c7c923508c6a6c3014b27c",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-cannonlake.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-cannonlake.so.gz",
           "downloadSha256": "d648a766b17ea3bfbb57af6f45b867f7328ef76c05740b5714e8075c66d4078a",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-cannonlake"
@@ -146,7 +330,7 @@
         {
           "name": "libggml-cpu-cascadelake.so",
           "sha256": "0dc22ff40c0df3288e6bed0faeca66652a88b5c861f90fb19e0aabd2a3ef1e07",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-cascadelake.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-cascadelake.so.gz",
           "downloadSha256": "3842e75c0372fa01510c286ed5d6880b73c39c88e1917662200101b2fca6ba02",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-cascadelake"
@@ -154,7 +338,7 @@
         {
           "name": "libggml-cpu-cooperlake.so",
           "sha256": "42a9fe9b30d6fbbf134ca14fc610ae8559ede496911bdcec3d1631c775c61152",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-cooperlake.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-cooperlake.so.gz",
           "downloadSha256": "ef0f26a2029347a25c001a1c9e6b0dec2ce1f55504c662e6fc5a13dc2806a373",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-cooperlake"
@@ -162,7 +346,7 @@
         {
           "name": "libggml-cpu-haswell.so",
           "sha256": "423665abbe0ad27758b3a19dd4afd7021837033ace169e8f816508266e80f1ec",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-haswell.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-haswell.so.gz",
           "downloadSha256": "30e3ee01e954028d399d6aa737ef13b1cb10a119252aa7326a9affce63e82ebd",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-haswell"
@@ -170,7 +354,7 @@
         {
           "name": "libggml-cpu-icelake.so",
           "sha256": "ad426a7d1054cb2638e2dc4cbe1491d543300067a8fd335278f2185a342f3c36",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-icelake.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-icelake.so.gz",
           "downloadSha256": "e9e49b4c4c66adbd8a7883a146234ac8a9d843e11f33ad9676136febdc0a31ef",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-icelake"
@@ -178,7 +362,7 @@
         {
           "name": "libggml-cpu-ivybridge.so",
           "sha256": "932ceef724497c073a2c9d12fb7e9f2765ef0b7674341fb8cec368ce8fab1cfb",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-ivybridge.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-ivybridge.so.gz",
           "downloadSha256": "0104350f481f0c99aa15eb454a3573932c1b5b20fcbb55cc4c7c6a37f672201f",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-ivybridge"
@@ -186,7 +370,7 @@
         {
           "name": "libggml-cpu-piledriver.so",
           "sha256": "978d4d6cb93b632f699b67a38fde8482edb9d4e48a9779d6003afabd3822b023",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-piledriver.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-piledriver.so.gz",
           "downloadSha256": "c80d812980edb82a5d701282092963cbaf103eb7f10394dc50f228f6d4f296d8",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-piledriver"
@@ -194,7 +378,7 @@
         {
           "name": "libggml-cpu-sandybridge.so",
           "sha256": "369740f940b6411b28a6b81d44dbc599dc07f4e2e9b0a8b54e326990c28d670c",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-sandybridge.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-sandybridge.so.gz",
           "downloadSha256": "3d4cdf4f38422561f88313c3e3e01c36117df0a07a32552610ede51564df2b05",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-sandybridge"
@@ -202,7 +386,7 @@
         {
           "name": "libggml-cpu-sapphirerapids.so",
           "sha256": "e9a80fddee7672c5da1c8c20d48d51124950769c7d2ed94443c6407c388ca8d4",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-sapphirerapids.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-sapphirerapids.so.gz",
           "downloadSha256": "3ca3e45037f53c780f053d7fd2b941d09c978bfd3804dd98d96bcbc3dddf4784",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-sapphirerapids"
@@ -210,7 +394,7 @@
         {
           "name": "libggml-cpu-skylakex.so",
           "sha256": "5892ddb21aaed9b5e2db36919636b1a72786c033cf4a2e6acdb43ec0206389ef",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-skylakex.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-skylakex.so.gz",
           "downloadSha256": "58c51264ef9d7acac69142c2974e945f389e8e4c2ffc736ebfd43243d7627619",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-skylakex"
@@ -218,7 +402,7 @@
         {
           "name": "libggml-cpu-sse42.so",
           "sha256": "75adea0552efd5353beb70de7e774475ae53e85bda22ddef5fb1bd373cfb5bc5",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-sse42.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-sse42.so.gz",
           "downloadSha256": "622a36828053661c256fb55c6486d633137a794e37630f29e5c7a06e84591110",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-sse42"
@@ -226,7 +410,7 @@
         {
           "name": "libggml-cpu-x64.so",
           "sha256": "7c6dc68f340cabd13a3e0c765a9baaaa41d475e36acf9d35c4ae108d245e3eb1",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-x64.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-x64.so.gz",
           "downloadSha256": "242db1d74a5a27753616b534f1d4f8b891291519053dbcd087937692ead972ba",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-x64"
@@ -234,7 +418,7 @@
         {
           "name": "libggml-cpu-zen4.so",
           "sha256": "1ee69df41275e4ed93e0d42f71297ceb8db1367b9c51a7d1b22246f19b1e6121",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-cpu-zen4.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-cpu-zen4.so.gz",
           "downloadSha256": "29fd215770a01148b4c04ff93c1cc4bcb70804a64e2098175bba9a51da8ee01f",
           "delivery": "bundle",
           "asset": "native/libggml-cpu-zen4"
@@ -242,7 +426,7 @@
         {
           "name": "libggml.so",
           "sha256": "6b566757cdfe248b0e8524569f143056bc6940378928c57540608309be956157",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml.so.gz",
           "downloadSha256": "44d766810e1fa8ef9611855a013b56cd70ecd8bfd03f3960c45123c7160b9c4f",
           "delivery": "bundle",
           "asset": "native/libggml"
@@ -250,7 +434,7 @@
         {
           "name": "libllama.so",
           "sha256": "b788339ff696b93239938fa99e77792f539b0e0e57c6c2b4d9ad19546e95e349",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libllama.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libllama.so.gz",
           "downloadSha256": "6b3de1c190f4a8c7893a517693d86364feb81d73379b34946168c695567198ee",
           "delivery": "bundle",
           "asset": "native/libllama"
@@ -258,7 +442,7 @@
         {
           "name": "libmtmd.so",
           "sha256": "ae45a72df1220c3180ab58f701419ab7cfe65d555918b49ad77cb86418a72b8b",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libmtmd.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libmtmd.so.gz",
           "downloadSha256": "a51d387a2cc3a280d4ff4cde39629df486fcf51d9fd2d733cd5a62d53a767165",
           "delivery": "bundle",
           "asset": "native/libmtmd"
@@ -266,7 +450,7 @@
         {
           "name": "libggml-vulkan.so",
           "sha256": "47369e9f42143c423ddfbf77affa3006cc293cae238b85fd427b70d7480562c8",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/linux-x64-libggml-vulkan.so.gz",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/linux-x64-libggml-vulkan.so.gz",
           "downloadSha256": "21edf1bbe929f9fb826ad79ea2d396d979728761ff346bc1936835a78e770b02",
           "delivery": "runtime",
           "pack": "vulkan"
@@ -274,218 +458,218 @@
       ]
     },
     "macos-arm64": {
-      "runner": "macos-15",
-      "toolchain": "Xcode 16.4",
+      "runner": "macos15 20260907.0337.1",
+      "toolchain": "Xcode 16.4, cmake version 4.4.3",
       "minOSVersion": 12,
       "files": [
         {
           "name": "libfllama.dylib",
-          "sha256": "34779088a58438a880dc93458ed757b20a4b0a499930b98c7aaaa48aa6ec01a1",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/macos-arm64-libfllama.dylib.gz",
-          "downloadSha256": "97464eefb3c01e7cbc780143df37c3957f271483bd81175a11a57ea009d4a4ff",
+          "sha256": "6fd2f49fea7e72a1bf6efdd823a21e13b86a281f56bde0c9e6298e3075186600",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/macos-arm64-libfllama.dylib.gz",
+          "downloadSha256": "5baaf6d46eac5539ffd142699cd00965d2628313a2fc0b4d4ec9889b7e631afa",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         }
       ]
     },
     "macos-x64": {
-      "runner": "macos-15",
-      "toolchain": "Xcode 16.4",
+      "runner": "macos15 20260907.0337.1",
+      "toolchain": "Xcode 16.4, cmake version 4.4.3",
       "minOSVersion": 12,
       "files": [
         {
           "name": "libfllama.dylib",
-          "sha256": "279f698bdc8ecc89b56f97f283e52120ed9f055920a51d8ff1176dddcf8478ec",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/macos-x64-libfllama.dylib.gz",
-          "downloadSha256": "3d800ab82072507129af3f7d5b94ecee9171455dc943232307af353cb3ba5bad",
+          "sha256": "fa7fe5684f6651c226608fc65c41236251af3a4267c355ec5a7661a23717b53c",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/macos-x64-libfllama.dylib.gz",
+          "downloadSha256": "47a5926b2a73da539ff632c98b6cca3edea6960206a048a14a8a0f874d8687c5",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         }
       ]
     },
     "windows-arm64": {
-      "runner": "windows-11-arm",
-      "toolchain": "Visual Studio 18.11.1, ClangCL",
+      "runner": "win11-vs2026-arm64 20261022.194.1",
+      "toolchain": "Visual Studio 18.11.1, cmake version 4.4.4, ClangCL",
       "files": [
         {
           "name": "fllama.dll",
-          "sha256": "37fa5a3c3c4a11583bce5b089d72c0b5b07779e6eafbaed4948466fcf94e4cd1",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-arm64-fllama.dll.gz",
-          "downloadSha256": "39bb1e2775dee64a2b13d8cfac5154656f8f86d34d0d70cd05abdcb9cdf8a830",
+          "sha256": "7561ef57fc3a3c7b3fc976cb06ce6356f55135a7924df79809c6aeae9d38db0b",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-arm64-fllama.dll.gz",
+          "downloadSha256": "2e9442ebb22b25688e0524df823d228a8a634dde246e9f50d07eff7153a428bc",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         },
         {
           "name": "ggml-base.dll",
-          "sha256": "21dc40a5c6329e05a0402e68e525c965cf962c9d6443cc62733d2a2854486668",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-arm64-ggml-base.dll.gz",
-          "downloadSha256": "d187cfb20c33da5575a87cba97bd3da5de4d3560b1f5709bbdb4ae1e0a717bc8",
+          "sha256": "23ad7d0897af83940752c50688ea821e253c794f404f8a34d6e33847add8d05b",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-arm64-ggml-base.dll.gz",
+          "downloadSha256": "7f9d0e7ac624f9e8c280614ffc0b92b2ff372c84dfec4cd6fb532ae9168fbedf",
           "delivery": "bundle",
           "asset": "native/ggml-base"
         },
         {
           "name": "ggml-cpu-armv8.0.dll",
-          "sha256": "3ab30dbddb1c5602d486c90135c9c1eb466c7428614dac6d357bbbc1232ae684",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-arm64-ggml-cpu-armv8.0.dll.gz",
-          "downloadSha256": "96e1fbc3af4ddfd6dfa9e0e062fd502811763c2fb9ed2f06cbd5acee1861420d",
+          "sha256": "9118e64a32c4ef5243ea97b631ca2496f7369080e1069db3b88f18866f0cb897",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-arm64-ggml-cpu-armv8.0.dll.gz",
+          "downloadSha256": "501ed6c5b4e8067c22b084ecc9f192cec70b3c1d18dacf7a329af360b946e6d1",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-armv8.0"
         },
         {
           "name": "ggml-cpu-armv8.2-dotprod.dll",
-          "sha256": "93519a9454f3d42a6a61b024c3ff3db4f1fd5d6184336081eb07a6cf94cba97e",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-arm64-ggml-cpu-armv8.2-dotprod.dll.gz",
-          "downloadSha256": "683ddf00299ae458986848309dd929ae4988ca2900563400e4364e00f6d40609",
+          "sha256": "6308f235268395388e30580bc9461d0ca516fd8c389782c0607f6a9d225d1bd1",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-arm64-ggml-cpu-armv8.2-dotprod.dll.gz",
+          "downloadSha256": "351eec555f550b9b27134b4868ca4644ab0ae82cd8a77ebc98cccf8dedc1584f",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-armv8.2-dotprod"
         },
         {
           "name": "ggml.dll",
-          "sha256": "aab6c5e12cfa782e90ae6127231cf0db07777b03130195b03adbf4896f473f8c",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-arm64-ggml.dll.gz",
-          "downloadSha256": "b5187e882c39d7293290246f4b38e77929b922a580bdb4ce5d59ac6557b23649",
+          "sha256": "6a39028f08a3f6c760e871c68013157ddf490c90c013d0570070d3cd08d4d18d",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-arm64-ggml.dll.gz",
+          "downloadSha256": "d7c88a411c3cab94bdaf56bf1a6fda51db969d836d2658cf9f5560915ec74000",
           "delivery": "bundle",
           "asset": "native/ggml"
         },
         {
           "name": "llama.dll",
-          "sha256": "3b02d8bd0323e5d340b753511f42fd2ab5caeacacb560059c181f1eb230c3c71",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-arm64-llama.dll.gz",
-          "downloadSha256": "99eb150d8a198368a4c69824ae26df50937aa89079df61d1333ed68524d131b7",
+          "sha256": "a89bf6cbe64dff2112008ab50f5109b9928b3f200a0aa0a5f6f2d4b0734726af",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-arm64-llama.dll.gz",
+          "downloadSha256": "370463ee45584fce9146c0d1e730dd3113d8fa4583499435516f02700934909f",
           "delivery": "bundle",
           "asset": "native/llama"
         },
         {
           "name": "mtmd.dll",
-          "sha256": "9e76a404f86bca6a414d995f83085938ec2adf556919b637e1f8b9f56f7d2f54",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-arm64-mtmd.dll.gz",
-          "downloadSha256": "e1366be21c375e8231e22134d98b5b627dfb864497cb1afb2c545a23fb358d43",
+          "sha256": "18744dbe7c929e928f221b49c900aa77cf2ef5f3d201542c2355d6247b6c2279",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-arm64-mtmd.dll.gz",
+          "downloadSha256": "5f6abd64d5b2c0050632b61cf422216b6784320a7504984e596f7b6920b3474b",
           "delivery": "bundle",
           "asset": "native/mtmd"
         }
       ]
     },
     "windows-x64": {
-      "runner": "windows-2022",
-      "toolchain": "Visual Studio 17.14.42, MSVC, Vulkan SDK 1.4.357.0",
+      "runner": "win22 20261022.344.1",
+      "toolchain": "Visual Studio 17.14.42, cmake version 3.31.6, MSVC, Vulkan SDK 1.4.357.0",
       "files": [
         {
           "name": "fllama.dll",
-          "sha256": "946322522fbe8d291c203f58a97c327670525975abb7d98af578048b27b1702d",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-fllama.dll.gz",
-          "downloadSha256": "a63050faba741bc47ce83daeee40afc37cc27d8e048670396b963dababb6aff7",
+          "sha256": "d148a1a1a63e9244aa25bc620d217c1320f8255abe38c867b81d0835d7dc968d",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-fllama.dll.gz",
+          "downloadSha256": "9d062ecd1a885feb55176e238c1e932968ee48f995b235ba9584822f3e7d79f5",
           "delivery": "bundle",
           "asset": "fllama_io.dart"
         },
         {
           "name": "ggml-base.dll",
-          "sha256": "fe79b9a77b427cf39900a378bfde0c54cb6d4b9a9d88092f8acdbf528d8d3fab",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-base.dll.gz",
-          "downloadSha256": "8095d38d19750dbe522be4efe44acbccc7385a73955c0ec8a8bf5a6c84e12d82",
+          "sha256": "ca0cc3c877504da601852e8919aaa5d00ab3fcca497086c40f76b7392f224a75",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-base.dll.gz",
+          "downloadSha256": "68029d669820bd1a862de44688a558319332ba30874cd14d4207805e998462ba",
           "delivery": "bundle",
           "asset": "native/ggml-base"
         },
         {
           "name": "ggml-cpu-alderlake.dll",
-          "sha256": "9ab37d8a14f1ed49eadef5a45dea23104f60e156dfac509ea0fc0acbe2b870ec",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-cpu-alderlake.dll.gz",
-          "downloadSha256": "4502b39314f3a26bf39178116758ff0bf8950fcffc941dc11fe5378dbc073302",
+          "sha256": "f38182bece9edb5bc4e42b95e7ac55300da7db4a3d017988e4abfa8c5bc1b529",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-cpu-alderlake.dll.gz",
+          "downloadSha256": "57e84608e8b13d64993b96c42053985a212ea7345f11587c4b8f88472d8f95a3",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-alderlake"
         },
         {
           "name": "ggml-cpu-cannonlake.dll",
-          "sha256": "e642d6501135f73f8b824e4f780d20b5b8f7c4d3498283e2b74a73ae5a227700",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-cpu-cannonlake.dll.gz",
-          "downloadSha256": "c46dc0da4071914f88e28d7ee4bc390230aa3fb201634a752ba4d1dbd3390462",
+          "sha256": "e51891c85df5868f4c04fa2e5270e39f0afdcb163ad38a58c5300cc403953732",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-cpu-cannonlake.dll.gz",
+          "downloadSha256": "fc929c56342a42b9582c3bdd4746710cf9b1b06ce0a5a9e824052fd63fa2090a",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-cannonlake"
         },
         {
           "name": "ggml-cpu-cascadelake.dll",
-          "sha256": "fe7128d88482ebc0579cb834dd2c0be232b1207e885ffdb588e7fbf485788a19",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-cpu-cascadelake.dll.gz",
-          "downloadSha256": "067012cf55bb2867ed058692862a94dc380be8b2214a787028f6e54a02ce691b",
+          "sha256": "03a4f6a9b47cda2378d1446f7e5224a01fe16d568eaf7971e4489ef3879e0243",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-cpu-cascadelake.dll.gz",
+          "downloadSha256": "c5e161527d3dc7b48d5a84a1aefa0f7077663a38e61da029769f7152cbc21e34",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-cascadelake"
         },
         {
           "name": "ggml-cpu-haswell.dll",
-          "sha256": "52aff1371737cd71911f3faa3b3c24f0e3ff2ac57c8fcc3721a6dbff12f4f3d6",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-cpu-haswell.dll.gz",
-          "downloadSha256": "8d9601883d6af0fe9337e82cf8aded30a0d28ef6c8c0b788800a48e2c911a8d7",
+          "sha256": "5df3dd6b8b1714809e6f35d9a5d2ceedc6661d5d817024198d92db55f928cef6",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-cpu-haswell.dll.gz",
+          "downloadSha256": "c5433d081e0a22e3925aaa7a427669cd0b17c9d89cda9f0b55df52169921982e",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-haswell"
         },
         {
           "name": "ggml-cpu-icelake.dll",
-          "sha256": "eef6e4c4fb9ba6566948ff60404a40543d90968a251268b3af7ad71d9570720b",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-cpu-icelake.dll.gz",
-          "downloadSha256": "7bbd375398f8fa7cb2583263b3dda07ffe10b3c79559098bd4c23956f29df948",
+          "sha256": "4bdb26e70d36d19249ecfda13738f60b67dc267ce54ce5315bade79182b36cd6",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-cpu-icelake.dll.gz",
+          "downloadSha256": "1d791dd3c4de5412b98fcf556c9f035f09f2092e274d5bcf69ca66c48172e3c5",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-icelake"
         },
         {
           "name": "ggml-cpu-sandybridge.dll",
-          "sha256": "c9df70fbc50a826dc22cedfb8061041d8b4467bc678dba71383a3764341c17c4",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-cpu-sandybridge.dll.gz",
-          "downloadSha256": "8046daad909946fbf8dfa2801b1b5be197d426ef404df183d5281f0a4ac7879b",
+          "sha256": "d9a2a028df38c0ab900ed23e760f704a02d86bfb57eb555ed8296ed8dce8f146",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-cpu-sandybridge.dll.gz",
+          "downloadSha256": "f3dd60066a649eccdb552e97a1b0854a53a71068dd75e44d89c22d60fc261cab",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-sandybridge"
         },
         {
           "name": "ggml-cpu-skylakex.dll",
-          "sha256": "8e961467286e67e7624934e65009c322a5463364008477462d6e775939f02802",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-cpu-skylakex.dll.gz",
-          "downloadSha256": "5e8a42c1c0a6b81b144972c432e39b74a82c1ae565c057c97d9de5e708008778",
+          "sha256": "40ea6e2ade93354140648fc034005495fab12c2173076a9f388084835858b4c3",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-cpu-skylakex.dll.gz",
+          "downloadSha256": "fbe8f02d31667d07981923fc0daf6f5406ec2a90a3d135520b1b7d340bad6c0e",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-skylakex"
         },
         {
           "name": "ggml-cpu-sse42.dll",
-          "sha256": "f8edf900eb7f8e5684abde0e8a371ee27e8637744a71ce9ccdc986db61fa6af0",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-cpu-sse42.dll.gz",
-          "downloadSha256": "759c548bc4291a00c27e6256335d2507508efd2d5fbfde2b81283d1c1f06789a",
+          "sha256": "5696bfeb16a0506672a46bcb965fb4e004b05c0a88a36b182410daac8472ab03",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-cpu-sse42.dll.gz",
+          "downloadSha256": "9f70c6899417d3eae459d0788fa5d4bb28162394fd6f71fcc195551239ead2cd",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-sse42"
         },
         {
           "name": "ggml-cpu-x64.dll",
-          "sha256": "cdb38e91a8c91fbf04385655bed2593fc3942ac70674330bc327a943911d0ef1",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-cpu-x64.dll.gz",
-          "downloadSha256": "6086764b85c4877b868186e17fc6f1d753bbb53aa37d7751b957db60d1e4f1ed",
+          "sha256": "ead08a9b4d2b0833eb71841f901d8b25e2903538a3174728feb3490ec0ccfa98",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-cpu-x64.dll.gz",
+          "downloadSha256": "36bd30b89ad5797ede90a77ea1b3f9ea63f4e75fd43eaa4c8f16c7fc0ed43389",
           "delivery": "bundle",
           "asset": "native/ggml-cpu-x64"
         },
         {
           "name": "ggml.dll",
-          "sha256": "7c7d262f79d2078831fe42268abb4ec9ee776d6fcdd2ebc54884106fc50472b0",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml.dll.gz",
-          "downloadSha256": "9efb53c3e22162aecfe05489e4857d832ceb0834a1f67a49b8c12db986ad9cea",
+          "sha256": "bb5f73766a3b0c7d0c18eb69f5dc72325635fc02f26dfeb2ad6a7fcbb830fe9a",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml.dll.gz",
+          "downloadSha256": "23267830ed57a2ab7ec6a6a14ebf01bdf7f82165b51df4a30fc3a95c96b9adfa",
           "delivery": "bundle",
           "asset": "native/ggml"
         },
         {
           "name": "llama.dll",
-          "sha256": "4a8012fe2c630f4f454fe0f67cfc5d6d861de5835dafa6c40d568a0d23b39b87",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-llama.dll.gz",
-          "downloadSha256": "2d69bc0bd719f0ae47e55d0704c5a7424b42879895e430cf4bb462c07663ec18",
+          "sha256": "2fb09d7185ae277f840f73701d684624bf2b37af666592a69663d49c34fb33c5",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-llama.dll.gz",
+          "downloadSha256": "cf334c37f99693b63298472b008ca312f99442678b01c1d4a123e6eff2451e67",
           "delivery": "bundle",
           "asset": "native/llama"
         },
         {
           "name": "mtmd.dll",
-          "sha256": "6e9373304e24c8af639462943898a894d7402bca3bb941f164b4c4c29df98a7d",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-mtmd.dll.gz",
-          "downloadSha256": "9ec8919e112e90c22a4744a6958eacafa286667e28886ce8c5bbfd1f5c8839ed",
+          "sha256": "4964e6a15d67185794f85588cddc4b9fcd8b981601a370f4d92222a91f800c26",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-mtmd.dll.gz",
+          "downloadSha256": "4072702c64026489f10033490d020c0c7933b737b427c46b72ba403efe265b5a",
           "delivery": "bundle",
           "asset": "native/mtmd"
         },
         {
           "name": "ggml-vulkan.dll",
-          "sha256": "4b3c51a47407c14a9cbab9c21f532fd96c2fc45069333b1b890fb988d7441c07",
-          "url": "https://github.com/Telosnex/fllama/releases/download/native-b28896aeee6d9ce0/windows-x64-ggml-vulkan.dll.gz",
-          "downloadSha256": "6fbc1280e9b8c4202f99349e02058db1eb0c1947723ad26af597c31978de9318",
+          "sha256": "51ada07716308e1fb28d3202cea86d3f877ce2e4980801aaf9102130650feb62",
+          "url": "https://github.com/Telosnex/fllama/releases/download/native-47a361cf63e78751/windows-x64-ggml-vulkan.dll.gz",
+          "downloadSha256": "b12af6a2aa8ced32a2cbf7b1c5c910f895657e2820732aa724f57952eb95e634",
           "delivery": "runtime",
           "pack": "vulkan"
         }

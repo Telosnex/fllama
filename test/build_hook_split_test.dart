@@ -192,7 +192,7 @@ void main() {
     });
 
     test(
-      'only a release build makes ggml-vulkan a GPU pack (native_prebuilt ADR 001 D7)',
+      'only a release build makes ggml-vulkan a GPU pack (kiln ADR 001 D7)',
       () {
         const sdk = hook.VulkanSdk(headerVersion: 357);
         const template =

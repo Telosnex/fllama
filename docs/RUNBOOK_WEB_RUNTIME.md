@@ -5,7 +5,7 @@ The web runtime is wllama: `wllama/index.js`, `wllama/wasm/wllama.js` and
 `wllama/compat/wllama.wasm`. The compat build has no Memory64 or JSPI. wllama
 loads it when the browser does not have them (Safari), but never on Firefox,
 which runs the default build on the CPU. GitHub Actions builds it in the native release
-workflow (native_prebuilt ADR 002). No developer machine makes a released
+workflow (kiln ADR 002). No developer machine makes a released
 file.
 
 ## Source of truth
@@ -14,7 +14,7 @@ file.
   package and its SHA-256, the emsdk image digest (Emscripten 4.0.20), and
   Node 22.16.0.
 - `web_build/wllama.patch`: all fllama changes to wllama (ADR 003 §3).
-- `tool/build_web.dart`: the build. It runs the steps of wllama's
+- `tool/kiln/build_web.dart`: the build. It runs the steps of wllama's
   `build:wasm` (the default and the compat build), `build:worker` and
   `build:tsup`, and stops at the first failed step.
 - `lib/web/fllama_web_init.js`: the hand-written bridge. It is in git.
@@ -26,11 +26,11 @@ new native release, and the release contains the web files.
 
 1. Change `web_build/wllama.json` or `web_build/wllama.patch`. If the
    llama.cpp commit changes, refresh `src/llama.cpp` too (ADR 003 §6).
-2. Run the release workflow: `git push -f origin HEAD:native-release-dry`,
-   then `HEAD:native-release`. The web job builds the files. The web-test
+2. Run the release workflow: `git push -f origin HEAD:kiln-release-dry`,
+   then `HEAD:kiln-release`. The web job builds the files. The web-test
    job runs `scripts/check_web_assets.sh` and loads a model in Chrome
    (`test/web_runtime_test.dart`).
-3. Merge the `native-manifest/<tag>` branch. It updates
+3. Merge the `kiln-manifest/<tag>` branch. It updates
    `native_artifacts/web.json` and `lib/src/web_runtime.g.dart`.
 
 ## Build and test locally
@@ -39,8 +39,8 @@ new native release, and the release contains the web files.
 cd "$FLLAMA_DIR"
 docker run --rm -v "$PWD:/src" -v /tmp/fllama_web:/out -w /src \
   "$(python3 -c 'import json;print(json.load(open("web_build/wllama.json"))["emsdkImage"])')" \
-  bash -c 'dart tool/build_web.dart --out /out'
-dart run native_prebuilt:web install-dev --from /tmp/fllama_web
+  bash -c 'dart tool/kiln/build_web.dart --out /out'
+dart run kiln:web install-dev --from /tmp/fllama_web
 scripts/check_web_assets.sh
 
 mkdir -p test/web_models
@@ -61,7 +61,7 @@ HEADLESS=1 npm run smoke:current -- --max-tokens=100 --ctx=4096
 ```
 
 It serves the built Flutter example, overlays `lib/web/` into
-`example/build/web/native_prebuilt/fllama/`, and calls `fllamaChatWebJs()`.
+`example/build/web/kiln/fllama/`, and calls `fllamaChatWebJs()`.
 See `dev/web_smoke/README.md`. `--browser=webkit` runs Safari's engine, and
 `--force-compat` makes Chrome load the compat build.
 

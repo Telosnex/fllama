@@ -67,7 +67,7 @@ dev_dependencies:
 
 # native_build: auto (default) downloads the prebuilt fllama libraries if
 # native_artifacts/prebuilt.json matches the sources, else builds them.
-# Set it to source or download to force one (native_prebuilt ADR 001 D2).
+# Set it to source or download to force one (kiln ADR 001 D2).
 hooks:
   user_defines:
     fllama:
