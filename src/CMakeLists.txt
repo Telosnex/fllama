@@ -206,9 +206,7 @@ add_custom_command(
 add_library(fllama SHARED
   "${FLLAMA_GPU_PACKS_CPP}"
   "fllama_backends.cpp"
-  "fllama_chat_template.cpp"
   "fllama_download_stub.cpp"
-  "fllama_eos.cpp"
   "fllama_inference_queue.cpp"
   "fllama_mtmd.cpp"
   "fllama_sha256.cpp"
@@ -217,7 +215,7 @@ add_library(fllama SHARED
 )
 
 set_target_properties(fllama PROPERTIES
-  PUBLIC_HEADER "fllama.h;fllama_eos.h;fllama_tokenize.h"
+  PUBLIC_HEADER "fllama.h;fllama_tokenize.h"
   OUTPUT_NAME "fllama"
 )
 

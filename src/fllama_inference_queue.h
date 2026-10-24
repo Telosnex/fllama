@@ -39,10 +39,16 @@ struct ServerResources {
   // A request wants other load-time params. No new request gets this context;
   // it is replaced once its requests finish.
   std::atomic<bool> retiring{false};
+  // Requests that wait for this context to retire. Guarded by
+  // ServerManager::servers_lock. When the last one is cancelled, the context
+  // stops retiring.
+  int retire_waiters = 0;
 
   // Params that require a fresh server_context if changed.
   int n_ctx         = 0;
   int n_gpu_layers  = -1;
+  int n_threads       = 0;
+  int n_threads_batch = 0;
   std::string mmproj_path;
   std::string draft_path; // MTP/speculative drafter model path ("" if none)
   int draft_n_max = 0;    // MTP/speculative max draft tokens; load-time param

@@ -47,8 +47,6 @@ void main() {
       'reads GGUF metadata and tokenizes text',
       () async {
         final modelPath = modelFile.absolute.path;
-        final template = await fllama.fllamaChatTemplateGet(modelPath);
-        final eosToken = await fllama.fllamaEosTokenGet(modelPath);
         final tokenCount = await fllama.fllamaTokenize(
           fllama.FllamaTokenizeRequest(
             input: 'Hello from the fllama integration suite.',
@@ -56,8 +54,6 @@ void main() {
           ),
         );
 
-        expect(template, isNotEmpty);
-        expect(eosToken, isNotEmpty);
         expect(tokenCount, greaterThan(0));
         expect(fllama.fllamaTrainedContextLength(modelPath), 262144);
         expect(
@@ -717,6 +713,151 @@ void main() {
       skip: supportedPlatform ? null : 'Native-platform test',
       // Before the fix, the second request deadlocked on the load mutex.
       timeout: const Timeout(Duration(minutes: 3)),
+    );
+
+    // Full audit 1: when llama.cpp could not parse the reply in the chat
+    // format, the request ended with no error, as if the model had replied.
+    test(
+      'reports a reply that cannot be parsed as an error',
+      () async {
+        // The <|channel|> marker makes llama.cpp parse the reply as GPT-OSS
+        // output. Qwen does not write that.
+        const gptOssLike = '{% for m in messages %}<|start|>{{ m.role }}'
+            '<|message|>{{ m.content }}<|end|>{% endfor %}'
+            '<|start|>assistant<|channel|>final<|message|>';
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [fllama.Message(fllama.Role.user, 'Hello.')],
+          maxTokens: 8,
+          temperature: 0,
+          jinjaTemplate: gptOssLike,
+        );
+        expect(run.error?.type, fllama.FllamaErrorType.other);
+        expect(run.error?.message, contains('does not match'));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 5)),
+    );
+
+    // Full audit 2: a loaded model kept its thread count.
+    test(
+      'a new thread count reloads the model',
+      () async {
+        Future<List<String>> run(int threads) async {
+          final logs = <String>[];
+          final done = Completer<void>();
+          await fllama.fllamaInference(
+            fllama.FllamaInferenceRequest(
+              contextSize: 2048,
+              input: 'Hello',
+              maxTokens: 2,
+              modelPath: modelFile.absolute.path,
+              numGpuLayers: _testGpuLayers,
+              numThreads: threads,
+              logger: logs.add,
+            ),
+            (result, json, isDone, error) {
+              if (isDone && !done.isCompleted) done.complete();
+            },
+          );
+          await done.future.timeout(const Duration(minutes: 3));
+          await Future<void>.delayed(Duration.zero);
+          return logs;
+        }
+
+        bool loaded(List<String> logs) =>
+            logs.any((l) => l.contains('llama_context: n_ctx '));
+        await run(2);
+        expect(loaded(await run(2)), isFalse, reason: 'Same threads: reuse.');
+        expect(loaded(await run(3)), isTrue, reason: 'New threads: reload.');
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 8)),
+    );
+
+    // Full audit 8: n_batch was min(context size, 2048), so a context size
+    // of 0 (the model's trained size) gave a batch of 0.
+    test(
+      'context size 0 uses the trained context size',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [fllama.Message(fllama.Role.user, 'Reply with OK.')],
+          maxTokens: 4,
+          enableThinking: false,
+          contextSize: 0,
+        );
+        expect(run.error, isNull);
+        final batch = run.logs.firstWhere(
+          (l) => l.contains('llama_context: n_batch '),
+          orElse: () => '',
+        );
+        expect(batch, isNot(endsWith('= 0')));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 5)),
+    );
+
+    // Full audit 8: a request that waited for a busy model with another
+    // context size retired it. When the request was cancelled, the model was
+    // still reloaded.
+    test(
+      'a cancelled request does not make the model reload',
+      () async {
+        final modelPath = modelFile.absolute.path;
+        final firstToken = Completer<void>();
+        final aDone = Completer<void>();
+        final aId = await fllama.fllamaChat(
+          fllama.OpenAiRequest(
+            modelPath: modelPath,
+            messages: [fllama.Message(fllama.Role.user, 'Say na.')],
+            contextSize: 2048,
+            maxTokens: 1800,
+            numGpuLayers: _testGpuLayers,
+            enableThinking: false,
+            // The model cannot stop before maxTokens or a cancel.
+            grammar: 'root ::= "na "{1000}',
+          ),
+          (result, json, isDone, _) {
+            if (!firstToken.isCompleted) firstToken.complete();
+            if (isDone && !aDone.isCompleted) aDone.complete();
+          },
+        );
+        await firstToken.future.timeout(const Duration(minutes: 3));
+        final bDone = Completer<fllama.FllamaError?>();
+        final bId = await fllama.fllamaChat(
+          fllama.OpenAiRequest(
+            modelPath: modelPath,
+            messages: [fllama.Message(fllama.Role.user, 'Hello.')],
+            contextSize: 4096,
+            maxTokens: 4,
+            numGpuLayers: _testGpuLayers,
+          ),
+          (result, json, isDone, error) {
+            if (isDone && !bDone.isCompleted) bDone.complete(error);
+          },
+        );
+        // B now waits for A to finish.
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        expect(aDone.isCompleted, isFalse,
+            reason: 'A must still run for this test.');
+        fllama.fllamaCancelInference(bId);
+        expect(await bDone.future.timeout(const Duration(minutes: 1)), isNull);
+        fllama.fllamaCancelInference(aId);
+        await aDone.future.timeout(const Duration(minutes: 3));
+
+        final c = await _runChat(
+          modelPath: modelPath,
+          messages: [fllama.Message(fllama.Role.user, 'Reply with OK.')],
+          maxTokens: 4,
+          enableThinking: false,
+        );
+        expect(c.error, isNull);
+        expect(c.logs.any((l) => l.contains('llama_context: n_ctx ')), isFalse,
+            reason: 'C must reuse the model that A used.');
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
     );
 
     // Full audit: each isolate numbers its requests from 0, and native

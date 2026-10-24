@@ -75,9 +75,6 @@ class _MyAppState extends State<MyApp> {
   String latestResultString = '';
   String latestResultJson = '';
   int latestOutputTokenCount = 0;
-  String latestChatTemplate = '';
-  String latestEosToken = '';
-  String latestBosToken = '';
   double _tokensPerSecond =
       0; // wall-clock fallback; includes load/reload overhead
   DateTime? _inferenceStartTime;
@@ -667,31 +664,6 @@ class _MyAppState extends State<MyApp> {
                     SelectableText('Raw: $latestResultString',
                         style: textStyle),
                   ],
-                  if (latestChatTemplate.isNotEmpty) ...[
-                    spacerSmall,
-                    const Text('Chat template:', style: textStyle),
-                    SelectableText(
-                      latestChatTemplate,
-                      style: textStyle,
-                    ),
-                  ],
-                  if (latestBosToken.isNotEmpty) ...[
-                    spacerSmall,
-                    const Text('Beginning of sequence token:',
-                        style: textStyle),
-                    SelectableText(
-                      latestBosToken,
-                      style: textStyle,
-                    ),
-                  ],
-                  if (latestEosToken.isNotEmpty) ...[
-                    spacerSmall,
-                    const Text('End of sequence token:', style: textStyle),
-                    SelectableText(
-                      latestEosToken,
-                      style: textStyle,
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -953,21 +925,6 @@ class _MyAppState extends State<MyApp> {
       });
       return;
     }
-
-    final chatTemplate = await fllamaChatTemplateGet(_modelPath!);
-    setState(() {
-      latestChatTemplate = chatTemplate;
-    });
-
-    final eosToken = await fllamaEosTokenGet(_modelPath!);
-    setState(() {
-      latestEosToken = eosToken;
-    });
-
-    final bosToken = await fllamaBosTokenGet(_modelPath!);
-    setState(() {
-      latestBosToken = bosToken;
-    });
 
     List<String> allResponses = [];
     int requestId =

@@ -329,7 +329,7 @@ Future<void> _buildFromSource({
       if (!packNames.contains(p.basename(lib.path))) lib,
   ];
   for (final lib in bundled) {
-    await _publishFromCache(
+    await publishFromCache(
       cachedLib: lib,
       outputDirectory: input.outputDirectory,
       libFileName: p.basename(lib.path),
@@ -902,7 +902,9 @@ Future<void> _clearStaleCMakeCache({
 //   publish + register
 // ─────────────────────────────────────────────────────────────────────────
 
-Future<void> _publishFromCache({
+/// Copies [cachedLib] to [outputDirectory] as [libFileName], unless that
+/// file has the same bytes.
+Future<void> publishFromCache({
   required File cachedLib,
   required Uri outputDirectory,
   required String libFileName,
@@ -912,16 +914,22 @@ Future<void> _publishFromCache({
   final dest = File(
     p.join(Directory.fromUri(outputDirectory).path, libFileName),
   );
-  // Only copy if missing or older than the cached source, to save on
-  // filesystem churn on back-to-back cache hits.
+  // Copies only a changed library, so that a cache hit does not make the app
+  // build copy the library again. Compares the bytes: two builds often have
+  // the same size, and a cache entry can be older than the published file.
   var needCopy = true;
-  if (await dest.exists()) {
-    final destStat = await dest.stat();
-    final srcStat = await cachedLib.stat();
-    if (destStat.size == srcStat.size &&
-        !destStat.modified.isBefore(srcStat.modified)) {
-      needCopy = false;
+  if (await dest.exists() &&
+      await dest.length() == await cachedLib.length()) {
+    final a = await dest.readAsBytes();
+    final b = await cachedLib.readAsBytes();
+    var same = true;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) {
+        same = false;
+        break;
+      }
     }
+    needCopy = !same;
   }
   if (needCopy) {
     logger.info('Copying cached library → ${dest.path}');

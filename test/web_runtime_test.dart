@@ -96,6 +96,67 @@ void main() {
     expect(cancelled, isTrue);
   });
 
+  // Full audit 4: numGpuLayers 0 was all layers on the GPU on web, and the
+  // CPU on native. Context size 0 was 4096 on web, and the model's trained
+  // size on native.
+  test('numGpuLayers and contextSize mean the same as on native', () async {
+    await loadFllamaWebRuntime();
+    final hadGpu = _evalBool('Boolean(navigator.gpu)');
+    _recordLoads();
+    // requestGpuLayers() checks only that navigator.gpu exists.
+    if (!hadGpu) {
+      _eval("Object.defineProperty(Navigator.prototype, 'gpu', "
+          '{configurable: true, get() { return {}; }})');
+    }
+    try {
+      final error = await _chat(model, numGpuLayers: 0, contextSize: 0);
+      expect(error, isNull);
+      final load = _loads().last;
+      expect(load['nGpuLayers'], 0, reason: '0 is the CPU.');
+      expect(load['nCtx'], 0, reason: "0 is the model's trained size.");
+    } finally {
+      if (!hadGpu) _eval('delete Navigator.prototype.gpu');
+    }
+  });
+
+  // Full audit 5: fllamaWebModelDelete unloaded the model when its URL only
+  // contained the deleted path.
+  test('deleting another model keeps the loaded one', () async {
+    expect(await _chat(model), isNull);
+    _recordLoads();
+    await fllamaWebModelDelete(model.substring(0, model.length - 5));
+    expect(await _chat(model), isNull);
+    expect(_loads(), isEmpty, reason: 'The model must not load again.');
+  });
+
+  // Full audit 5: fllamaWebModelDelete unloaded the model while a chat used
+  // it.
+  test('deleting the model lets a running chat finish', () async {
+    final done = Completer<FllamaError?>();
+    final firstToken = Completer<void>();
+    var chunks = 0;
+    await fllamaChat(
+      OpenAiRequest(
+        modelPath: model,
+        maxTokens: 40,
+        nParallel: 1,
+        messages: [Message(Role.user, 'Once upon a time')],
+      ),
+      (response, responseJson, isDone, error) {
+        chunks++;
+        if (!firstToken.isCompleted && response.isNotEmpty) {
+          firstToken.complete();
+        }
+        if (isDone && !done.isCompleted) done.complete(error);
+      },
+    );
+    await firstToken.future;
+    final deleted = fllamaWebModelDelete(model);
+    expect(await done.future, isNull);
+    expect(chunks, greaterThan(20), reason: 'The chat must not stop early.');
+    await deleted;
+  });
+
   // Audit item 4: wllama parses requests as llama-server does.
   test('a grammar constrains the reply', () async {
     final done = Completer<String>();
@@ -151,6 +212,62 @@ void main() {
 
 @JS('eval')
 external void _eval(String source);
+
+@JS('eval')
+external JSAny? _evalAny(String source);
+
+bool _evalBool(String source) => (_evalAny(source)! as JSBoolean).toDart;
+
+/// Starts to record the settings of each model load, from the runtime's
+/// "loading model" log line. Clears the earlier records.
+void _recordLoads() {
+  _eval(r'''
+    (() => {
+      window.__fllamaLoads = [];
+      if (window.__fllamaLoadsHooked) return;
+      window.__fllamaLoadsHooked = true;
+      const prefix = '[fllama_web_init.js] loading model ';
+      const info = console.info;
+      console.info = function (...args) {
+        const line = String(args[0]);
+        if (line.startsWith(prefix)) {
+          window.__fllamaLoads.push(JSON.parse(line.slice(prefix.length)));
+        }
+        return info.apply(this, args);
+      };
+    })()
+  ''');
+}
+
+List<Map<String, dynamic>> _loads() => [
+  for (final load in jsonDecode(
+    (_evalAny('JSON.stringify(window.__fllamaLoads)')! as JSString).toDart,
+  ) as List)
+    load as Map<String, dynamic>,
+];
+
+/// A short chat with one request slot. Returns its error, or null.
+Future<FllamaError?> _chat(
+  String model, {
+  int numGpuLayers = 0,
+  int contextSize = 2048,
+}) async {
+  final done = Completer<FllamaError?>();
+  await fllamaChat(
+    OpenAiRequest(
+      modelPath: model,
+      maxTokens: 4,
+      numGpuLayers: numGpuLayers,
+      contextSize: contextSize,
+      nParallel: 1,
+      messages: [Message(Role.user, 'Once upon a time')],
+    ),
+    (response, responseJson, isDone, error) {
+      if (isDone && !done.isCompleted) done.complete(error);
+    },
+  );
+  return done.future;
+}
 
 @JS('performance.clearResourceTimings')
 external void _clearResourceTimings();

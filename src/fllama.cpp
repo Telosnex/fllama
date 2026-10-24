@@ -269,11 +269,9 @@ static void run_inference_body(const fllama_inference_request &request,
 
     common_params params;
     params.model.path       = request.model_path;
+    // 0 is the model's trained context size. n_batch and n_ubatch keep
+    // llama-server's defaults (2048, 512); llama.cpp limits n_batch to n_ctx.
     params.n_ctx            = request.context_size;
-    // Match llama.cpp server defaults more closely instead of tying batch
-    // sizes to the full context window.
-    params.n_batch          = std::min<int32_t>(request.context_size, 2048);
-    params.n_ubatch         = std::min<int32_t>(params.n_batch, 512);
     params.flash_attn_type  = LLAMA_FLASH_ATTN_TYPE_AUTO;
     params.n_parallel       = ServerManager::DEFAULT_N_PARALLEL;
     // One KV cache shared by the slots, as llama-server does by default.
@@ -551,16 +549,16 @@ static void run_inference_body(const fllama_inference_request &request,
         reader.stop();
         break;
       }
+      // As llama-server: an exception while reading a result, such as a reply
+      // that does not parse as the chat format, ends the request with an
+      // error. The text so far is kept.
       server_task_result_ptr res;
       try {
         res = reader.next(should_stop);
       } catch (const std::exception &e) {
-        // Final parse can fail (e.g. doubled generated_text in update_chat_msg).
-        // Keep the text and the last good JSON.
-        log_message(std::string("[fllama] Reading a result failed: ") +
-                        e.what(),
-                    request.dart_logger);
-        break;
+        outcome.content = full_content;
+        outcome.fail("other", e.what());
+        return;
       }
       if (!res) break;
 
@@ -598,16 +596,14 @@ static void run_inference_body(const fllama_inference_request &request,
       if (final_r) {
         // Keep accumulated full_content — final_r->content can be
         // empty or corrupted for tool-call / reasoning completions.
+        outcome.content = full_content;
         try {
           auto j = res->to_json();
           last_json = j.is_null() ? "" : json_text(j);
         } catch (const std::exception &e) {
-          log_message(std::string("[fllama] The last result has no JSON: ") +
-                          e.what(),
-                      request.dart_logger);
-          last_json = "";
+          outcome.fail("other", e.what());
+          return;
         }
-        outcome.content = full_content;
         outcome.json = last_json;
         log_message("[fllama] Done. " +
                         std::to_string(final_r->n_decoded) + " tok, " +

@@ -29,27 +29,6 @@ Future<bool> fllamaHasCudaGpu() async => false;
 /// GGUF files cannot be read on this platform.
 int? fllamaTrainedContextLength(String modelPath) => null;
 
-/// Returns the chat template embedded in the .gguf file.
-/// If none is found, returns an empty string.
-///
-/// See [fllamaSanitizeChatTemplate] for using sensible fallbacks for gguf
-/// files that don't have a chat template or have incorrect chat templates.
-Future<String> fllamaChatTemplateGet(String modelPath) {
-  throw UnimplementedError();
-}
-
-/// Returns the BOS token embedded in the .gguf file.
-/// If none is found, returns an empty string.
-Future<String> fllamaBosTokenGet(String modelPath) {
-  throw UnimplementedError();
-}
-
-/// Returns the EOS token embedded in the .gguf file.
-/// If none is found, returns an empty string.
-Future<String> fllamaEosTokenGet(String modelPath) {
-  throw UnimplementedError();
-}
-
 /// Runs plain completion of [FllamaInferenceRequest.input], with no chat
 /// template. Returns the request ID soon, for [fllamaCancelInference];
 /// [callback] gets the results. See [FllamaInferenceCallback].

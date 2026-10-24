@@ -119,7 +119,11 @@ class OpenAiRequest {
   // Not in OpenAI, but used by llama.
   final String modelPath;
   final String? mmprojPath;
+  /// Layers on the GPU. -1 is auto: llama.cpp fits the layers to free GPU
+  /// memory (all layers on web). 0 is the CPU.
   final int numGpuLayers;
+
+  /// Tokens of context. 0 is the model's trained context size.
   final int contextSize;
   final int? nParallel;
   final String? jinjaTemplate;
@@ -228,8 +232,6 @@ class OpenAiRequest {
     required this.modelPath,
     // Path to mmproj's gguf. (optional, only used for multimodal models)
     this.mmprojPath,
-    // Number of layers to run on GPU. -1 means auto: llama.cpp fits the
-    // layers to free GPU memory. 0 means all layers on CPU.
     this.numGpuLayers = 0,
     // ultra-safe for mobile inference, but rather small: ChatGPT launched with
     // 4096, today it has 16384. 1000 tokens ~= 3 pages ~= 750 words ~= 3

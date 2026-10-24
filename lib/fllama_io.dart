@@ -6,10 +6,8 @@ export 'io/fllama_io_tokenize.dart';
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:ffi/ffi.dart';
 import 'package:fllama/fllama_universal.dart';
 import 'package:fllama/io/fllama_bindings_generated.dart';
-import 'package:fllama/io/fllama_io_helpers.dart';
 import 'package:fllama/misc/openai.dart';
 
 typedef FllamaWebLoadCallback =
@@ -32,56 +30,6 @@ final DynamicLibrary fllamaDylib = () {
 
 /// The bindings to the native functions in [fllamaDylib].
 final FllamaBindings fllamaBindings = FllamaBindings(fllamaDylib);
-
-/// Returns the chat template embedded in the .gguf file.
-/// If none is found, returns an empty string.
-///
-/// See [fllamaSanitizeChatTemplate] for using sensible fallbacks for gguf
-/// files that don't have a chat template or have incorrect chat templates.
-Future<String> fllamaChatTemplateGet(String modelPath) {
-  // Example models without a chat template:
-  // - Phi 2 has no template, either intended or in the model.
-  // - Mistral 7B via OpenHermes has no template and intends ChatML.
-  final filenamePointer = stringToPointerChar(modelPath);
-  final templatePointer = fllamaBindings.fllama_get_chat_template(
-    filenamePointer,
-  );
-  calloc.free(filenamePointer);
-  if (templatePointer == nullptr) {
-    return Future.value('');
-  }
-  final builtInChatTemplate = pointerCharToString(templatePointer);
-  calloc.free(templatePointer);
-  return Future.value(builtInChatTemplate);
-}
-
-/// Returns the EOS token embedded in the .gguf file.
-/// If none is found, returns an empty string.
-Future<String> fllamaEosTokenGet(String modelPath) async {
-  final filenamePointer = stringToPointerChar(modelPath);
-  final eosTokenPointer = fllamaBindings.fllama_get_eos_token(filenamePointer);
-  calloc.free(filenamePointer);
-  if (eosTokenPointer == nullptr) {
-    return '';
-  }
-  final eosToken = pointerCharToString(eosTokenPointer);
-  calloc.free(eosTokenPointer);
-  return eosToken;
-}
-
-/// Returns the BOS token embedded in the .gguf file.
-/// If none is found, returns an empty string.
-Future<String> fllamaBosTokenGet(String modelPath) async {
-  final filenamePointer = stringToPointerChar(modelPath);
-  final bosTokenPointer = fllamaBindings.fllama_get_bos_token(filenamePointer);
-  calloc.free(filenamePointer);
-  if (bosTokenPointer == nullptr) {
-    return '';
-  }
-  final bosToken = pointerCharToString(bosTokenPointer);
-  calloc.free(bosTokenPointer);
-  return bosToken;
-}
 
 /// Run chat inference. On native platforms this uses the native fllama backend.
 Future<int> fllamaChatWeb(

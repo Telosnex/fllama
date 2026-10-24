@@ -220,48 +220,6 @@ class FllamaBindings {
   late final _fllama_get_gpu_memory_info = _fllama_get_gpu_memory_infoPtr
       .asFunction<int Function(int, ffi.Pointer<fllama_gpu_memory_info>)>();
 
-  /// Caller owns non-null results: free() on POSIX, CoTaskMemFree() on Windows.
-  ffi.Pointer<ffi.Char> fllama_get_chat_template(ffi.Pointer<ffi.Char> fname) {
-    return _fllama_get_chat_template(fname);
-  }
-
-  late final _fllama_get_chat_templatePtr =
-      _lookup<
-        ffi.NativeFunction<
-          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)
-        >
-      >('fllama_get_chat_template');
-  late final _fllama_get_chat_template = _fllama_get_chat_templatePtr
-      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
-
-  /// Caller owns non-null results from both functions: free() on POSIX,
-  /// CoTaskMemFree() on Windows.
-  ffi.Pointer<ffi.Char> fllama_get_bos_token(ffi.Pointer<ffi.Char> fname) {
-    return _fllama_get_bos_token(fname);
-  }
-
-  late final _fllama_get_bos_tokenPtr =
-      _lookup<
-        ffi.NativeFunction<
-          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)
-        >
-      >('fllama_get_bos_token');
-  late final _fllama_get_bos_token = _fllama_get_bos_tokenPtr
-      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
-
-  ffi.Pointer<ffi.Char> fllama_get_eos_token(ffi.Pointer<ffi.Char> fname) {
-    return _fllama_get_eos_token(fname);
-  }
-
-  late final _fllama_get_eos_tokenPtr =
-      _lookup<
-        ffi.NativeFunction<
-          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)
-        >
-      >('fllama_get_eos_token');
-  late final _fllama_get_eos_token = _fllama_get_eos_tokenPtr
-      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
-
   int fllama_tokenize(fllama_tokenize_request request) {
     return _fllama_tokenize(request);
   }

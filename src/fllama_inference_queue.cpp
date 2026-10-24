@@ -54,6 +54,8 @@ static bool params_match(const ServerResources &r,
                          const common_params &params) {
   return r.n_ctx        == params.n_ctx &&
          r.n_gpu_layers == params.n_gpu_layers &&
+         r.n_threads       == params.cpuparams.n_threads &&
+         r.n_threads_batch == params.cpuparams_batch.n_threads &&
          r.mmproj_path  == params.mmproj.path &&
          r.draft_path   == params.speculative.draft.mparams.path &&
          r.draft_n_max  == params.speculative.draft.n_max &&
@@ -94,17 +96,28 @@ ServerManager::get_or_create(const std::string &model_path,
           // buffer OOM; llama.cpp needs a new backend to recover). Wait for
           // its requests to finish. A retiring context gets no new request,
           // so requests that come meanwhile cannot keep it busy.
-          if (!it->second->shutting_down.load()) {
-            it->second->retiring.store(true);
-          }
+          auto *busy = it->second.get();
+          if (!busy->shutting_down.load()) busy->retiring.store(true);
+          busy->retire_waiters++;
           std::cout << "[ServerManager] Waiting for running requests before "
                        "reloading: " << model_path << "\n";
           while (true) {
-            if (should_stop && should_stop()) return nullptr;
-            if (done.load()) return nullptr;
             auto cur = servers.find(model_path);
-            if (cur == servers.end() ||
-                cur->second->active_users.load() == 0) {
+            // Another context there means [busy] is freed.
+            const bool listed =
+                cur != servers.end() && cur->second.get() == busy;
+            if ((should_stop && should_stop()) || done.load()) {
+              // No reload for this request. If no request still waits, the
+              // context keeps its requests and gets new ones.
+              if (listed && --busy->retire_waiters == 0 &&
+                  !busy->shutting_down.load()) {
+                busy->retiring.store(false);
+              }
+              return nullptr;
+            }
+            if (!listed) break;
+            if (busy->active_users.load() == 0) {
+              busy->retire_waiters--;
               break;
             }
             // Timed, so should_stop() is checked while a request runs.
@@ -157,6 +170,8 @@ ServerManager::get_or_create(const std::string &model_path,
     res->loop_thread = std::thread([ctx_ptr] { ctx_ptr->start_loop(); });
     res->n_ctx        = params.n_ctx;
     res->n_gpu_layers = params.n_gpu_layers;
+    res->n_threads       = params.cpuparams.n_threads;
+    res->n_threads_batch = params.cpuparams_batch.n_threads;
     res->mmproj_path  = params.mmproj.path;
     res->draft_path   = params.speculative.draft.mparams.path;
     res->draft_n_max  = params.speculative.draft.n_max;

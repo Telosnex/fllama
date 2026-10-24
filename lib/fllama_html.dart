@@ -80,6 +80,8 @@ Future<int> fllamaInference(
         modelPath: dartRequest.modelPath,
         modelMmprojPath: dartRequest.modelMmprojPath,
         contextSize: dartRequest.contextSize,
+        numGpuLayers: dartRequest.numGpuLayers,
+        numThreads: dartRequest.numThreads,
         nParallel: dartRequest.nParallel != null && dartRequest.nParallel! > 0
             ? dartRequest.nParallel
             : kFllamaWebDefaultParallelSlots,
@@ -123,9 +125,9 @@ Future<int> fllamaInference(
   return (await fllamaInferenceJs(jsRequest, callbackFn.toJS).toDart).toDartInt;
 }
 
-// JSAny used to be void. JSVoid does not work.
+// The promise resolves with undefined: JSAny? (JSAny never completed).
 @JS('fllamaWebModelDeleteJs')
-external JSPromise<JSAny> fllamaWebModelDeleteJs(String modelPath);
+external JSPromise<JSAny?> fllamaWebModelDeleteJs(String modelPath);
 
 @JS('fllamaWebIsModelDownloadedJs')
 external JSPromise<JSBoolean> fllamaWebIsModelDownloadedJs(String modelPath);
@@ -150,6 +152,8 @@ extension type _JSFllamaWebInferenceRequest._(JSObject _) implements JSObject {
     required String modelPath,
     String? modelMmprojPath,
     required int contextSize,
+    required int numGpuLayers,
+    int? numThreads,
     int? nParallel,
     double? temperature,
     double? penaltyFrequency,
@@ -215,6 +219,7 @@ Future<int> fllamaChatWeb(
     modelPath: request.modelPath,
     modelMmprojPath: request.mmprojPath,
     contextSize: request.contextSize,
+    numGpuLayers: request.numGpuLayers,
     nParallel: fllamaWebParallelSlots(request),
     temperature: request.temperature,
     penaltyFrequency: request.frequencyPenalty,
@@ -271,40 +276,6 @@ Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   await loadFllamaWebRuntime();
   return (await fllamaTokenizeJs(request.modelPath, request.input).toDart)
       .toDartInt;
-}
-
-// Chat template
-@JS('fllamaChatTemplateGetJs')
-external JSPromise<JSString> fllamaChatTemplateGetJs(String modelPath);
-
-/// Returns the chat template embedded in the .gguf file.
-/// If none is found, returns an empty string.
-///
-/// See [fllamaSanitizeChatTemplate] for using sensible fallbacks for gguf
-/// files that don't have a chat template or have incorrect chat templates.
-Future<String> fllamaChatTemplateGet(String modelPath) async {
-  await loadFllamaWebRuntime();
-  return (await fllamaChatTemplateGetJs(modelPath).toDart).toDart;
-}
-
-@JS('fllamaBosTokenGetJs')
-external JSPromise<JSString?> fllamaBosTokenGetJs(String modelPath);
-
-/// Returns the BOS token embedded in the .gguf file.
-/// If none is found, returns an empty string.
-Future<String> fllamaBosTokenGet(String modelPath) async {
-  await loadFllamaWebRuntime();
-  return (await fllamaBosTokenGetJs(modelPath).toDart)?.toDart ?? '';
-}
-
-@JS('fllamaEosTokenGetJs')
-external JSPromise<JSString> fllamaEosTokenGetJs(String modelPath);
-
-/// Returns the EOS token embedded in the .gguf file.
-/// If none is found, returns an empty string.
-Future<String> fllamaEosTokenGet(String modelPath) async {
-  await loadFllamaWebRuntime();
-  return (await fllamaEosTokenGetJs(modelPath).toDart).toDart;
 }
 
 @JS('fllamaCancelInferenceJs')

@@ -77,3 +77,30 @@ Checked, no change:
   AVX/AVX2 (slow, safe).
 - image_url http: the download stub returns status 0, so llama.cpp rejects
   it; file:// is rejected without media_path. No network or file access.
+
+## Full audit: follow-up fixes
+
+Each red, then green:
+- 1: reader.next() threw (reply not in the chat format) and the request
+  ended with no error. Now `other`, as llama-server. Red: a GPT-OSS-like
+  jinja_template on Qwen (a cut-off tool call parses leniently, so not that).
+- 2: numThreads was not a load-time param. Now n_threads and
+  n_threads_batch are; a change reloads, as web's model key does.
+- 7: the download stub had 2 stale signatures and 2 stale structs. Now only
+  common_remote_get_content (the one symbol linked objects use, from nm),
+  with a static_assert on its type. test/download_stub_test.dart compiles it.
+- 8: n_batch = min(n_ctx, 2048) made n_ctx 0 fail ("n_batch and n_ubatch
+  cannot both be zero"). Now llama-server's defaults. A cancelled waiter
+  left the context retiring; now retire_waiters counts waiters.
+- 4 (web): chat never sent numGpuLayers to JS; 0 was 99999; contextSize 0
+  was 4096. Now as native. Telosnex passes 0 on web: it must pass -1.
+- 5 (web): delete matched by substring and unloaded a busy model. Now an
+  exact match, after running requests finish. Also: fllamaWebModelDelete
+  never completed (JSPromise<JSAny> resolved with undefined).
+- hook: publish kept the old library when the cache entry had the same
+  size and an older time (Mach-O pads to pages). Found when the old-code
+  red run still had the new code. Now compares bytes.
+- 3: removed fllamaChatTemplateGet, fllamaBosTokenGet, fllamaEosTokenGet
+  (no users; native freed malloc memory with calloc.free).
+
+Not done: 6 (Intel Mac CPU variants). Rosetta here has SSE4.2 only.

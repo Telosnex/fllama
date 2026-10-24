@@ -82,8 +82,8 @@ class FllamaError {
 /// sort of interface, i.e. an OpenAI-like API. It translates an OpenAI-like
 /// request into a inference request.
 class FllamaInferenceRequest {
-  int
-  contextSize; // llama.cpp handled 0 fine. StableLM Zephyr became default (4096).
+  /// Tokens of context. 0 is the model's trained context size.
+  int contextSize;
   String input;
   int maxTokens;
   String modelPath;
