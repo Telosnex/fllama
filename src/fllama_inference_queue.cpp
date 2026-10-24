@@ -265,8 +265,7 @@ void ServerManager::clear_cancel(int rid) {
 // ---------------------------------------------------------------------------
 // Request thread tracking
 // ---------------------------------------------------------------------------
-void ServerManager::start_request_thread(int rid,
-                                         std::function<void()> body) {
+void ServerManager::start_request_thread(std::function<void()> body) {
   std::lock_guard<std::mutex> lk(threads_lock);
   // Join any previously finished threads first.
   for (auto &ft : finished_threads)
@@ -274,12 +273,14 @@ void ServerManager::start_request_thread(int rid,
   finished_threads.clear();
   // The thread's unregister_request_thread() waits for threads_lock, so it
   // runs after the emplace.
-  request_threads.emplace(rid, std::thread(std::move(body)));
+  std::thread t(std::move(body));
+  const auto id = t.get_id();
+  request_threads.emplace(id, std::move(t));
 }
 
-void ServerManager::unregister_request_thread(int rid) {
+void ServerManager::unregister_request_thread() {
   std::lock_guard<std::mutex> lk(threads_lock);
-  auto it = request_threads.find(rid);
+  auto it = request_threads.find(std::this_thread::get_id());
   if (it != request_threads.end()) {
     // Can't join here (we're ON that thread). Move to finished list.
     finished_threads.push_back(std::move(it->second));

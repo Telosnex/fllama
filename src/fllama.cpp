@@ -649,13 +649,18 @@ static void run_inference(fllama_inference_request request,
     llama_logs.end_line();
   }
   g_mgr.clear_cancel(request.request_id);
-  g_mgr.unregister_request_thread(request.request_id);
+  g_mgr.unregister_request_thread();
   emit_done(callback, outcome);
 }
 
 // ── FFI entry points ─────────────────────────────────────────────────────────
 
 extern "C" {
+
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_new_request_id(void) {
+  static std::atomic<int> next_id{1};
+  return next_id.fetch_add(1);
+}
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_set_gpu_allowed(
     uint8_t allowed) {
@@ -760,7 +765,7 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_memory_info(
 
 EMSCRIPTEN_KEEPALIVE void fllama_inference(fllama_inference_request request,
                                            fllama_inference_callback callback) {
-  g_mgr.start_request_thread(request.request_id, [request, callback] {
+  g_mgr.start_request_thread([request, callback] {
     run_inference(request, callback);
   });
 }

@@ -100,8 +100,9 @@ public:
   // Starts [body] on a new request thread, tracked so that shutdown joins
   // it. The thread is listed before [body] runs, so its
   // unregister_request_thread() always finds it.
-  void start_request_thread(int request_id, std::function<void()> body);
-  void unregister_request_thread(int request_id);
+  void start_request_thread(std::function<void()> body);
+  // Call on a request thread, before it ends.
+  void unregister_request_thread();
 
 private:
   void cleanup_loop();
@@ -119,7 +120,9 @@ private:
   std::mutex model_load_mutex;
 
   std::mutex threads_lock;
-  std::unordered_map<int, std::thread> request_threads;
+  // By thread ID: two requests can have the same request ID, for example
+  // after a Dart hot restart.
+  std::unordered_map<std::thread::id, std::thread> request_threads;
   // Threads that finished but need joining.
   std::vector<std::thread> finished_threads;
 

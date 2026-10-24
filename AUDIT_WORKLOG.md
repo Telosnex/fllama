@@ -55,3 +55,25 @@ Audit of 2026-10-23. Each item: a red test, the fix, then the test is green.
   Emulator (dotprod, fp16, SVE i8mm): loads android_armv8.2_2; full native
   file 25 pass, 3 skipped. A 2 GB AVD is OOM-killed by lmkd at the
   whole-context test; 4 GB passes. Not run on an ARMv8.0 phone.
+
+## Full audit (second pass)
+
+Fixed:
+- Request IDs: each isolate counted from 0, and native keyed request
+  threads by that ID. Two isolates (or a hot restart while a request runs)
+  gave a duplicate key: emplace dropped a joinable std::thread, which is
+  std::terminate. Red: integration `requests from two isolates both finish`
+  (app died, test did not complete). Native now gives IDs
+  (fllama_new_request_id) and keys threads by std::thread::id.
+- Web: fllamaHasCudaGpu missing on web and in the stub (web compile error).
+- Web: promises read with .then() into a Completer; a rejection left the
+  Future pending forever. Now awaited.
+- Web tokenize test passed against the 4-chars-per-token stub; renamed.
+- Web cancel: test added; it already ended with no error.
+- Stale docs: fllamaLoadedBackendFiles, fllama_backends.h (Android arm64).
+
+Checked, no change:
+- GGML_NATIVE is OFF on every target (CMakeCache). macOS x86_64 has no
+  AVX/AVX2 (slow, safe).
+- image_url http: the download stub returns status 0, so llama.cpp rejects
+  it; file:// is rejected without media_path. No network or file access.

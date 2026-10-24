@@ -19,7 +19,8 @@ bool fllamaSetGpuAllowed(bool allowed) =>
 
 /// File names of the ggml backend libraries that fllama loaded, in load
 /// order. For example `[ggml-vulkan.dll, ggml-cpu-haswell.dll]`. Empty on
-/// platforms that link the backends into fllama (Apple, Android).
+/// platforms that link the backends into fllama: Apple, and Android other
+/// than arm64.
 ///
 /// The first call may be slow because it loads the backends.
 Future<List<String>> fllamaLoadedBackendFiles() async {

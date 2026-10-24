@@ -23,6 +23,9 @@ Future<String?> fllamaLoadGpuPack(String pack, String directory) async =>
 /// No Vulkan on this platform.
 Future<bool> fllamaHasVulkanGpu() async => false;
 
+/// No CUDA on this platform.
+Future<bool> fllamaHasCudaGpu() async => false;
+
 /// GGUF files cannot be read on this platform.
 int? fllamaTrainedContextLength(String modelPath) => null;
 

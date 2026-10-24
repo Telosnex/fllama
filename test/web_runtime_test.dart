@@ -35,11 +35,11 @@ void main() {
     );
   });
 
-  test('wllama loads the model and tokenizes', () async {
+  test('fllamaTokenize estimates 1 token for each 4 characters', () async {
     final count = await fllamaTokenize(
       FllamaTokenizeRequest(input: 'Once upon a time', modelPath: model),
     );
-    expect(count, inInclusiveRange(3, 8));
+    expect(count, 4);
   });
 
   // Audit item 2: fllamaChat on web sent `input` ('') and dropped the
@@ -68,6 +68,32 @@ void main() {
     // The message alone is about 75 tokens; the template around an empty
     // message is 28. stories15M has a context of 128 tokens.
     expect(await done.future, greaterThan(70));
+  });
+
+  // Full audit: a cancel ends with done and no error, as on native.
+  test('a cancelled chat ends with no error', () async {
+    final done = Completer<FllamaError?>();
+    late int requestId;
+    var cancelled = false;
+    requestId = await fllamaChat(
+      OpenAiRequest(
+        modelPath: model,
+        maxTokens: 100,
+        messages: [Message(Role.user, 'Once upon a time')],
+      ),
+      (response, responseJson, isDone, error) {
+        if (isDone) {
+          if (!done.isCompleted) done.complete(error);
+          return;
+        }
+        if (!cancelled && response.isNotEmpty) {
+          cancelled = true;
+          fllamaCancelInference(requestId);
+        }
+      },
+    );
+    expect(await done.future, isNull);
+    expect(cancelled, isTrue);
   });
 
   // Audit item 4: wllama parses requests as llama-server does.

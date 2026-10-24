@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' show Abi;
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:fllama/fllama.dart' as fllama;
@@ -718,6 +719,21 @@ void main() {
       timeout: const Timeout(Duration(minutes: 3)),
     );
 
+    // Full audit: each isolate numbers its requests from 0, and native
+    // fllama keys its request threads by that number.
+    test(
+      'requests from two isolates both finish',
+      () async {
+        final modelPath = modelFile.absolute.path;
+        final errors = await Future.wait(
+          [_chatInIsolate(modelPath), _chatInIsolate(modelPath)],
+        );
+        expect(errors, [null, null]);
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+
     // Audit item 4: llama-server's request fields reach llama.cpp.
     test(
       'stops at a stop string',
@@ -1023,6 +1039,17 @@ int get _testGpuLayers {
       ) ??
       -1;
 }
+
+/// Runs a short chat on a new isolate. Returns its error, or null.
+Future<String?> _chatInIsolate(String modelPath) => Isolate.run(() async {
+      final run = await _runChat(
+        modelPath: modelPath,
+        messages: [fllama.Message(fllama.Role.user, 'Reply with OK.')],
+        maxTokens: 4,
+        enableThinking: false,
+      );
+      return run.error?.toString();
+    });
 
 Future<_ChatRun> _runChat({
   required String modelPath,

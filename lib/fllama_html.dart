@@ -34,6 +34,9 @@ Future<String?> fllamaLoadGpuPack(String pack, String directory) async =>
 /// No Vulkan on this platform.
 Future<bool> fllamaHasVulkanGpu() async => false;
 
+/// No CUDA on this platform.
+Future<bool> fllamaHasCudaGpu() async => false;
+
 /// On the web, model files are not on a file system that Dart can read.
 int? fllamaTrainedContextLength(String modelPath) => null;
 
@@ -103,7 +106,6 @@ Future<int> fllamaInference(
     topP: dartRequest.topP,
   );
 
-  final completer = Completer<int>();
   callbackFn(
     String response,
     String responseJson,
@@ -118,10 +120,7 @@ Future<int> fllamaInference(
     );
   }
 
-  fllamaInferenceJs(jsRequest, callbackFn.toJS).toDart.then((value) {
-    completer.complete(value.toDartInt);
-  });
-  return completer.future;
+  return (await fllamaInferenceJs(jsRequest, callbackFn.toJS).toDart).toDartInt;
 }
 
 // JSAny used to be void. JSVoid does not work.
@@ -229,8 +228,7 @@ Future<int> _runWebChat(
   _JSFllamaWebInferenceRequest jsRequest,
   FllamaWebLoadCallback loadCallback,
   FllamaInferenceCallback callback,
-) {
-  final completer = Completer<int>();
+) async {
   firstCallback(double downloadProgress, double loadProgress) {
     loadCallback(downloadProgress, loadProgress);
   }
@@ -249,14 +247,12 @@ Future<int> _runWebChat(
     );
   }
 
-  fllamaChatWebJs(
+  final id = await fllamaChatWebJs(
     jsRequest,
     firstCallback.toJS,
     secondCallback.toJS,
-  ).toDart.then((value) {
-    completer.complete(value.toDartInt);
-  });
-  return completer.future;
+  ).toDart;
+  return id.toDartInt;
 }
 
 Future<void> fllamaWebModelDelete(String modelPath) async {
@@ -268,27 +264,13 @@ Future<void> fllamaWebModelDelete(String modelPath) async {
 @JS('fllamaTokenizeJs')
 external JSPromise<JSNumber> fllamaTokenizeJs(String modelPath, String input);
 
-/// Returns the number of tokens in [request.input].
-///
-/// Useful for identifying what messages will be in context when the LLM is run.
+/// An estimate of the number of tokens in [request.input]: one token for
+/// each 4 characters. The web runtime does not tokenize: that loads the model
+/// in wllama, which can unload the model of a running chat.
 Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   await loadFllamaWebRuntime();
-  try {
-    final completer = Completer<int>();
-    // print('[fllama_html] calling fllamaTokenizeJs at ${DateTime.now()}');
-
-    fllamaTokenizeJs(request.modelPath, request.input).toDart.then((value) {
-      // print(
-      // '[fllama_html] fllamaTokenizeAsync finished with $value at ${DateTime.now()}');
-      completer.complete(value.toDartInt);
-    });
-    // print('[fllama_html] called fllamaTokenizeJs at ${DateTime.now()}');
-    return await completer.future;
-  } catch (e) {
-    // ignore: avoid_print
-    print('[fllama_html] fllamaTokenizeAsync caught error: $e');
-    rethrow;
-  }
+  return (await fllamaTokenizeJs(request.modelPath, request.input).toDart)
+      .toDartInt;
 }
 
 // Chat template
@@ -302,45 +284,17 @@ external JSPromise<JSString> fllamaChatTemplateGetJs(String modelPath);
 /// files that don't have a chat template or have incorrect chat templates.
 Future<String> fllamaChatTemplateGet(String modelPath) async {
   await loadFllamaWebRuntime();
-  try {
-    final completer = Completer<String>();
-    // print('[fllama_html] calling fllamaChatTemplateGetJs at ${DateTime.now()}');
-    fllamaChatTemplateGetJs(modelPath).toDart.then((value) {
-      // print(
-      // '[fllama_html] fllamaChatTemplateGetJs finished with $value at ${DateTime.now()}');
-      completer.complete(value.toDart);
-    });
-    // print('[fllama_html] called fllamaChatTemplateGetJs at ${DateTime.now()}');
-    return await completer.future;
-  } catch (e) {
-    // ignore: avoid_print
-    print('[fllama_html] fllamaChatTemplateGetJs caught error: $e');
-    rethrow;
-  }
+  return (await fllamaChatTemplateGetJs(modelPath).toDart).toDart;
 }
 
 @JS('fllamaBosTokenGetJs')
 external JSPromise<JSString?> fllamaBosTokenGetJs(String modelPath);
 
-/// Returns the EOS token embedded in the .gguf file.
+/// Returns the BOS token embedded in the .gguf file.
 /// If none is found, returns an empty string.
 Future<String> fllamaBosTokenGet(String modelPath) async {
   await loadFllamaWebRuntime();
-  try {
-    final completer = Completer<String>();
-    // print('[fllama_html] calling fllamaEosTokenGet at ${DateTime.now()}');
-    fllamaBosTokenGetJs(modelPath).toDart.then((value) {
-      // print(
-      // '[fllama_html] fllamaEosTokenGet finished with $value at ${DateTime.now()}');
-      completer.complete(value?.toDart ?? '');
-    });
-    // print('[fllama_html] called fllamaEosTokenGet at ${DateTime.now()}');
-    return await completer.future;
-  } catch (e) {
-    // ignore: avoid_print
-    print('[fllama_html] fllamaBosTokenGet caught error: $e');
-    rethrow;
-  }
+  return (await fllamaBosTokenGetJs(modelPath).toDart)?.toDart ?? '';
 }
 
 @JS('fllamaEosTokenGetJs')
@@ -350,21 +304,7 @@ external JSPromise<JSString> fllamaEosTokenGetJs(String modelPath);
 /// If none is found, returns an empty string.
 Future<String> fllamaEosTokenGet(String modelPath) async {
   await loadFllamaWebRuntime();
-  try {
-    final completer = Completer<String>();
-    // print('[fllama_html] calling fllamaEosTokenGet at ${DateTime.now()}');
-    fllamaEosTokenGetJs(modelPath).toDart.then((value) {
-      // print(
-      // '[fllama_html] fllamaEosTokenGet finished with $value at ${DateTime.now()}');
-      completer.complete(value.toDart);
-    });
-    // print('[fllama_html] called fllamaEosTokenGet at ${DateTime.now()}');
-    return await completer.future;
-  } catch (e) {
-    // ignore: avoid_print
-    print('[fllama_html] fllamaEosTokenGet caught error: $e');
-    rethrow;
-  }
+  return (await fllamaEosTokenGetJs(modelPath).toDart).toDart;
 }
 
 @JS('fllamaCancelInferenceJs')

@@ -26,6 +26,17 @@ class FllamaBindings {
     ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName) lookup,
   ) : _lookup = lookup;
 
+  /// A new request ID, unique in this process: for every isolate, and across a
+  /// Dart hot restart. Use it as fllama_inference_request.request_id.
+  int fllama_new_request_id() {
+    return _fllama_new_request_id();
+  }
+
+  late final _fllama_new_request_idPtr =
+      _lookup<ffi.NativeFunction<ffi.Int Function()>>('fllama_new_request_id');
+  late final _fllama_new_request_id = _fllama_new_request_idPtr
+      .asFunction<int Function()>();
+
   void fllama_inference(
     fllama_inference_request request,
     fllama_inference_callback callback,

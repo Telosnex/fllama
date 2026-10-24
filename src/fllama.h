@@ -88,6 +88,10 @@ struct fllama_inference_request {
                            // An unknown key is logged and treated as Auto.
 };
 
+// A new request ID, unique in this process: for every isolate, and across a
+// Dart hot restart. Use it as fllama_inference_request.request_id.
+EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_new_request_id(void);
+
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference(struct fllama_inference_request request,
                                         fllama_inference_callback callback);
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT void fllama_inference_sync(struct fllama_inference_request request,

@@ -31,7 +31,9 @@ Future<int> fllamaInference(
   FllamaInferenceCallback callback,
 ) async {
   final SendPort helperIsolateSendPort = await _getHelperIsolateSendPort();
-  final int requestId = _nextInferenceRequestId++;
+  // Native gives the ID: a per-isolate counter would repeat in another
+  // isolate, or after a hot restart, while native still runs the request.
+  final int requestId = fllamaBindings.fllama_new_request_id();
   // The logger stays on this isolate: a closure can capture state that
   // cannot be sent to another isolate. Log lines come back as messages.
   final _IsolateInferenceRequest isolateRequest = _IsolateInferenceRequest(
@@ -123,9 +125,6 @@ class _IsolateInferenceResponse {
     this.errorJson,
   });
 }
-
-/// Counter to identify [_IsolateInferenceRequest]s and [_IsolateInferenceResponse]s.
-int _nextInferenceRequestId = 0;
 
 /// Mapping from [_IsolateInferenceRequest] `id`s to the callbacks that are
 /// run when each token is generated.
