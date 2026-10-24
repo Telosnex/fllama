@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- The INTERNET permission is required for development and lets integration
-         tests read cached models from the Codemagic host's local HTTP server. -->
+         tests read cached models from the host's local HTTP server. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application android:usesCleartextTraffic="true"/>
 </manifest>

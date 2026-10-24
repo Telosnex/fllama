@@ -132,3 +132,7 @@ Not done: 6 (Intel Mac CPU variants). Rosetta here has SSE4.2 only.
   prompt 200 -> 490-520 tok/s, generation 89 -> 138-150 tok/s, against the
   armv8.0 variant alone. Size: 19.1 MB (was 11.9 MB). Not run: the Flutter
   integration test on Linux arm64, a real Pi.
+- Removed Codemagic: codemagic.yaml, scripts/configure_windows_ci.ps1 (its
+  only user). Kept serve_test_models.dart and boot_ios_simulator.dart for
+  local mobile runs. GitHub Actions runs only the web runtime tests; the
+  native integration tests are local now.

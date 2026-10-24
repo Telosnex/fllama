@@ -14,8 +14,9 @@
 
 ## CI
 The `Native release` GitHub Actions workflow builds the native libraries for
-every platform, and the web runtime, and tests them (see
-`.github/workflows/native_release.yml`).
+every platform and the web runtime, and runs the web runtime tests (see
+`.github/workflows/native_release.yml`). Run the integration tests locally:
+see `example/integration_test/README.md`.
 
 ## Integrate
 - Add this to your package's pubspec.yaml file:

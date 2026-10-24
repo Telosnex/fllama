@@ -106,8 +106,8 @@ List<SimulatorCandidate> simulatorCandidates(
     final runtime = compareVersion(a.runtime, b.runtime);
     if (runtime != 0) return runtime;
     if (fresh) {
-      // iPhone Air currently fails first-boot data migration on the Codemagic
-      // image (and reproduced locally); prefer a Pro simulator in that runtime.
+      // iPhone Air fails first-boot data migration on some Xcode images;
+      // prefer a Pro simulator in that runtime.
       final device = devicePriority(
         b.device,
       ).compareTo(devicePriority(a.device));

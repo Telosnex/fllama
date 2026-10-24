@@ -1250,7 +1250,7 @@ Future<void> _deleteFile(File file) async {
 }
 
 Future<Directory> _modelCacheDirectory() async {
-  // Mobile apps cannot access Codemagic's host filesystem even if the simulator
+  // Mobile apps cannot access the host's filesystem even if the simulator
   // happens to inherit MODEL_CACHE_DIR. They receive the cached files from the
   // host's local model server and keep their copies in the app sandbox.
   if (defaultTargetPlatform == TargetPlatform.android ||
