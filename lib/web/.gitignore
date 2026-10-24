@@ -1,8 +1,8 @@
-# native_prebuilt web install-dev: generated, do not edit.
-/.native_prebuilt_web_version
+# kiln web install-dev: generated, do not edit.
+/.kiln_web_version
 /wllama/compat/wllama.js
 /wllama/compat/wllama.wasm
 /wllama/index.js
 /wllama/wasm/wllama.js
 /wllama/wasm/wllama.wasm
-# End of native_prebuilt web install-dev.
+# End of kiln web install-dev.

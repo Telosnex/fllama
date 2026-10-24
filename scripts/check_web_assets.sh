@@ -32,8 +32,8 @@ require_grep() {
 }
 
 # The web runtime: fllama_web_init.js is in git; the wllama files are
-# generated (native_prebuilt ADR 002). Install them first with
-# `dart run native_prebuilt:web install-dev`.
+# generated (kiln ADR 002). Install them first with
+# `dart run kiln:web install-dev`.
 require_file lib/web/fllama_web_init.js
 require_file lib/web/wllama/index.js
 require_file lib/web/wllama/wasm/wllama.js

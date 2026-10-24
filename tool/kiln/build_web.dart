@@ -5,16 +5,17 @@
 /// WebAssembly Memory64 or JSPI (Safari): wllama/compat/wllama.js and
 /// wllama/compat/wllama.wasm.
 ///
-/// It runs in the emsdk image of wllama.json (native_prebuilt ADR 002 D10,
-/// D11): the release workflow runs it there, and so does a local build:
+/// It runs in the emsdk image of wllama.json (kiln ADR 002 D10,
+/// D11): the kiln release workflow runs it there, and so does a local build.
+/// --toolchain-file gets the Emscripten and Node versions for web.json:
 ///
 ///     docker run --rm -v "$PWD:/src" -v /tmp/fllama_web:/out -w /src \
-///       <emsdkImage> bash -c 'dart tool/build_web.dart --out /out'
+///       <emsdkImage> bash -c 'dart tool/kiln/build_web.dart --out /out'
 ///
 /// The image needs Dart on the PATH. The script uses only dart:io, so it
 /// needs no `pub get` (fllama needs Flutter). Then install the files with
 ///
-///     dart run native_prebuilt:web install-dev --from /tmp/fllama_web
+///     dart run kiln:web install-dev --from /tmp/fllama_web
 ///
 /// These are the steps of wllama's own build (`npm run build:wasm`,
 /// `build:worker`, `build:tsup`), with every step checked.
@@ -23,7 +24,9 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-const _usage = 'dart run tool/build_web.dart --out <dir> [--work <dir>]';
+const _usage =
+    'dart tool/kiln/build_web.dart --out <dir> [--work <dir>] '
+    '[--toolchain-file <file>]';
 
 const _outputs = {
   'esm/index.js': 'wllama/index.js',
@@ -35,7 +38,9 @@ const _outputs = {
 
 Future<void> main(List<String> args) async {
   final options = _parse(args);
-  final root = Directory.fromUri(Platform.script.resolve('..')).absolute.path;
+  final root = Directory.fromUri(
+    Platform.script.resolve('../..'),
+  ).absolute.path;
   final out = Directory(options['out']!).absolute;
   final work = Directory(
     options['work'] ?? '${Directory.systemTemp.path}/fllama_web_build',
@@ -54,6 +59,14 @@ Future<void> main(List<String> args) async {
   }
   final node = (await _output(['node', '--version'], root)).trim();
   if (node != 'v${pin['node']}') _fail('Node ${pin['node']} required: $node');
+  if (options['toolchain-file'] case final path?) {
+    final version = RegExp(
+      r'[0-9][0-9.]* \([0-9a-f]+\)',
+    ).firstMatch(emcc.split('\n').first)?[0];
+    await File(path).writeAsString(
+      'Emscripten ${version ?? pin['emscripten']}, Node ${pin['node']}\n',
+    );
+  }
 
   if (await work.exists()) await work.delete(recursive: true);
   await work.create(recursive: true);
@@ -210,6 +223,7 @@ Map<String, String> _parse(List<String> args) {
     final name = switch (args[i]) {
       '--out' => 'out',
       '--work' => 'work',
+      '--toolchain-file' => 'toolchain-file',
       _ => _fail('Unknown argument: ${args[i]}\n$_usage'),
     };
     if (i + 1 == args.length) _fail('${args[i]} needs a value.\n$_usage');

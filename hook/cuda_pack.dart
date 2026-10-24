@@ -19,7 +19,7 @@ import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
 import 'package:crypto/crypto.dart';
-import 'package:native_prebuilt/native_prebuilt.dart';
+import 'package:kiln/kiln.dart';
 import 'package:path/path.dart' as p;
 
 /// Bump when the meaning of the key or the descriptor changes.
@@ -56,7 +56,7 @@ bool cudaTargets(OS targetOS, Architecture targetArch) =>
     targetArch == Architecture.x64 &&
     (targetOS == OS.windows || targetOS == OS.linux);
 
-/// Target name of a CUDA pack target, as native_prebuilt names it.
+/// Target name of a CUDA pack target, as kiln names it.
 String cudaPackTarget(OS targetOS) => switch (targetOS) {
   OS.windows => 'windows-x64',
   OS.linux => 'linux-x64',
@@ -173,7 +173,7 @@ final class CudaPackKey {
 
 /// Computes the CUDA pack key of [target] for the package at [packageRoot].
 ///
-/// [files] are the package files of the native_prebuilt source key, with
+/// [files] are the package files of the kiln source key, with
 /// their SHA-256 values. scripts/ is not in the source key, so
 /// scripts/install_cuda_toolkit.dart is read here.
 Future<CudaPackKey> computeCudaPackKey({

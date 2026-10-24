@@ -22,9 +22,9 @@ import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
 import 'package:crypto/crypto.dart';
-import 'package:native_prebuilt/native_prebuilt.dart';
+import 'package:kiln/kiln.dart';
 // ignore: implementation_imports
-import 'package:native_prebuilt/src/publisher.dart';
+import 'package:kiln/src/publisher.dart';
 import 'package:path/path.dart' as p;
 
 import '../hook/cuda_pack.dart';

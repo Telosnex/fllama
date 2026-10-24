@@ -5,7 +5,7 @@ import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
 import 'package:crypto/crypto.dart';
-import 'package:native_prebuilt/native_prebuilt.dart';
+import 'package:kiln/kiln.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

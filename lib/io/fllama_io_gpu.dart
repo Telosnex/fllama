@@ -33,7 +33,7 @@ Future<List<String>> fllamaLoadedBackendFiles() async {
 
 /// GPU pack files that this fllama build expects (ADR 004, D13). Empty if
 /// the build has no packs: on Apple and Android, and in a local source build,
-/// which bundles its GPU backends (native_prebuilt ADR 001, D7).
+/// which bundles its GPU backends (kiln ADR 001, D7).
 List<FllamaGpuPackFile> fllamaGpuPackFiles() {
   final json = fllamaBindings
       .fllama_get_gpu_pack_files()

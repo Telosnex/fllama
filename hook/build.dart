@@ -1,7 +1,7 @@
 // Build hook for fllama — compiles llama.cpp into a shared library that
 // Flutter bundles with the app. Runs automatically on flutter build/run/test.
 //
-// With package:native_prebuilt (native_prebuilt
+// With package:kiln (kiln
 // docs/ADR_001_PREBUILT_NATIVE_LIBRARIES.md), the hook first downloads the
 // libraries from the GitHub release in native_artifacts/prebuilt.json if that
 // manifest matches the package sources. User define `native_build`: auto
@@ -50,7 +50,7 @@
 //   build_key = sha256(
 //     target_os, target_arch, build_mode,
 //     sorted(defines), GPU SDK version,
-//     native_prebuilt source key (sha256 of every package source file)
+//     kiln source key (sha256 of every package source file)
 //   )
 //
 //   cache_dir = ~/.cache/fllama/<build_key>/
@@ -90,7 +90,7 @@ import 'package:code_assets/code_assets.dart';
 import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/logging.dart';
-import 'package:native_prebuilt/native_prebuilt.dart';
+import 'package:kiln/kiln.dart';
 import 'package:native_toolchain_cmake/native_toolchain_cmake.dart';
 import 'package:path/path.dart' as p;
 
@@ -106,8 +106,8 @@ void main(List<String> args) async {
     // analyze, or a platform that doesn't support code assets).
     if (!input.config.buildCodeAssets) {
       // A web build: install the web runtime files of native_artifacts/web.json
-      // into the app (native_prebuilt ADR 002).
-      return NativePrebuilt(input: input, output: output, log: print)
+      // into the app (kiln ADR 002).
+      return Kiln(input: input, output: output, log: print)
           .installWeb();
     }
 
@@ -117,7 +117,7 @@ void main(List<String> args) async {
       ..level = Level.ALL
       ..onRecord.listen((record) => hookLog.add(record.message));
 
-    await NativePrebuilt(input: input, output: output, log: logger.info).run(
+    await Kiln(input: input, output: output, log: logger.info).run(
       (source) => _buildFromSource(
         input: input,
         output: output,
@@ -181,7 +181,7 @@ Future<void> _buildFromSource({
   }
 
   // ── CMake defines ──────────────────────────────────────────────────
-  // Only a release build makes GPU backends GPU packs (native_prebuilt ADR 001
+  // Only a release build makes GPU backends GPU packs (kiln ADR 001
   // D7). A local build bundles ggml-vulkan, because it has no host for the
   // pack.
   final defines = computeDefines(
@@ -348,7 +348,7 @@ Future<void> _buildFromSource({
     );
     if (shouldStripAndroidLibrary(targetOS, release: release != null)) {
       // The NDK adds -g even for Release. Strip only the published copy,
-      // before native_prebuilt hashes it; keep the cache for debugging.
+      // before kiln hashes it; keep the cache for debugging.
       await stripAndroidReleaseLibrary(
         library: File.fromUri(
           input.outputDirectory.resolve(p.basename(lib.path)),
@@ -1085,7 +1085,7 @@ final class GpuPackFile {
   final String name;
   final String sha256;
 
-  /// The gzipped file in the fllama GitHub release (native_prebuilt ADR 001
+  /// The gzipped file in the fllama GitHub release (kiln ADR 001
   /// §5), or in the CUDA pack release for an [external] file.
   final String url;
 

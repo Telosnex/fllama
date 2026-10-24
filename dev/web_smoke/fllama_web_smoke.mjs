@@ -82,10 +82,10 @@ async function waitForHttp(url, timeoutMs = 20000) {
   throw new Error(`Timed out waiting for ${url}: ${lastError?.message ?? lastError}`);
 }
 
-// The fllama build hook installs the web runtime here (native_prebuilt
+// The fllama build hook installs the web runtime here (kiln
 // ADR 002). Legacy refs used assets/packages/fllama/assets/web/; the example
 // now loads only this path.
-const packageAssetDir = path.join(exampleDir, 'build', 'web', 'native_prebuilt', 'fllama');
+const packageAssetDir = path.join(exampleDir, 'build', 'web', 'kiln', 'fllama');
 
 async function resetPackageWebAssets() {
   await rm(path.join(packageAssetDir, 'wllama'), { recursive: true, force: true });
