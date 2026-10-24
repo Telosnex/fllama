@@ -269,71 +269,8 @@ Future<int> fllamaChat(
   return fllamaInference(inferenceRequest, callback);
 }
 
-/// Returns a string representing the input to an LLM model after applying the
-/// chat template.
-///
-/// - [chatTemplate] is the raw chat template from the GGUF.
-/// - [eosToken] is the raw EOS token from the GGUF.
-/// - [request] is the OpenAI-like request.
-const chatMlTemplate = '''
-{%- for msg in messages -%}
-<|im_start|>{{ msg.role }}
-{{ msg.content }}<|im_end|>
-{% endfor %}
-<|im_start|>assistant
-''';
-
 /// Convert a JSON schema to GBNF, a grammar format used by llama.cpp to enforce
 /// that the model returns certain outputs.
 String fllamaJsonSchemaToGrammar(String jsonSchema) {
   return convertToJsonGrammar(jsonSchema);
-}
-
-/// Given a chat template embedded in a .gguf file, returns the chat template
-/// itself, or a sensible fallback if the chat template is incorrect or missing.
-String fllamaSanitizeChatTemplate(
-  String builtInChatTemplate,
-  String modelPath,
-) {
-  final String chatTemplate;
-
-  // Order is very important here, be careful.
-  // ex. if isNotEmpty branch comes first, the check for an erroroneous
-  // template never runs.
-  if (builtInChatTemplate.contains(
-    'Only user and assistant roles are supported!',
-  )) {
-    // There's a strange chat template first encountered in an early version of
-    // LLaVa 1.6 x Mistral 7B.
-    //
-    // It is likely to be some sort of default template used by .gguf makers.
-    //
-    // It is too limited to be acceptable, as it strips out system messages.
-    // Instead of using it, use ChatML.
-    //
-    // n.b. LLaVa 1.6 is actually supposed to use ChatML anyway, the template
-    // in the model is incorrect.
-    //
-    // Template: ```{{ bos_token }}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if message['role'] == 'user' %}{{ '[INST] ' + message['content'] + ' [/INST]' }}{% elif message['role'] == 'assistant' %}{{ message['content'] + eos_token}}{% else %}{{ raise_exception('Only user and assistant roles are supported!') }}{% endif %}{% endfor %}```
-    chatTemplate = chatMlTemplate;
-    // ignore: avoid_print
-    print(
-      '[fllama] Using ChatML because built-in chat template seems erroneous. (contains "Only user and assistant roles are supported!")',
-    );
-  } else if (builtInChatTemplate.isNotEmpty) {
-    // First observed with https://huggingface.co/brittlewis12/Memphis-CoT-3B-GGUF
-    // Replacing with trim() did not work. That was unexpected because the Jinja
-    // package seems to indicate Dart instance methods are available.
-    chatTemplate = builtInChatTemplate.replaceAll('.strip()', '');
-    // ignore: avoid_print
-    print('[fllama] Using built-in chat template: $chatTemplate');
-    // ignore: avoid_print
-  } else {
-    // Assume models without one specified intend ChatML.
-    // This is the case for Mistral 7B via OpenHermes.
-    // ignore: avoid_print
-    print('[fllama] Using ChatML because no built-in chat template was found.');
-    chatTemplate = chatMlTemplate;
-  }
-  return chatTemplate;
 }

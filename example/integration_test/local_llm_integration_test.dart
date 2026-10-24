@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' show Abi;
 import 'dart:io';
+import 'dart:math';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -858,6 +859,96 @@ void main() {
       },
       skip: supportedPlatform ? null : 'Native-platform test',
       timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    // Audit 3, #2: requests that fill the shared context together end with
+    // "Context size has been exceeded." (type server_error). Web reported it
+    // as contextSizeExceeded; native as other.
+    test(
+      'requests that fill the shared context report contextSizeExceeded',
+      () async {
+        Future<_ChatRun> ask() => _runChat(
+              modelPath: modelFile.absolute.path,
+              messages: [fllama.Message(fllama.Role.user, 'Say na.')],
+              contextSize: 512,
+              maxTokens: 400,
+              enableThinking: false,
+              // Each slot can hold 400 tokens; the four together cannot.
+              grammar: 'root ::= "na "{400}',
+            );
+        final runs = await Future.wait([ask(), ask(), ask(), ask()]);
+        final types = runs.map((r) => r.error?.type).toList();
+        print('[fllama integration] shared context: $types '
+            '${runs.map((r) => r.error?.message).toList()}');
+        expect(types, contains(fllama.FllamaErrorType.contextSizeExceeded));
+        expect(types, isNot(contains(fllama.FllamaErrorType.other)));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 5)),
+    );
+
+    // Audit 3, #3: a plain prompt was tokenized on the thread that runs all
+    // requests, so a long one paused the others.
+    test(
+      'a long plain prompt does not pause a running request',
+      () async {
+        final modelPath = modelFile.absolute.path;
+        fllama.FllamaInferenceRequest request(String input, int maxTokens) =>
+            fllama.FllamaInferenceRequest(
+              contextSize: 2048,
+              input: input,
+              maxTokens: maxTokens,
+              modelPath: modelPath,
+              numGpuLayers: _testGpuLayers,
+              numThreads: 4,
+            );
+        // Load the model, and warm up the tokenizer.
+        final warm = Completer<void>();
+        await fllama.fllamaInference(request('Hello', 2), (_, __, d, ___) {
+          if (d && !warm.isCompleted) warm.complete();
+        });
+        await warm.future.timeout(const Duration(minutes: 3));
+
+        final times = <int>[];
+        final clock = Stopwatch()..start();
+        final aDone = Completer<void>();
+        final firstTokens = Completer<void>();
+        final aId = await fllama.fllamaInference(
+          request('Once upon a time', 1500),
+          (result, json, done, _) {
+            times.add(clock.elapsedMilliseconds);
+            if (times.length == 20 && !firstTokens.isCompleted) {
+              firstTokens.complete();
+            }
+            if (done && !aDone.isCompleted) aDone.complete();
+          },
+        );
+        await firstTokens.future.timeout(const Duration(minutes: 1));
+        final start = clock.elapsedMilliseconds;
+        final bDone = Completer<void>();
+        await fllama.fllamaInference(
+          request(List.filled(200000, 'The quick brown fox jumps. ').join(), 4),
+          (_, __, done, ___) {
+            if (done && !bDone.isCompleted) bDone.complete();
+          },
+        );
+        await bDone.future.timeout(const Duration(minutes: 1));
+        // Let A run a little after B, then stop it.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        fllama.fllamaCancelInference(aId);
+        await aDone.future.timeout(const Duration(minutes: 1));
+        expect(aDone.isCompleted, isTrue);
+
+        var gap = 0;
+        for (var i = 1; i < times.length; i++) {
+          if (times[i] < start) continue;
+          gap = max(gap, times[i] - times[i - 1]);
+        }
+        print('[fllama integration] longest gap while B tokenized: $gap ms');
+        expect(gap, lessThan(400));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 5)),
     );
 
     // Full audit: each isolate numbers its requests from 0, and native

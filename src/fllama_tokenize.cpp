@@ -1,6 +1,7 @@
 #include "fllama_tokenize.h"
 #include "fllama_backends.h"
 
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -19,9 +20,6 @@ static std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT extern "C" 
 size_t fllama_tokenize(struct fllama_tokenize_request request) {
-/* DISABLED: Model load logs.
-  auto start_time_model_load = std::chrono::high_resolution_clock::now();
-*/
   fllama_backends_init_once();
   // Leaves out the ~50 lines that a model load logs, on this thread only.
   // llama_log_set would silence llama.cpp for the whole process.
@@ -33,41 +31,21 @@ size_t fllama_tokenize(struct fllama_tokenize_request request) {
     std::cout << "[fllama] Unable to load model." << std::endl;
     return static_cast<size_t>(-1);
   }
-  
-  // 50 ms for initial load of 2 GB model, ~^10^-5 for cache hit.
-/* DISABLED: Model load logs.
-  auto end_time_model_load = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double, std::milli> model_load_duration =
-      end_time_model_load - start_time_model_load;
-  std::cout << "[fllama] Model loading took: " << model_load_duration.count() << " ms." << std::endl;
-*/
 
-/* DISABLED: Tokenization logs.
-  auto start_time_tokenize = std::chrono::high_resolution_clock::now();
-*/
-  std::vector<llama_token> tokens_list;
+  const llama_vocab *vocab = llama_model_get_vocab(model);
   const size_t input_len = strlen(request.input);
-  tokens_list.resize(input_len + 3);  // add extra space for special tokens
-  const llama_vocab * vocab = llama_model_get_vocab(model);
-  const int n_tokens = ::llama_tokenize(vocab,
-                                     request.input,
-                                     input_len,
-                                     tokens_list.data(), 
-                                     tokens_list.size(),
+  if (input_len > static_cast<size_t>(INT32_MAX)) {
+    return static_cast<size_t>(-1);
+  }
+  // With no buffer, llama_tokenize returns -(the token count), or 0 for no
+  // tokens. INT32_MIN: more tokens than an int32 holds.
+  const int32_t r = ::llama_tokenize(vocab, request.input,
+                                     static_cast<int32_t>(input_len),
+                                     nullptr, 0,
                                      true,   // add BOS
                                      true);  // parse special tokens
-  if (n_tokens < 0) {
-      return 0;  // Error case
-  }
-  tokens_list.resize(n_tokens);
-/* DISABLED: Tokenization logs.
-  auto end_time_tokenize = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double, std::milli> tokenize_duration =
-       end_time_tokenize - start_time_tokenize;
-   std::cout << "[fllama] Tokenization took: " << tokenize_duration.count()
-             << " ms. Input token count: " << tokens_list.size() << std::endl;
-*/
-  return tokens_list.size();
+  if (r == INT32_MIN) return static_cast<size_t>(-1);
+  return static_cast<size_t>(r < 0 ? -static_cast<int64_t>(r) : r);
 }
 
 struct ModelCacheEntry {

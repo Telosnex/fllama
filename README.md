@@ -12,22 +12,10 @@
 - Use with FONNX for RAG
   - Combine with [FONNX](https://github.com/Telosnex/fonnx) to have a full retrieval-augmented generation stack available on all platforms.
 
-## CI builds
-| Platform     | Status |
-|--------------|--------|
-| __Android__  | [![Codemagic build status](https://api.codemagic.io/apps/661bdc0af8dd02f68c5475b7/android-build/status_badge.svg)](https://codemagic.io/app/661bdc0af8dd02f68c5475b7/android-build/latest_build) |
-| __iOS__  | [![Codemagic build status](https://api.codemagic.io/apps/661bdc0af8dd02f68c5475b7/ios-build/status_badge.svg)](https://codemagic.io/app/661bdc0af8dd02f68c5475b7/ios-build/latest_build) |
-| __Linux__    | [![Codemagic build status](https://api.codemagic.io/apps/661bdc0af8dd02f68c5475b7/linux-build/status_badge.svg)](https://codemagic.io/app/661bdc0af8dd02f68c5475b7/linux-build/latest_build) |
-| __macOS__ | [![Codemagic build status](https://api.codemagic.io/apps/661bdc0af8dd02f68c5475b7/macos-build/status_badge.svg)](https://codemagic.io/app/661bdc0af8dd02f68c5475b7/macos-build/latest_build) |
-| __Web__  | [![Codemagic build status](https://api.codemagic.io/apps/661bdc0af8dd02f68c5475b7/web-build/status_badge.svg)](https://codemagic.io/app/661bdc0af8dd02f68c5475b7/web-build/latest_build) |
-| __Windows__  | [![Codemagic build status](https://api.codemagic.io/apps/661bdc0af8dd02f68c5475b7/windows-build/status_badge.svg)](https://codemagic.io/app/661bdc0af8dd02f68c5475b7/windows-build/latest_build) |
-
-## Recent updates
-### 26 Feb 2024
-- Web is now based on WASM compiled from FLLAMA itself, rather than just llama.cpp, guaranteeing native/web parity.
-- Tokenizing strings based on the model is 1000x faster, via caching the model. Went from O(300 ms) on native only to O(0.2 ms) on web, O(0.00001 ms) on native. This enables calculating what strings will be in context based on the context size.
-- Method renames for consistency, correctness, and clarity. (ex. remove *Async from names, because all methods are async; rename `fllamaChatCompletionAsync` to `fllamaChat`)
-- Document methods and updated example. TL;DR: Use `fllamaChat` unless you're doing something funny with LLMs that isn't user-facing, it will act like a true text completion engine instead of a chatbot.
+## CI
+The `Native release` GitHub Actions workflow builds the native libraries for
+every platform, and the web runtime, and tests them (see
+`.github/workflows/native_release.yml`).
 
 ## Integrate
 - Add this to your package's pubspec.yaml file:
@@ -50,7 +38,9 @@ final request = OpenAiRequest(
     Message(Role.system, 'You are a chatbot.'),
     Message(Role.user, messageText),
   ],
-  numGpuLayers: 99, /* this seems to have no adverse effects in environments w/o GPU support, ex. Android and web */
+  // -1: llama.cpp fits the layers to free GPU memory (all layers on web).
+  // 0: CPU only. N: N layers on the GPU.
+  numGpuLayers: -1,
   modelPath: _modelPath!,
   mmprojPath: _mmprojPath,
   // Sampling fields that are not set use the values that the GGUF file
@@ -60,6 +50,7 @@ final request = OpenAiRequest(
   // 2048 should be considered on devices with low RAM (<8 GB)
   // 8192 and higher can be considered on device with high RAM (>16 GB)
   // Models are trained on <= a certain context size. Exceeding that # can/will lead to completely incoherent output.
+  // 0 is the model's trained context size.
   contextSize: 2048,
   logger: (log) {
     // ignore: avoid_print
@@ -83,17 +74,10 @@ fllamaChat(request, (response, json, done, error) {
   dart run native_prebuilt:web install-dev
   scripts/check_web_assets.sh
   ```
-### Recommended models
-  3 top-tier open models are in the [fllama HuggingFace repo](https://huggingface.co/telosnex/fllama/tree/main).
-  - __Stable LM 3B__ is the first LLM model that can handle RAG, using documents such as web pages to answer a query, on *all* devices. 
-  > Mistral models via [Nous Research](https://nousresearch.com/).
-    They trained and finetuned the Mistral base models for chat to create the OpenHermes series of models.
-  - __Mistral 7B__ is best on 2023 iPhones or 2024 Androids or better.
-    It's about 2/3 the speed of Stable LM 3B and requires 5 GB of RAM.
-  - __Mixtral 8x7B__ should only be considered on a premium laptop or desktop,
-    such as an M-series MacBook or a premium desktop purchased in 2023
-    or later. It's about 1/3 the speed of Stable LM 3B and requires 
-    26 GB of RAM.
+### Models
+  Any GGUF model that llama.cpp supports. The tests use
+  Qwen3.5 0.8B (Q4_K_M),
+  and its mmproj file for images.
 ### RAM Requirements
   Roughly: you'll need as much RAM as the model file size.
   If inference runs on CPU, that much regular RAM is required.

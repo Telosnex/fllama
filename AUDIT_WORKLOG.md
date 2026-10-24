@@ -104,3 +104,18 @@ Each red, then green:
   (no users; native freed malloc memory with calloc.free).
 
 Not done: 6 (Intel Mac CPU variants). Rosetta here has SSE4.2 only.
+
+## Audit 3
+
+- 2: "Context size has been exceeded." (shared unified context, a server
+  error in llama.cpp) is now exceed_context_size, as on web. Red: 4 requests
+  in 512 tokens, each with a 400-token grammar: all `other`.
+- 3: every request without images is tokenized on its request thread. Red:
+  a 1.2M-token plain prompt paused a running request 687 ms; now 12 ms.
+  Image prompts stay on the loop thread: llama.cpp keeps its mtmd context
+  private (server_context_impl).
+- Cleanup: removed fllamaSanitizeChatTemplate, chatMlTemplate,
+  DISABLE_SERVER_REQUEST_QUEUE; fllama_tokenize counts with a null buffer
+  and returns (size_t)-1 on overflow, not 0; slot waiters remove their abort
+  listener; README: no Codemagic badges, no Feb 2024 notes, current
+  numGpuLayers/contextSize meanings, no 2024 model list.

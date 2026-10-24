@@ -246,6 +246,11 @@ static std::string error_type_of_server_error(const nlohmann::ordered_json &e,
   if (fllama_error_requires_backend_recreation(message)) return "backend";
   const std::string type = e.value("type", "");
   if (type == "exceed_context_size_error") return "exceed_context_size";
+  // Requests that fill the shared (unified) context together. llama.cpp
+  // sends this as a server error; the web runtime matches the same text.
+  if (message.find("Context size has been exceeded") != std::string::npos) {
+    return "exceed_context_size";
+  }
   if (type == "invalid_request_error") return "invalid_request";
   return "other";
 }
@@ -509,19 +514,25 @@ static void run_inference_body(const fllama_inference_request &request,
 
     const auto delimiters_json =
         json_value(body_parsed, "message_delimiters", json::array());
-    if (is_oai && !delimiters_json.empty() && files.empty()) {
-      // As llama-server: tokenize here, and give llama.cpp the message
-      // boundaries. Hybrid and recurrent models, such as Qwen 3.5, can then
-      // keep context checkpoints at user messages, and reuse the cache up to
-      // an edited message. With images, llama.cpp tokenizes the prompt: only
-      // it has the multimodal context.
+    if (files.empty()) {
+      // As llama-server: tokenize on the request thread, not on the thread
+      // that runs every request, so a long prompt does not pause the others.
+      // A chat also gives llama.cpp its message boundaries: hybrid and
+      // recurrent models, such as Qwen 3.5, can then keep context
+      // checkpoints at user messages, and reuse the cache up to an edited
+      // message.
       task.cli = false;
       task.tokens = server_tokens(common_tokenize(vocab, prompt, true, true),
                                   !srv->mmproj_path.empty());
-      auto delimiters = common_chat_msg_delimiters_parse(delimiters_json);
-      delimiters.tokenize(vocab);
-      task.params.message_spans = task.tokens.find_message_spans(delimiters);
+      if (!delimiters_json.empty()) {
+        auto delimiters = common_chat_msg_delimiters_parse(delimiters_json);
+        delimiters.tokenize(vocab);
+        task.params.message_spans =
+            task.tokens.find_message_spans(delimiters);
+      }
     } else {
+      // With images, llama.cpp tokenizes the prompt: only it has the
+      // multimodal context.
       task.cli        = true;
       task.cli_prompt = prompt;
       task.cli_files  = std::move(files);
