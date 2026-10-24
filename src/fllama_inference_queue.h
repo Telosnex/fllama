@@ -20,6 +20,7 @@
 // Forward declarations.
 struct ggml_backend_device;
 struct server_context;
+struct server_context_meta;
 struct common_params;
 
 // ---------------------------------------------------------------------------
@@ -27,6 +28,9 @@ struct common_params;
 // ---------------------------------------------------------------------------
 struct ServerResources {
   std::unique_ptr<server_context> srv_ctx;
+  // Read before the loop thread starts; constant after. llama-server's HTTP
+  // threads share one such copy in the same way.
+  std::unique_ptr<server_context_meta> meta;
   std::thread loop_thread;
   std::string model_path;
   std::chrono::steady_clock::time_point last_used;
@@ -66,9 +70,10 @@ public:
   ~ServerManager();
 
   // Get or create a server_context for a model.  Increments active_users.
-  // If the model is loaded with other load-time params (such as n_ctx) and a
-  // request uses it, waits for that request to finish, then reloads: the
-  // request gets the params it asked for. Returns nullptr on failure, or if
+  // If the model is loaded with other load-time params (such as n_ctx), or
+  // its context is unhealthy, and a request uses it, waits for that request
+  // to finish, then reloads: the request gets the params it asked for. Loads
+  // a model at most once per call. Returns nullptr on failure, or if
   // should_stop() returns true while waiting.  Thread-safe.
   ServerResources *get_or_create(const std::string &model_path,
                                  const common_params &params,

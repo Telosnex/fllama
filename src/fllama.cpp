@@ -13,6 +13,7 @@
 #include "server-context.h"
 #include "server-task.h"
 #include "server-common.h"
+#include "server-schema.h"
 
 #include "llama.cpp/common/chat.h"
 #include "llama.cpp/common/common.h"
@@ -384,96 +385,74 @@ static void run_inference_body(const fllama_inference_request &request,
     // ── 3. Build the prompt ───────────────────────────────────────────
 
     std::string prompt = request.input ? request.input : "";
-    common_chat_parser_params parser_params;
-    common_chat_params chat_params;
     bool is_oai = false;
-    nlohmann::ordered_json sampling_body;
+    // The request after llama-server's /v1/chat/completions parse: the
+    // prompt, and the fields of eval_llama_cmpl_schema.
+    json body_parsed = json::object();
+    // image_url parts of the messages, in order.
+    std::vector<raw_buffer> files;
 
     if (request.openai_request_json_string) {
       is_oai = true;
       try {
-        auto body = nlohmann::ordered_json::parse(
-            request.openai_request_json_string);
+        auto body = json::parse(request.openai_request_json_string);
 
-        sampling_body = body;
+        // fllama's top-level enable_thinking. llama-server reads it only
+        // from chat_template_kwargs, which wins if both are set.
+        if (body.contains("enable_thinking")) {
+          if (body["enable_thinking"].is_boolean()) {
+            auto &kwargs = body["chat_template_kwargs"];
+            if (!kwargs.is_object()) kwargs = json::object();
+            if (!kwargs.contains("enable_thinking")) {
+              kwargs["enable_thinking"] = body["enable_thinking"];
+            }
+          }
+          body.erase("enable_thinking");
+        }
 
-        std::string jinja_tmpl;
+        const server_chat_params &chat = srv->meta->chat_params;
         if (body.contains("jinja_template") &&
             body["jinja_template"].is_string()) {
-          jinja_tmpl = body["jinja_template"].get<std::string>();
+          // A template for this request only. One that cannot be parsed or
+          // applied falls back to ChatML, and the logger says so.
+          const auto jinja_tmpl = body["jinja_template"].get<std::string>();
           body.erase("jinja_template");
+          common_chat_templates_ptr tmpls;
+          try {
+            tmpls = common_chat_templates_init(model, jinja_tmpl);
+            std::map<std::string, std::string> empty;
+            common_chat_format_example(tmpls.get(), true, empty);
+          } catch (const std::exception &e) {
+            log_message(std::string("[fllama] WARNING: the chat template "
+                                    "cannot be used, so ChatML is used: ") +
+                            e.what(),
+                        request.dart_logger);
+            tmpls = common_chat_templates_init(model, "chatml");
+          }
+          const server_chat_params request_chat = {
+              /* use_jinja            */ chat.use_jinja,
+              /* prefill_assistant    */ chat.prefill_assistant,
+              /* reasoning_format     */ chat.reasoning_format,
+              /* chat_template_kwargs */ chat.chat_template_kwargs,
+              /* tmpls                */ std::move(tmpls),
+              /* allow_image          */ chat.allow_image,
+              /* allow_audio          */ chat.allow_audio,
+              /* allow_video          */ chat.allow_video,
+              /* enable_thinking      */ chat.enable_thinking,
+              /* reasoning_budget     */ chat.reasoning_budget,
+              /* reasoning_budget_msg */ chat.reasoning_budget_message,
+              /* media_path           */ chat.media_path,
+              /* force_pure_content   */ chat.force_pure_content};
+          body_parsed = oaicompat_chat_params_parse(body, request_chat, files);
+        } else {
+          body_parsed = oaicompat_chat_params_parse(body, chat, files);
         }
+        prompt = body_parsed.at("prompt").get<std::string>();
 
-        // A template that cannot be parsed or applied falls back to ChatML,
-        // and the logger says so.
-        common_chat_templates_ptr tmpls;
-        try {
-          tmpls = common_chat_templates_init(model, jinja_tmpl);
-          std::map<std::string, std::string> empty;
-          common_chat_format_example(tmpls.get(), true, empty);
-        } catch (const std::exception &e) {
-          log_message(std::string("[fllama] WARNING: the chat template "
-                                  "cannot be used, so ChatML is used: ") +
-                          e.what(),
+        if constexpr (kLogVerboseDebugMessages) {
+          log_message("[fllama] PROMPT (" + std::to_string(prompt.size()) +
+                          " chars):\n" + prompt,
                       request.dart_logger);
-          tmpls = common_chat_templates_init(model, "chatml");
-        }
-
-        if (body.contains("messages") && body["messages"].is_array()) {
-          common_chat_templates_inputs inputs;
-          inputs.use_jinja = true;
-          inputs.add_generation_prompt = true;
-          inputs.messages =
-              common_chat_msgs_parse_oaicompat(body["messages"]);
-
-          // Default to automatic reasoning extraction for modern reasoning/
-          // channel-based templates (Qwen, GPT-OSS/Harmony, etc). Allow the
-          // request body to override explicitly.
-          inputs.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
-          inputs.enable_thinking = body.value("enable_thinking", true);
-          if (body.contains("reasoning_format") && body["reasoning_format"].is_string()) {
-            inputs.reasoning_format = common_reasoning_format_from_name(
-                body["reasoning_format"].get<std::string>());
-          }
-
-          if (body.contains("tools")) {
-            inputs.tools =
-                common_chat_tools_parse_oaicompat(body["tools"]);
-            inputs.tool_choice =
-                body.contains("tool_choice")
-                    ? common_chat_tool_choice_parse_oaicompat(
-                          body["tool_choice"]
-                              .template get<std::string>())
-                    : COMMON_CHAT_TOOL_CHOICE_AUTO;
-            // As llama-server: on if the chat template supports it.
-            const auto caps = common_chat_templates_get_caps(tmpls.get());
-            const auto cap = caps.find("supports_parallel_tool_calls");
-            inputs.parallel_tool_calls = body.value(
-                "parallel_tool_calls", cap != caps.end() && cap->second);
-          }
-
-          auto result =
-              common_chat_templates_apply(tmpls.get(), inputs);
-          chat_params = result;
-          prompt = result.prompt;
-          parser_params = common_chat_parser_params(result);
-          parser_params.reasoning_format = inputs.reasoning_format;
-          parser_params.reasoning_in_content =
-              (inputs.reasoning_format == COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY);
-          if (!result.parser.empty()) {
-            parser_params.parser.load(result.parser);
-          }
-
-          if constexpr (kLogVerboseDebugMessages) {
-            log_message("[fllama] Chat format: " +
-                            std::string(common_chat_format_name(
-                                result.format)),
-                        request.dart_logger);
-            log_message("[fllama] PROMPT (" +
-                            std::to_string(prompt.size()) + " chars):\n" +
-                            prompt,
-                        request.dart_logger);
-          }
         }
       } catch (const std::exception &e) {
         outcome.fail("invalid_request",
@@ -484,7 +463,8 @@ static void run_inference_body(const fllama_inference_request &request,
 
     // ── 4. Multimodal — extract base64 → raw bytes ───────────────────
 
-    std::vector<raw_buffer> files;
+    // fllama's <img> tags. Use them or image_url parts, not both: the
+    // images must be in the order of their markers.
     if (fllama_prompt_contains_image(prompt)) {
       const char * media_marker = get_media_marker();
       auto img = fllama_extract_images(prompt, media_marker);
@@ -505,9 +485,33 @@ static void run_inference_body(const fllama_inference_request &request,
     task.id         = reader.get_new_id();
     task.index      = 0;
 
-    const bool has_delimiters =
-        is_oai && !chat_params.message_delimiters.delimiters.empty();
-    if (has_delimiters && files.empty()) {
+    // As llama-server: the request's fields over the server's defaults.
+    // fllama's defaults: the sampling settings that the GGUF recommends,
+    // then the request struct's fields. NaN is: not set.
+    common_params params_base = params;
+    params_base.sampling = model_sampling(model);
+    if (!std::isnan(request.temperature))
+      params_base.sampling.temp = request.temperature;
+    if (!std::isnan(request.top_p))
+      params_base.sampling.top_p = request.top_p;
+    if (!std::isnan(request.penalty_freq))
+      params_base.sampling.penalty_freq = request.penalty_freq;
+    if (!std::isnan(request.penalty_repeat))
+      params_base.sampling.penalty_repeat = request.penalty_repeat;
+    body_parsed["stream"] = true;
+    body_parsed["cache_prompt"] = true;
+    try {
+      task.params = server_schema::eval_llama_cmpl_schema(
+          vocab, params_base, srv->meta->logit_bias_eog, body_parsed);
+    } catch (const std::exception &e) {
+      outcome.fail("invalid_request",
+                   std::string("Invalid chat request: ") + e.what());
+      return;
+    }
+
+    const auto delimiters_json =
+        json_value(body_parsed, "message_delimiters", json::array());
+    if (is_oai && !delimiters_json.empty() && files.empty()) {
       // As llama-server: tokenize here, and give llama.cpp the message
       // boundaries. Hybrid and recurrent models, such as Qwen 3.5, can then
       // keep context checkpoints at user messages, and reuse the cache up to
@@ -516,7 +520,7 @@ static void run_inference_body(const fllama_inference_request &request,
       task.cli = false;
       task.tokens = server_tokens(common_tokenize(vocab, prompt, true, true),
                                   !srv->mmproj_path.empty());
-      auto delimiters = chat_params.message_delimiters;
+      auto delimiters = common_chat_msg_delimiters_parse(delimiters_json);
       delimiters.tokenize(vocab);
       task.params.message_spans = task.tokens.find_message_spans(delimiters);
     } else {
@@ -525,56 +529,10 @@ static void run_inference_body(const fllama_inference_request &request,
       task.cli_files  = std::move(files);
     }
 
-    task.params.stream       = true;
-    task.params.cache_prompt = true;
-    task.params.n_predict    = request.max_tokens;
-    // Start from the model's recommended settings, as llama-server does. A
-    // NaN request value means: not set.
-    task.params.sampling = model_sampling(
-        llama_get_model(srv->srv_ctx->get_llama_context()));
-    if (!std::isnan(request.temperature))
-      task.params.sampling.temp = request.temperature;
-    if (!std::isnan(request.top_p))
-      task.params.sampling.top_p = request.top_p;
-    if (!std::isnan(request.penalty_freq))
-      task.params.sampling.penalty_freq = request.penalty_freq;
-    if (!std::isnan(request.penalty_repeat))
-      task.params.sampling.penalty_repeat = request.penalty_repeat;
-
-    if (is_oai) {
-      auto &sampling = task.params.sampling;
-      sampling.top_k = sampling_body.value("top_k", sampling.top_k);
-      sampling.min_p = sampling_body.value("min_p", sampling.min_p);
-      sampling.penalty_present = sampling_body.value(
-          "presence_penalty", sampling.penalty_present);
-      sampling.penalty_repeat = sampling_body.value(
-          "repeat_penalty", sampling.penalty_repeat);
-      if (!chat_params.grammar.empty()) {
-        task.params.sampling.grammar = common_grammar(
-            COMMON_GRAMMAR_TYPE_TOOL_CALLS,
-            chat_params.grammar);
-      }
-      task.params.sampling.grammar_lazy = chat_params.grammar_lazy;
-      task.params.sampling.grammar_triggers = chat_params.grammar_triggers;
-      task.params.sampling.generation_prompt = chat_params.generation_prompt;
-      task.params.antiprompt = chat_params.additional_stops;
-
-      for (const auto &preserved_token : chat_params.preserved_tokens) {
-        auto ids = common_tokenize(vocab, preserved_token, false, true);
-        if (ids.size() == 1) {
-          task.params.sampling.preserved_tokens.insert(ids[0]);
-        }
-      }
-    }
-
-    std::random_device rd;
-    task.params.sampling.seed = rd();
-
     if (is_oai) {
       task.params.res_type           = TASK_RESPONSE_TYPE_OAI_CHAT;
       task.params.oaicompat_model    = request.model_path;
       task.params.oaicompat_cmpl_id  = gen_chatcmplid();
-      task.params.chat_parser_params = parser_params;
     }
 
     reader.post_task(std::move(task));

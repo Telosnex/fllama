@@ -10,10 +10,10 @@ Audit of 2026-10-23. Each item: a red test, the fix, then the test is green.
 | 2 | Web `fllamaChat` sends an empty prompt | `test/web_runtime_test.dart` (prompt_n 28 → >70) | done |
 | 3 | Web ignores top-level `enable_thinking` | `test/openai_request_test.dart` | done; sends both forms |
 | 8 | Web file picker never returns on cancel | `test/web_runtime_test.dart` | done |
-| 6 | Two requests can load the same model twice | | open |
-| 7 | A busy, broken context gives "Failed to load model" | | open |
-| 5 | `Message` has no `tool_call_id` | | open |
-| 4 | Native chat parse is hand-written, not llama-server's | | open |
+| 6 | Two requests can load the same model twice | integration: `loads a model once ... when requests race` | done. Worse than audited: the 2nd request deadlocked (recursive get_or_create under model_load_mutex) |
+| 7 | A busy, broken context gives "Failed to load model" | none: needs a GPU fault | done: waits, as for a settings change |
+| 5 | `Message` has no `tool_call_id` | `test/openai_request_test.dart` | done |
+| 4 | Native chat parse is hand-written, not llama-server's | integration: stop, seed, JSON schema, grammar; web: grammar | done |
 | m | Minor items | | open |
 
 ## Notes
@@ -23,3 +23,13 @@ Audit of 2026-10-23. Each item: a red test, the fix, then the test is green.
 - 3: native ignores `chat_template_kwargs` until item 4.
 - Found: `fllamaChatWeb` passes no numThreads/numGpuLayers; web
   `requestGpuLayers` treats 0 as "all layers on GPU", native as CPU only.
+- 6: the red run timed out after 5 min. The racing request held
+  model_load_mutex, found the other context busy, and recursed into
+  get_or_create, which locks model_load_mutex again. get_or_create is now a
+  loop; a request loads only when it holds the mutex and finds no context.
+- 4: fllama.cpp uses oaicompat_chat_params_parse and eval_llama_cmpl_schema,
+  as wllama and llama-server do. ServerResources keeps get_meta() from
+  before the loop thread starts. Top-level enable_thinking is moved into
+  chat_template_kwargs. New Dart fields: seed, stop, jsonSchema, grammar.
+  An unset seed is now LLAMA_DEFAULT_SEED (random in llama.cpp).
+- Full native integration file: 24 pass, 3 skipped (macOS).

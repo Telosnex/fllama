@@ -70,6 +70,24 @@ void main() {
     expect(await done.future, greaterThan(70));
   });
 
+  // Audit item 4: wllama parses requests as llama-server does.
+  test('a grammar constrains the reply', () async {
+    final done = Completer<String>();
+    await fllamaChat(
+      OpenAiRequest(
+        modelPath: model,
+        maxTokens: 8,
+        messages: [Message(Role.user, 'Once upon a time')],
+        grammar: 'root ::= "yes" | "no"',
+      ),
+      (response, responseJson, isDone, error) {
+        if (!isDone || done.isCompleted) return;
+        error == null ? done.complete(response) : done.completeError(error);
+      },
+    );
+    expect(await done.future, anyOf('yes', 'no'));
+  });
+
   // Audit item 8: the picker waited forever when the user closed it.
   test('fllamaWebPickModel returns null when the user cancels', () async {
     await loadFllamaWebRuntime();

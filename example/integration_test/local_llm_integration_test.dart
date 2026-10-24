@@ -676,6 +676,133 @@ void main() {
       timeout: const Timeout(Duration(minutes: 10)),
     );
 
+    // Audit item 6.
+    test(
+      'loads a model once for each context size when requests race',
+      () async {
+        // Context sizes that no other test uses, so neither is loaded yet.
+        Future<_ChatRun> ask(int contextSize) => _runChat(
+              modelPath: modelFile.absolute.path,
+              messages: [fllama.Message(fllama.Role.user, 'Reply with OK.')],
+              maxTokens: 2,
+              enableThinking: false,
+              contextSize: contextSize,
+            );
+        final runs = await Future.wait([ask(2304), ask(2560)]);
+        for (final run in runs) {
+          expect(run.error, isNull);
+        }
+        int loads(_ChatRun run) =>
+            run.logs.where((l) => l.contains('loaded meta data')).length;
+        print('[fllama integration] loads: ${runs.map(loads).toList()}');
+        expect(runs.map(loads).toList(), [1, 1]);
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      // Before the fix, the second request deadlocked on the load mutex.
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+
+    // Audit item 4: llama-server's request fields reach llama.cpp.
+    test(
+      'stops at a stop string',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(
+              fllama.Role.user,
+              'Count from 1 to 20, separated by commas.',
+            ),
+          ],
+          maxTokens: 80,
+          temperature: 0,
+          enableThinking: false,
+          stop: [','],
+        );
+        print('[fllama integration] stop: "${run.responseContent}"');
+        expect(run.error, isNull);
+        expect(run.responseContent, isNotEmpty);
+        expect(run.responseContent, isNot(contains(',')));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'gives the same reply for the same seed',
+      () async {
+        Future<String> reply() async {
+          final run = await _runChat(
+            modelPath: modelFile.absolute.path,
+            messages: [
+              fllama.Message(fllama.Role.user, 'Write a poem about rain.'),
+            ],
+            maxTokens: 24,
+            temperature: 1.5,
+            enableThinking: false,
+            seed: 1234,
+          );
+          expect(run.error, isNull);
+          return run.responseContent;
+        }
+
+        final first = await reply();
+        expect(first, isNotEmpty);
+        expect(await reply(), first);
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'replies with JSON that matches a JSON schema',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [fllama.Message(fllama.Role.user, 'What is 2 + 2?')],
+          maxTokens: 40,
+          temperature: 0,
+          enableThinking: false,
+          jsonSchema: jsonEncode({
+            'type': 'object',
+            'properties': {
+              'answer': {'type': 'integer'},
+            },
+            'required': ['answer'],
+            'additionalProperties': false,
+          }),
+        );
+        print('[fllama integration] json: "${run.responseContent}"');
+        expect(run.error, isNull);
+        final decoded = jsonDecode(run.responseContent);
+        expect(decoded, isA<Map>());
+        expect((decoded as Map)['answer'], isA<int>());
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
+    test(
+      'replies with text that matches a grammar',
+      () async {
+        final run = await _runChat(
+          modelPath: modelFile.absolute.path,
+          messages: [
+            fllama.Message(fllama.Role.user, 'Write a poem about rain.'),
+          ],
+          maxTokens: 40,
+          temperature: 0,
+          enableThinking: false,
+          grammar: 'root ::= "yes" | "no"',
+        );
+        print('[fllama integration] grammar: "${run.responseContent}"');
+        expect(run.error, isNull);
+        expect(run.responseContent, anyOf('yes', 'no'));
+      },
+      skip: supportedPlatform ? null : 'Native-platform test',
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
+
     test(
       'reuses the cache up to an edited last message',
       () async {
@@ -897,6 +1024,10 @@ Future<_ChatRun> _runChat({
   int contextSize = 2048,
   List<fllama.Tool> tools = const [],
   String? jinjaTemplate,
+  int? seed,
+  List<String>? stop,
+  String? jsonSchema,
+  String? grammar,
 }) async {
   final events = <_CallbackEvent>[];
   final logs = <String>[];
@@ -920,6 +1051,10 @@ Future<_ChatRun> _runChat({
       enableThinking: enableThinking,
       gpuDeviceKey: gpuDeviceKey,
       jinjaTemplate: jinjaTemplate,
+      seed: seed,
+      stop: stop,
+      jsonSchema: jsonSchema,
+      grammar: grammar,
       logger: (message) {
         logs.add(message);
         print('[llama.cpp] $message');

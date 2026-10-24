@@ -46,7 +46,17 @@ class Message {
   final String? toolResponseName;
   final List<Map<String, dynamic>>? toolCalls;
 
-  Message(this.role, this.text, {this.toolCalls, this.toolResponseName});
+  /// For a [Role.tool] message: the `id` of the tool call that it answers.
+  /// Some chat templates need it to match results to calls.
+  final String? toolCallId;
+
+  Message(
+    this.role,
+    this.text, {
+    this.toolCalls,
+    this.toolResponseName,
+    this.toolCallId,
+  });
 }
 
 /// Corresponds to COMMON_CHAT_TOOL_CHOICE_* in llama.cpp.
@@ -90,6 +100,22 @@ class OpenAiRequest {
 
   /// Multiplicative repetition penalty. 1 is off.
   final double? repeatPenalty;
+
+  /// Sampler seed. The same seed, request and model give the same reply.
+  /// null is a new random seed for each request.
+  final int? seed;
+
+  /// Generation stops before any of these strings.
+  final List<String>? stop;
+
+  /// A JSON schema, as a JSON string, that the reply must match. Sent as
+  /// OpenAI's `response_format`. Do not set it with [grammar] or [tools].
+  final String? jsonSchema;
+
+  /// A GBNF grammar that the reply must match, for example from
+  /// `fllamaJsonSchemaToGrammar`. Do not set it with [jsonSchema] or
+  /// [tools].
+  final String? grammar;
   // Not in OpenAI, but used by llama.
   final String modelPath;
   final String? mmprojPath;
@@ -132,6 +158,7 @@ class OpenAiRequest {
               'content': m.text,
               if (m.toolResponseName != null) 'name': m.toolResponseName,
               if (m.toolCalls?.isNotEmpty == true) 'tool_calls': m.toolCalls,
+              if (m.toolCallId != null) 'tool_call_id': m.toolCallId,
             },
           )
           .toList(),
@@ -153,6 +180,14 @@ class OpenAiRequest {
       if (repeatPenalty != null) 'repeat_penalty': repeatPenalty,
       if (frequencyPenalty != null) 'frequency_penalty': frequencyPenalty,
       if (presencePenalty != null) 'presence_penalty': presencePenalty,
+      if (seed != null) 'seed': seed,
+      if (stop != null) 'stop': stop,
+      if (grammar != null) 'grammar': grammar,
+      if (jsonSchema != null)
+        'response_format': {
+          'type': 'json_schema',
+          'json_schema': {'schema': jsonDecode(jsonSchema!)},
+        },
       if (toolChoice != null) 'tool_choice': toolChoice?.jsonName,
       if (jinjaTemplate != null) 'jinja_template': jinjaTemplate,
       // Native fllama reads the top-level field. wllama reads only
@@ -181,6 +216,10 @@ class OpenAiRequest {
     this.repeatPenalty,
     this.frequencyPenalty,
     this.presencePenalty,
+    this.seed,
+    this.stop,
+    this.jsonSchema,
+    this.grammar,
     //
     // Following arguments aren't actually in OpenAI, but are used by Fllama.
     //
