@@ -760,9 +760,9 @@ EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT int fllama_get_gpu_memory_info(
 
 EMSCRIPTEN_KEEPALIVE void fllama_inference(fllama_inference_request request,
                                            fllama_inference_callback callback) {
-  int rid = request.request_id;
-  std::thread t([request, callback] { run_inference(request, callback); });
-  g_mgr.register_request_thread(rid, std::move(t));
+  g_mgr.start_request_thread(request.request_id, [request, callback] {
+    run_inference(request, callback);
+  });
 }
 
 EMSCRIPTEN_KEEPALIVE void

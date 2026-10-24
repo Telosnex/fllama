@@ -14,7 +14,7 @@
 #include "llama.cpp/include/llama.h"
 
 // Tokenizer model caching predeclarations
-std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path);
+static std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path);
 // End tokenizer model caching predeclarations
 
 EMSCRIPTEN_KEEPALIVE FFI_PLUGIN_EXPORT extern "C" 
@@ -31,7 +31,7 @@ size_t fllama_tokenize(struct fllama_tokenize_request request) {
   llama_model *model = _get_or_load_model(request.model_path).get();
   if (!model) {
     std::cout << "[fllama] Unable to load model." << std::endl;
-    return -1;
+    return static_cast<size_t>(-1);
   }
   
   // 50 ms for initial load of 2 GB model, ~^10^-5 for cache hit.
@@ -75,10 +75,10 @@ struct ModelCacheEntry {
   std::chrono::steady_clock::time_point last_access;
 };
 
-std::mutex cache_mutex;
-std::unordered_map<std::string, ModelCacheEntry> model_cache;
+static std::mutex cache_mutex;
+static std::unordered_map<std::string, ModelCacheEntry> model_cache;
 
-void cleanup_cache() {
+static void cleanup_cache() {
   auto now = std::chrono::steady_clock::now();
   std::vector<std::string> to_erase;
 
@@ -95,7 +95,7 @@ void cleanup_cache() {
   }
 }
 
-std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path) {
+static std::shared_ptr<llama_model> _get_or_load_model(const std::string &model_path) {
   std::lock_guard<std::mutex> lock(cache_mutex);
   cleanup_cache();
 

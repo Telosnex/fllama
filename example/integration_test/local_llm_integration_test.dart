@@ -561,6 +561,17 @@ void main() {
       }
 
       test(
+        'fllamaTokenize throws',
+        () => expectLater(
+          fllama.fllamaTokenize(
+            fllama.FllamaTokenizeRequest(input: 'Hi', modelPath: notGguf.path),
+          ),
+          throwsA(isA<StateError>()),
+        ),
+        skip: supportedPlatform ? null : 'Native-platform test',
+      );
+
+      test(
         'reports llama.cpp\'s reason',
         expectLoadErrorWithReason,
         skip: supportedPlatform ? null : 'Native-platform test',

@@ -97,8 +97,10 @@ public:
   bool is_cancelled(int request_id);
   void clear_cancel(int request_id);
 
-  // Track a live request thread so we can join on shutdown.
-  void register_request_thread(int request_id, std::thread &&t);
+  // Starts [body] on a new request thread, tracked so that shutdown joins
+  // it. The thread is listed before [body] runs, so its
+  // unregister_request_thread() always finds it.
+  void start_request_thread(int request_id, std::function<void()> body);
   void unregister_request_thread(int request_id);
 
 private:

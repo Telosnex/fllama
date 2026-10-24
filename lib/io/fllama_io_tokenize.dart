@@ -77,7 +77,15 @@ void _handleTokenizeIsolateMessage(dynamic data) {
       );
       return;
     }
-    requestCompleter.complete(data.result);
+    // fllama_tokenize returns (size_t)-1 if the model does not load: -1, or
+    // 0xFFFFFFFF where size_t has 32 bits.
+    if (data.result == -1 || data.result == 0xFFFFFFFF) {
+      requestCompleter.completeError(
+        StateError('fllamaTokenize: the model did not load'),
+      );
+    } else {
+      requestCompleter.complete(data.result);
+    }
     return;
   }
 
@@ -88,7 +96,8 @@ void _handleTokenizeIsolateMessage(dynamic data) {
   );
 }
 
-/// Returns the number of tokens in [request.input].
+/// Returns the number of tokens in [request.input]. Throws a [StateError] if
+/// the model does not load.
 ///
 /// Useful for identifying what messages will be in context when the LLM is run.
 Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {

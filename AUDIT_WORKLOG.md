@@ -14,7 +14,7 @@ Audit of 2026-10-23. Each item: a red test, the fix, then the test is green.
 | 7 | A busy, broken context gives "Failed to load model" | none: needs a GPU fault | done: waits, as for a settings change |
 | 5 | `Message` has no `tool_call_id` | `test/openai_request_test.dart` | done |
 | 4 | Native chat parse is hand-written, not llama-server's | integration: stop, seed, JSON schema, grammar; web: grammar | done |
-| m | Minor items | | open |
+| m | Minor items | integration: `fllamaTokenize throws` | partly done; see notes |
 
 ## Notes
 - 2: web `fllamaInference` now runs `openAiRequestJsonString` as a chat, as
@@ -33,3 +33,16 @@ Audit of 2026-10-23. Each item: a red test, the fix, then the test is green.
   chat_template_kwargs. New Dart fields: seed, stop, jsonSchema, grammar.
   An unset seed is now LLAMA_DEFAULT_SEED (random in llama.cpp).
 - Full native integration file: 24 pass, 3 skipped (macOS).
+- Minor, done: fllamaTokenize throws when the model does not load (it
+  returned -1 as a count); a request thread is listed before it runs;
+  tokenize globals are static; EOS/BOS no longer printf on every call;
+  analysis_options excludes tmp/. Full native file: 25 pass, 3 skipped.
+- Minor, not done:
+  - n_ctx 0 sets n_batch 0. Dart never sends 0; llama.cpp would then use
+    the trained context (262144 for Qwen 3.5).
+  - Web tokenize, chat template, BOS and EOS are stubs: a real one loads the
+    model in wllama, which can unload the model of a running chat.
+  - Web reasoning text in `response`; native returns raw think tags.
+  - Two web chats for different models at once can unload each other.
+  - DISABLE_SERVER_REQUEST_QUEUE dead code; codemagic.yaml unused.
+  - fllamaChatWeb passes no numThreads/numGpuLayers.

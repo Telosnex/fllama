@@ -40,7 +40,6 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_eos_token(const char *fname) {
 
   const char *tokens_key = "tokenizer.ggml.tokens";
   const int tokens_idx = gguf_find_key(ctx, tokens_key);
-  printf("%s: tokens_idx: %d\n", __func__, tokens_idx);
 
   if (tokens_idx < 0) {
     printf("%s: key '%s' not found.\n", __func__, tokens_key);
@@ -72,7 +71,6 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_eos_token(const char *fname) {
   }
 
   std::string word = gguf_get_arr_str(ctx, tokens_idx, eos_id_index);
-  printf("%s: word: %s\n", __func__, word.c_str());
   return copy_for_dart_and_free_contexts(word.c_str(), meta, ctx);
 }
 
@@ -92,7 +90,6 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_bos_token(const char *fname) {
 
   const char *tokens_key = "tokenizer.ggml.tokens";
   const int tokens_idx = gguf_find_key(ctx, tokens_key);
-  printf("%s: tokens_idx: %d\n", __func__, tokens_idx);
 
   if (tokens_idx < 0) {
     printf("%s: key '%s' not found.\n", __func__, tokens_key);
@@ -124,7 +121,6 @@ EMSCRIPTEN_KEEPALIVE const char *fllama_get_bos_token(const char *fname) {
   }
 
   std::string word = gguf_get_arr_str(ctx, tokens_idx, bos_id_index);
-  printf("%s: word: %s\n", __func__, word.c_str());
   return copy_for_dart_and_free_contexts(word.c_str(), meta, ctx);
 }
 }
