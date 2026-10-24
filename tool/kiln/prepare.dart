@@ -88,8 +88,11 @@ void _env(String name, String value) {
   ).writeAsStringSync('$name=$value\n', mode: FileMode.append);
 }
 
-Future<void> _bash(String script) =>
-    _run('bash', ['-euo', 'pipefail', '-c', script]);
+// On Windows, bash on PATH can be the WSL launcher; use Git Bash.
+Future<void> _bash(String script) => _run(
+  Platform.isWindows ? r'C:\Program Files\Git\bin\bash.exe' : 'bash',
+  ['-euo', 'pipefail', '-c', script],
+);
 
 Future<void> _run(String executable, List<String> args) async {
   final process = await Process.start(

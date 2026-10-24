@@ -93,8 +93,11 @@ jobs:
       build-args: >-
         {"windows-x64": ["--define", "cuda_pack=${OUT}/cuda-packs/windows-x64.json"],
         "linux-x64": ["--define", "cuda_pack=${OUT}/cuda-packs/linux-x64.json"]}
-      # The unstripped libraries, for crash symbolication.
-      debug-symbols-path: ~/.cache/fllama/*/libfllama.so
+      # The unstripped libraries, for crash symbolication. android-arm64
+      # has the split layout (CPU variants): its libraries are in out/.
+      debug-symbols-path: |
+        ~/.cache/fllama/*/libfllama.so
+        ~/.cache/fllama/*/out/*.so
       # The emsdkImage of web_build/wllama.json (emscripten/emsdk:4.0.20).
       # tool/kiln/build_web.dart checks the Emscripten and Node versions.
       web-container: emscripten/emsdk@sha256:460fff8f8ac87e11b16447fbd66538a686eafa0e4fb977aa0989ed19fe2079f7
