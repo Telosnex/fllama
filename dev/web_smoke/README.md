@@ -157,7 +157,10 @@ Useful result fields:
 build, the engine of Safari: `npx playwright install webkit` once. WebKit has
 no WebAssembly Memory64 or JSPI, so wllama loads the compat build.
 `--browser=firefox` runs Playwright's Firefox (`npx playwright install
-firefox`); it has no JSPI, and wllama runs the default build on the CPU.
+firefox`), and wllama runs the default build on the CPU. That build runs
+WebAssembly about 10 times slower than stock Firefox: Qwen3.5 0.8B generates
+2.5 tok/s, and stock Firefox 158 generates 25 tok/s on the same page. So
+`image_title` times out there. Use it to test behavior, not speed.
 
 `--force-compat` hides JSPI from the page, so Chrome loads the compat build;
 the run fails if the compat wasm did not load. `--n-threads=N` sets the
