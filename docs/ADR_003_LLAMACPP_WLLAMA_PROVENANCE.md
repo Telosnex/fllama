@@ -61,6 +61,13 @@ That patch is the reproducible source of all non-generated wllama changes. It
 also changes the llama.cpp gitlink from wllama's `dd4623a74` pin to
 `ece963f41`.
 
+The patch also adds a load in the same worker (2026-10-25): `wllama_unload`
+(C++, a JSPI/Asyncify export) frees the model and its context, and with
+`Wllama.reuseWorker` a second `loadModel()` unloads and loads in the same
+worker, with async file reads. fllama uses it for every model switch it
+can: on iOS Safari 26.3, a new worker does not get the memory of an ended
+one back, and after a few switches no load got memory.
+
 The integration checkout used for this drop was:
 
 ```text
