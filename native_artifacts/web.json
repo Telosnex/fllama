@@ -4,12 +4,12 @@
   "release": "https://github.com/Telosnex/fllama/releases/tag/native-47a361cf63e78751",
   "runner": "ubuntu-24.04, emscripten/emsdk@sha256:460fff8f8ac87e11b16447fbd66538a686eafa0e4fb977aa0989ed19fe2079f7",
   "toolchain": "Emscripten 4.0.20 (6913738ec5371a88c4af5a80db0ab42bad3de681), Node 22.16.0",
-  "webVersion": "fddbec645394e795",
+  "webVersion": "b0769adedd05564c",
   "files": [
     {
       "name": "fllama_web_init.js",
-      "sha256": "3996532960db957b090f49ce6f24b6229b257ca7b69c3451ac61971e9921eae4",
-      "bytes": 44857,
+      "sha256": "bd280dfb200a47471c3b36f07b8eb1df9e4ede43e5a3d7c2261df70cd761f57d",
+      "bytes": 44342,
       "source": "lib/web/fllama_web_init.js"
     },
     {

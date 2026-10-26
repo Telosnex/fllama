@@ -126,6 +126,18 @@ Future<void> main(List<String> args) async {
     '--detach',
     llama['commit'] as String,
   ], root);
+  // fllama's llama.cpp patches (patches/llama.cpp), also in src/llama.cpp
+  // for native (test/llama_cpp_pin_test.dart checks that).
+  final patches =
+      Directory('$root/patches/llama.cpp')
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.patch'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+  for (final patch in patches) {
+    await _run(['git', '-C', llamaDir, 'apply', patch.path], root);
+  }
   final gitlink = await _output([
     'git',
     '-C',

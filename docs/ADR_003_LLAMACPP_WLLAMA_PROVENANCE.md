@@ -85,7 +85,9 @@ commit:   ece963f41b0b02d7a0d61436ae365762c073a4c8
 nearest tag: b10448
 ```
 
-There are no Telosnex patches in `src/llama.cpp`. The source tree is an exact
+`src/llama.cpp` has the patches in `patches/llama.cpp` (2026-10-26:
+llama.cpp PR 29150, mtmd checks the `ggml_backend_sched_reserve` result), and
+the web build applies the same files to its llama.cpp clone. The source tree is an exact
 copy of that commit, apart from the fllama-owned provenance file
 `src/llama.cpp/FLLAMA_LLAMA_CPP_DROP.txt` and ignored build metadata.
 

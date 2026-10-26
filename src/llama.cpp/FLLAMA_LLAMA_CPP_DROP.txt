@@ -6,8 +6,9 @@ Source subject: ui: mask API Key field in settings and error splash to stop brow
 Nearest tag:   upstream llama.cpp b10448
 Build number:  b10450 (git rev-list --count HEAD)
 
-Native and web use this exact upstream commit. There are no Telosnex patches in
-the vendored llama.cpp source.
+Native and web use this exact upstream commit, with the patches in
+patches/llama.cpp applied (native: in this tree; web: tool/kiln/build_web.dart
+applies them to its clone). test/llama_cpp_pin_test.dart checks both.
 
 Web runtime provenance:
 - wllama upstream base: 3.5.1 / 766d28e03eeac044fe055327d06b83d3f9b84544
