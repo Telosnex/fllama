@@ -238,7 +238,7 @@ packages:
     source: sdk
     version: "0.0.0"
   flutter_driver:
-    dependency: transitive
+    dependency: "direct dev"
     description: flutter
     source: sdk
     version: "0.0.0"
@@ -334,6 +334,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.0"
+  kiln:
+    dependency: transitive
+    description:
+      name: kiln
+      sha256: a7ab858f830d5457c2e6e78819e26aebe6702c95462343f079ed296e07814237
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.2"
   leak_tracker:
     dependency: transitive
     description:
@@ -406,15 +414,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.0"
-  native_prebuilt:
-    dependency: transitive
-    description:
-      path: "."
-      ref: dfe2a5bfeb95426e87f6243cab14f4affd879b38
-      resolved-ref: dfe2a5bfeb95426e87f6243cab14f4affd879b38
-      url: "https://github.com/Telosnex/native_prebuilt.git"
-    source: git
-    version: "0.1.0"
   native_toolchain_cmake:
     dependency: transitive
     description:

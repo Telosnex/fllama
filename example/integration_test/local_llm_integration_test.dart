@@ -156,7 +156,10 @@ void main() {
         }
       },
       skip: packSkip,
-      timeout: const Timeout(Duration(minutes: 2)),
+      // The first pack test downloads the pack files: on Windows and Linux
+      // x64 the CUDA libraries are several hundred MB. _unpackGpuPack keeps
+      // them in the model cache.
+      timeout: const Timeout(Duration(minutes: 10)),
     );
 
     test(
@@ -254,6 +257,7 @@ void main() {
             if (isDone && !done.isCompleted) done.complete();
           },
         );
+        addTearDown(() => fllama.fllamaCancelInference(requestId));
         try {
           await firstToken.future.timeout(const Duration(minutes: 5));
           expect(done.isCompleted, isFalse,
@@ -629,6 +633,7 @@ void main() {
             }
           },
         );
+        addTearDown(() => fllama.fllamaCancelInference(id));
         await firstChunk.future.timeout(const Duration(minutes: 5));
         final chunksAtCancel = chunks;
         fllama.fllamaCancelInference(id);
@@ -828,6 +833,7 @@ void main() {
             if (isDone && !aDone.isCompleted) aDone.complete();
           },
         );
+        addTearDown(() => fllama.fllamaCancelInference(aId));
         await firstToken.future.timeout(const Duration(minutes: 3));
         final bDone = Completer<fllama.FllamaError?>();
         final bId = await fllama.fllamaChat(
@@ -842,6 +848,7 @@ void main() {
             if (isDone && !bDone.isCompleted) bDone.complete(error);
           },
         );
+        addTearDown(() => fllama.fllamaCancelInference(bId));
         // B now waits for A to finish.
         await Future<void>.delayed(const Duration(milliseconds: 500));
         expect(aDone.isCompleted, isFalse,
@@ -904,7 +911,7 @@ void main() {
               maxTokens: maxTokens,
               modelPath: modelPath,
               numGpuLayers: _testGpuLayers,
-              numThreads: 4,
+              numThreads: _pauseTestThreads,
             );
         // Load the model, and warm up the tokenizer.
         final warm = Completer<void>();
@@ -927,6 +934,9 @@ void main() {
             if (done && !aDone.isCompleted) aDone.complete();
           },
         );
+        // If the test fails before its cancel, A must not keep the model
+        // busy: the next tests would wait for its 1500 tokens.
+        addTearDown(() => fllama.fllamaCancelInference(aId));
         await firstTokens.future.timeout(const Duration(minutes: 1));
         final start = clock.elapsedMilliseconds;
         final bDone = Completer<void>();
@@ -944,12 +954,34 @@ void main() {
         expect(aDone.isCompleted, isTrue);
 
         var gap = 0;
+        final before = <int>[];
         for (var i = 1; i < times.length; i++) {
-          if (times[i] < start) continue;
-          gap = max(gap, times[i] - times[i - 1]);
+          final step = times[i] - times[i - 1];
+          if (times[i] < start) {
+            before.add(step);
+          } else {
+            gap = max(gap, step);
+          }
         }
-        print('[fllama integration] longest gap while B tokenized: $gap ms');
-        expect(gap, lessThan(400));
+        // The limit follows the speed of this machine: 4 times A's slowest
+        // token before B, and at least 750 ms. On the loop thread, B's
+        // tokenization paused A for seconds. On CI the gap was up to 394 ms
+        // (macos-15, 2 threads on 3 CPUs); a decode thread on every CPU gave 605-1012 ms.
+        before.sort();
+        final slowest = before.isEmpty ? 0 : before.last;
+        final limit = max(750, 4 * slowest);
+        print(
+          '[fllama integration] longest gap while B tokenized: $gap ms '
+          '(slowest token before B: $slowest ms, limit $limit ms, '
+          '$_pauseTestThreads threads, '
+          '${Platform.numberOfProcessors} processors)',
+        );
+        final after = [
+          for (var i = 1; i < times.length; i++)
+            if (times[i] >= start) times[i] - times[i - 1],
+        ];
+        print('[fllama integration] steps after B: ${after.join(' ')}');
+        expect(gap, lessThan(limit));
       },
       skip: supportedPlatform ? null : 'Native-platform test',
       timeout: const Timeout(Duration(minutes: 5)),
@@ -1112,12 +1144,28 @@ void main() {
 /// Downloads and gunzips [files] from the fllama GitHub release into a new
 /// temporary directory, as an app does (ADR 004 D14). The files are cached in
 /// the system temporary directory by SHA-256.
+/// Copies the GPU pack [files] to a new temporary directory. Downloads each
+/// file once, into gpu_packs/ of the model cache, so CI can cache them too.
+/// The decode threads of the pause test: up to 4, and one CPU fewer than
+/// the machine has. llama.cpp's threads spin at barriers. With a thread on
+/// every CPU, B's tokenization takes a CPU from them and A pauses (1 s on a
+/// 4-CPU runner); with more threads than CPUs, each token takes seconds
+/// (3-CPU macOS runners).
+final _pauseTestThreads = switch (const int.fromEnvironment(
+  'FLLAMA_TEST_PAUSE_THREADS',
+)) {
+  final n when n > 0 => n,
+  _ => min(4, max(1, Platform.numberOfProcessors - 1)),
+};
+
 Future<Directory> _unpackGpuPack(List<fllama.FllamaGpuPackFile> files) async {
   final dir = await Directory.systemTemp.createTemp('fllama_pack');
+  final cache = Directory(
+    path.join((await _modelCacheDirectory()).path, 'gpu_packs'),
+  );
+  await cache.create(recursive: true);
   for (final file in files) {
-    final cached = File(
-      path.join(Directory.systemTemp.path, 'fllama_gpu_pack_${file.sha256}'),
-    );
+    final cached = File(path.join(cache.path, file.sha256));
     if (!await cached.exists()) {
       print('[fllama integration] downloading ${file.url}');
       final client = HttpClient();

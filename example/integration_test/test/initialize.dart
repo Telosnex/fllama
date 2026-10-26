@@ -45,9 +45,9 @@ String preparePathProviderUnsafeNoBindings() {
 String _preparePathProviderInsidePath(String path) {
   final storagePath =
       '$path/ephemeral/path_provider_test_all_directories/${const Uuid().v7()}';
-  
+
   Directory(storagePath).createSync(recursive: true);
-  
+
   return storagePath;
 }
 

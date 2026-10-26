@@ -1,0 +1,8 @@
+# The headers of `flutter run` and `flutter drive` on web. Cross-origin
+# isolation gives the page SharedArrayBuffer, which wllama needs for threads.
+server:
+  headers:
+    - name: Cross-Origin-Opener-Policy
+      value: same-origin
+    - name: Cross-Origin-Embedder-Policy
+      value: require-corp

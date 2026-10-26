@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Files of integration_test/web_llm_integration_test.dart
+/web/test_models/
