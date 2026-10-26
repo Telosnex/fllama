@@ -284,7 +284,12 @@ static void run_inference_body(const fllama_inference_request &request,
     // only a quarter of the context the user chose.
     params.kv_unified       = true;
     params.n_predict        = request.max_tokens;
-    params.cpuparams.n_threads     = request.num_threads;
+    // Not set (<= 0): one thread per physical core, minus one for the app
+    // and the OS, as fllama's default. A thread count that the app sets is
+    // used as it is.
+    params.cpuparams.n_threads     = request.num_threads > 0
+        ? request.num_threads
+        : std::max(1, common_cpu_get_num_math() - 1);
     params.use_jinja = true;
     params.reasoning_format = COMMON_REASONING_FORMAT_AUTO;
 

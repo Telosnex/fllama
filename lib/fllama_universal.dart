@@ -91,8 +91,11 @@ class FllamaInferenceRequest {
   String? openAiRequestJsonString;
   int numGpuLayers;
 
-  /// Number of CPU threads for inference. -1, the default, lets llama.cpp
-  /// choose one thread per physical core, as llama-server does.
+  /// Number of CPU threads for inference. -1, the default, is one thread
+  /// per physical core minus one (at least 1), so a core stays free for the
+  /// app and the OS. On web it is the logical CPUs minus one
+  /// (navigator.hardwareConcurrency), the only count browsers give. A positive
+  /// value is used as it is.
   ///
   /// It was 2 until 2026: in 2024, a Pixel Fold loaded models slowly with
   /// more. On an M-series Mac, CPU-only Qwen 3.5 0.8B generates about 1.5
