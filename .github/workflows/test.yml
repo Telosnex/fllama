@@ -252,7 +252,7 @@ jobs:
             '{schema: 1, user_defines: {web_build: "local", web_build_dir: $dir}}' > "$root/defaults.json"
           cat "$root/defaults.json"
       - name: flutter drive
-        uses: Telosnex/telosnex_ci_tools/actions/web-driver@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+        uses: Telosnex/telosnex_ci_tools/actions/web-driver@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
         timeout-minutes: 25
         with:
           browser: ${{ matrix.browser }}
@@ -387,25 +387,12 @@ jobs:
           jq -n --arg dir "$RUNNER_TEMP/kiln_web" \
             '{schema: 1, user_defines: {web_build: "local", web_build_dir: $dir}}' > "$root/defaults.json"
           cat "$root/defaults.json"
-      - name: Start CoreSimulator
-        timeout-minutes: 5
-        run: xcrun simctl list runtimes > /dev/null
-      - name: Boot a simulator
-        run: dart scripts/boot_ios_simulator.dart --fresh
-      # Safari's first launch on a fresh simulator is slow (73 s on macos-26),
-      # and safaridriver can time out finding it. Open it once.
-      - name: Open Safari once
-        timeout-minutes: 8
-        continue-on-error: true
-        run: |
-          start=$(date +%s)
-          xcrun simctl launch booted com.apple.mobilesafari
-          echo "simctl launch returned after $(( $(date +%s) - start )) s"
-          sleep 20
-          xcrun simctl terminate booted com.apple.mobilesafari || true
+      - uses: Telosnex/telosnex_ci_tools/actions/ios-simulator-boot@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
+        timeout-minutes: 15
+      # web-driver opens Safari once before safaridriver (slow first launch).
       - name: flutter drive
-        uses: Telosnex/telosnex_ci_tools/actions/web-driver@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
-        timeout-minutes: 30
+        uses: Telosnex/telosnex_ci_tools/actions/web-driver@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
+        timeout-minutes: 35
         env:
           BROWSER_NAME: ios-safari
           DRIVE_FLAGS: ''
@@ -484,7 +471,7 @@ jobs:
       # the emulator's localhost:8091 is the runner's.
       - run: adb reverse tcp:8091 tcp:8091
       - name: flutter drive
-        uses: Telosnex/telosnex_ci_tools/actions/web-driver@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+        uses: Telosnex/telosnex_ci_tools/actions/web-driver@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
         timeout-minutes: 30
         env:
           BROWSER_NAME: android-chrome
@@ -534,11 +521,6 @@ jobs:
           enableCrossOsArchive: true
           fail-on-cache-miss: true
       - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
-      # The first simctl call starts CoreSimulatorService, which can take
-      # longer than the 1 minute of boot_ios_simulator.dart.
-      - name: Start CoreSimulator
-        timeout-minutes: 5
-        run: xcrun simctl list runtimes > /dev/null
       # The Xcode build prints nothing for minutes. Built here, the build in
       # the test step is incremental, and its silences are real stalls.
       - name: Build the test app
@@ -549,82 +531,19 @@ jobs:
           flutter build ios --simulator --debug -t integration_test/local_llm_integration_test.dart \
             --dart-define=FLLAMA_TEST_MODEL_BASE_URL=http://127.0.0.1:8765 \
             --dart-define=FLLAMA_TEST_NUM_GPU_LAYERS=0
-      # Sometimes the app starts and its VM service listens, but flutter test
-      # never connects: its `simctl spawn log stream` never gets the "Dart VM
-      # service is listening" line that the simulator logged (seen in our
-      # own log stream). An attempt that has not found the VM service 150 s
-      # after "Waiting for VM Service port" ends; the next attempt, on a new
-      # simulator, runs only if no test started. 3 attempts.
-      # watch.dart of actions/watch, for the retry loop below.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: Telosnex/telosnex_ci_tools
-          ref: c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
-          path: .ci_tools
-          persist-credentials: false
+      - name: Serve the test models
+        run: dart scripts/serve_test_models.dart "$GITHUB_WORKSPACE/$MODEL_CACHE" 127.0.0.1 8765 > "$RUNNER_TEMP/models.log" 2>&1 &
+      # Fresh simulators, a connect watchdog (flutter test sometimes never
+      # sees the VM service) and up to 3 attempts while no test started.
       - name: Integration tests
-        working-directory: example
-        run: |
-          dart ../scripts/serve_test_models.dart "$GITHUB_WORKSPACE/$MODEL_CACHE" 127.0.0.1 8765 > "$RUNNER_TEMP/models.log" 2>&1 &
-          diag="$RUNNER_TEMP/ios"
-          mkdir -p "$diag"
-          status=1
-          for attempt in 1 2 3; do
-            udid=$(dart ../scripts/boot_ios_simulator.dart --fresh)
-            xcrun simctl spawn "$udid" log stream --level debug --style compact \
-              --predicate 'process == "Runner" OR process == "installd" OR process == "SpringBoard"' \
-              > "$diag/simulator_$attempt.log" 2>&1 &
-            logger=$!
-            out="$diag/test_$attempt.log"
-            status=0
-            # -v: what flutter_tools waits for. Its "[ +12 ms]" lines do not
-            # count as output.
-            # A subshell, so wait gets the status of the pipeline (pipefail).
-            (
-            dart ../.ci_tools/actions/watch/watch.dart --idle 480 --ignore '^\[ *\+ *[0-9]+ ms\]' \
-              --on-stall "xcrun simctl listapps $udid > $diag/apps_$attempt.txt 2>&1; xcrun simctl io $udid screenshot $diag/screen_$attempt.png" \
-              -- flutter test -v integration_test/local_llm_integration_test.dart -d "$udid" -r expanded \
-                --dart-define=FLLAMA_TEST_MODEL_BASE_URL=http://127.0.0.1:8765 \
-                --dart-define=FLLAMA_TEST_NUM_GPU_LAYERS=0 2>&1 | tee "$out"
-            ) &
-            pipeline=$!
-            # The connect watchdog: kills flutter test (watch.dart ends with it).
-            (
-              waited=0
-              while kill -0 "$pipeline" 2> /dev/null; do
-                if grep -q 'VM Service URL on device' "$out" 2> /dev/null; then exit 0; fi
-                if grep -q 'Waiting for VM Service port' "$out" 2> /dev/null; then
-                  waited=$(( waited + 5 ))
-                  if (( waited >= 150 )); then
-                    echo "::warning::Attempt $attempt: no VM service 150 s after launch; ending the attempt."
-                    {
-                      echo "== log stream processes"; pgrep -fl 'log stream' || true
-                      echo "== VM service lines the simulator logged"
-                      xcrun simctl spawn "$udid" log show --last 10m --style compact \
-                        --predicate 'eventMessage CONTAINS "Dart VM service is listening"' 2>&1 | tail -5
-                    } > "$diag/connect_$attempt.txt" 2>&1
-                    # flutter_tools and watch.dart both have this in their command line.
-                    pkill -f "local_llm_integration_test.dart -d $udid" || true
-                    exit 0
-                  fi
-                fi
-                sleep 5
-              done
-            ) &
-            wait "$pipeline" || status=$?
-            kill "$logger" 2> /dev/null || true
-            echo "Attempt $attempt: exit $status" | tee -a "$GITHUB_STEP_SUMMARY"
-            started=0
-            # "00:00 +0: loading <file>" is printed before the app connects.
-            if grep -E '^[0-9]{2}:[0-9]{2} \+[0-9]+' "$out" | grep -qv ': loading '; then started=1; fi
-            xcrun simctl shutdown "$udid" || true
-            xcrun simctl delete "$udid" || true
-            if (( started )) || [[ "$status" == 0 ]]; then break; fi
-          done
-          exit "$status"
+        uses: Telosnex/telosnex_ci_tools/actions/ios-flutter-test@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
+        with:
+          working-directory: example
+          target: integration_test/local_llm_integration_test.dart
+          args: --dart-define=FLLAMA_TEST_MODEL_BASE_URL=http://127.0.0.1:8765 --dart-define=FLLAMA_TEST_NUM_GPU_LAYERS=0
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-diagnostics
-          path: ${{ runner.temp }}/ios/
+          path: ${{ runner.temp }}/ios-flutter-test/
           if-no-files-found: ignore
