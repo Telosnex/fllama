@@ -1,13 +1,15 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index ba95350..aa0e131 100644
+index 4248078..44e48c6 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -25,10 +25,11 @@ set(WLLAMA_LINK_OPTIONS
+@@ -25,10 +25,13 @@ set(WLLAMA_LINK_OPTIONS
      -sMODULARIZE=0
      -sINITIAL_MEMORY=128MB
      -sMAXIMUM_MEMORY=4096MB
 -    -sSTACK_SIZE=5MB
++    # fllama: Gemma tool / response-format grammars exhaust 5 MB.
 +    -sSTACK_SIZE=16MB
++    # fllama: std::localtime / strftime need the _localtime_js import.
 +    -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=_localtime_js
      -sALLOW_MEMORY_GROWTH=1
      -sFORCE_FILESYSTEM=1
@@ -16,7 +18,7 @@ index ba95350..aa0e131 100644
      -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8,MEMFS,FS,mmapAlloc,ENV,wasmMemory
      -sNO_EXIT_RUNTIME=1
      -sIMPORTED_MEMORY=1
-@@ -56,7 +57,7 @@ if (WLLAMA_COMPAT)
+@@ -56,7 +59,7 @@ if (WLLAMA_COMPAT)
      list(APPEND WLLAMA_LINK_OPTIONS
          -fexceptions
          -sASYNCIFY=1
@@ -25,7 +27,7 @@ index ba95350..aa0e131 100644
      )
  else()
      list(APPEND WLLAMA_COMPILE_OPTIONS
-@@ -67,7 +68,7 @@ else()
+@@ -67,7 +70,7 @@ else()
          -sMEMORY64=1
          -fwasm-exceptions
          -sJSPI
@@ -34,446 +36,60 @@ index ba95350..aa0e131 100644
      )
  endif()
  
-@@ -103,6 +104,7 @@ set(LLAMA_SERVER_SRC llama.cpp/tools/server/server-context.cpp
-     llama.cpp/tools/server/server-task.cpp
-     llama.cpp/tools/server/server-chat.cpp
-     llama.cpp/tools/server/server-common.cpp
-+    llama.cpp/tools/server/server-schema.cpp
- )
- 
- set(WLLAMA_SRC ${LLAMA_COMMON_SRC} ${LLAMA_SERVER_SRC}
-diff --git a/cpp/glue.hpp b/cpp/glue.hpp
-index f1496a4..8b7af34 100644
---- a/cpp/glue.hpp
-+++ b/cpp/glue.hpp
-@@ -601,6 +601,7 @@ struct glue_msg_completion_res
- {
-   GLUE_HANDLER("cmpl_res")
-   GLUE_FIELD(bool, success)
-+  GLUE_FIELD(int, request_id)
- };
- 
- /////////
-@@ -616,6 +617,7 @@ struct glue_msg_embedding_res
- {
-   GLUE_HANDLER("embd_res")
-   GLUE_FIELD(bool, success)
-+  GLUE_FIELD(int, request_id)
- };
- 
- /////////
-@@ -630,6 +632,7 @@ struct glue_msg_rerank_res
- {
-   GLUE_HANDLER("rrnk_res")
-   GLUE_FIELD(bool, success)
-+  GLUE_FIELD(int, request_id)
- };
- 
- /////////
-@@ -637,6 +640,7 @@ struct glue_msg_rerank_res
- struct glue_msg_get_result_req
- {
-   GLUE_HANDLER("gres_req")
-+  GLUE_FIELD(int, request_id)
- };
- 
- struct glue_msg_get_result_res
-@@ -662,3 +666,17 @@ struct glue_msg_test_backend_ops_res
-   GLUE_FIELD(int, retcode)
-   GLUE_FIELD(bool, success)
- };
-+
-+/////////
-+
-+struct glue_msg_release_result_reader_req
-+{
-+  GLUE_HANDLER("grrr_req")
-+  GLUE_FIELD(int, request_id)
-+};
-+
-+struct glue_msg_release_result_reader_res
-+{
-+  GLUE_HANDLER("grrr_res")
-+  GLUE_FIELD(bool, success)
-+};
 diff --git a/cpp/wllama-context.h b/cpp/wllama-context.h
-index 0dafe6d..dc92f88 100644
+index cae07f6..6b48c70 100644
 --- a/cpp/wllama-context.h
 +++ b/cpp/wllama-context.h
-@@ -7,6 +7,7 @@
- #include <stdio.h>
- #include <cmath>
- #include <fstream>
-+#include <unordered_map>
- 
- #include "llama.h"
- #include "common.h"
-@@ -19,6 +20,7 @@
- 
- #include "server-context.h"
- #include "server-queue.h"
-+#include "server-schema.h"
- 
- #include "ggml-cpu.h"
- #include "ggml-backend.h"
-@@ -260,8 +262,11 @@ struct wllama_context
-   std::function<bool()> should_stop = []()
-   { return false; };
-   std::string last_error;
--  // using unique_ptr to allow late initialization
--  std::unique_ptr<server_response_reader> rd;
-+  // Multiple active readers allow multiple streaming completions to share one
-+  // llama.cpp server context. Each JS stream receives a request_id and polls its
-+  // own reader via action_get_result(request_id).
-+  int next_request_id = 1;
-+  std::unordered_map<int, std::unique_ptr<server_response_reader>> readers;
-   std::unique_ptr<const server_context_meta> meta;
- 
-   struct console
-@@ -277,7 +282,7 @@ struct wllama_context
- 
-   explicit wllama_context() {};
- 
--  void create_completion_task(std::string &req_raw, std::vector<raw_buffer> &files, bool is_chat)
-+  void create_completion_task(server_response_reader &reader, std::string &req_raw, std::vector<raw_buffer> &files, bool is_chat)
-   {
-     json body = json::parse(req_raw);
-     task_response_type res_type = TASK_RESPONSE_TYPE_OAI_CMPL;
-@@ -285,11 +290,61 @@ struct wllama_context
+@@ -299,10 +299,46 @@ struct wllama_context
      if (is_chat)
      {
        std::vector<raw_buffer> dummy_files; // unused
--      json body_parsed = oaicompat_chat_params_parse(
--          body,
--          meta->chat_params,
--          dummy_files);
--      body = std::move(body_parsed);
-+
-+      // fllama/web parity with native fllama: allow each OpenAI chat request to
-+      // provide its own Jinja template without making the template part of the
-+      // loaded model identity. This lets function-calling and non-function
-+      // requests share one llama.cpp server_context and batch together.
++      // fllama: a chat request can carry its own Jinja template
++      // ("jinja_template"), as in native fllama, without making the template
++      // part of the loaded model: requests with and without tools share one
++      // server_context and batch together. A template that does not render
++      // falls back to chatml.
++      server_chat_params request_chat_params;
++      const server_chat_params *chat_params = &meta->chat_params;
 +      if (body.contains("jinja_template") && body["jinja_template"].is_string())
 +      {
 +        const std::string jinja_tmpl = body["jinja_template"].get<std::string>();
 +        body.erase("jinja_template");
-+
-+        common_chat_templates_ptr request_templates;
++        const server_chat_params &base = meta->chat_params;
++        request_chat_params.use_jinja = base.use_jinja;
++        request_chat_params.prefill_assistant = base.prefill_assistant;
++        request_chat_params.reasoning_format = base.reasoning_format;
++        request_chat_params.chat_template_kwargs = base.chat_template_kwargs;
++        request_chat_params.allow_image = base.allow_image;
++        request_chat_params.allow_audio = base.allow_audio;
++        request_chat_params.allow_video = base.allow_video;
++        request_chat_params.enable_thinking = base.enable_thinking;
++        request_chat_params.reasoning_budget = base.reasoning_budget;
++        request_chat_params.reasoning_budget_message = base.reasoning_budget_message;
++        request_chat_params.media_path = base.media_path;
++        request_chat_params.force_pure_content = base.force_pure_content;
 +        try
 +        {
-+          request_templates = common_chat_templates_init(model, jinja_tmpl);
-+
++          request_chat_params.tmpls = common_chat_templates_init(model, jinja_tmpl);
 +          std::map<std::string, std::string> empty_kwargs;
-+          common_chat_format_example(
-+              request_templates.get(),
-+              meta->chat_params.use_jinja,
-+              empty_kwargs);
++          common_chat_format_example(request_chat_params.tmpls.get(), base.use_jinja, empty_kwargs);
 +        }
 +        catch (...)
 +        {
-+          request_templates = common_chat_templates_init(model, "chatml");
++          request_chat_params.tmpls = common_chat_templates_init(model, "chatml");
 +        }
-+
-+        server_chat_params request_chat_params = {
-+            /* use_jinja             */ meta->chat_params.use_jinja,
-+            /* prefill_assistant     */ meta->chat_params.prefill_assistant,
-+            /* reasoning_format      */ meta->chat_params.reasoning_format,
-+            /* chat_template_kwargs  */ meta->chat_params.chat_template_kwargs,
-+            /* tmpls                 */ std::move(request_templates),
-+            /* allow_image           */ meta->chat_params.allow_image,
-+            /* allow_audio           */ meta->chat_params.allow_audio,
-+            /* allow_video           */ meta->chat_params.allow_video,
-+            /* enable_thinking       */ meta->chat_params.enable_thinking,
-+            /* reasoning_budget      */ meta->chat_params.reasoning_budget,
-+            /* reasoning_budget_msg  */ meta->chat_params.reasoning_budget_message,
-+            /* media_path            */ meta->chat_params.media_path,
-+            /* force_pure_content    */ meta->chat_params.force_pure_content};
-+
-+        json body_parsed = oaicompat_chat_params_parse(
-+            body,
-+            request_chat_params,
-+            dummy_files);
-+        body = std::move(body_parsed);
++        chat_params = &request_chat_params;
 +      }
-+      else
-+      {
-+        json body_parsed = oaicompat_chat_params_parse(
-+            body,
-+            meta->chat_params,
-+            dummy_files);
-+        body = std::move(body_parsed);
-+      }
-       res_type = TASK_RESPONSE_TYPE_OAI_CHAT;
-     }
- 
-@@ -298,12 +353,11 @@ struct wllama_context
- 
-       // TODO: reduce some copies here in the future
-       server_task task = server_task(SERVER_TASK_TYPE_COMPLETION);
--      task.id = rd->get_new_id();
-+      task.id = reader.get_new_id();
-       task.index = 0;
--      task.params = server_task::params_from_json_cmpl(
-+      task.params = server_schema::eval_llama_cmpl_schema(
+       json body_parsed = oaicompat_chat_params_parse(
            vocab,
-           params,
--          meta->slot_n_ctx,
-           meta->logit_bias_eog,
-           body);
-       task.params.res_type = res_type;
-@@ -311,13 +365,13 @@ struct wllama_context
-       task.cli_files = files;
-       task.cli = true;
- 
--      rd->post_task({std::move(task)});
-+      reader.post_task({std::move(task)});
-     }
-   }
- 
--  std::pair<server_task_result_ptr, bool> get_next_result()
-+  std::pair<server_task_result_ptr, bool> get_next_result(server_response_reader &reader)
-   {
--    server_task_result_ptr result = rd->next(should_stop);
-+    server_task_result_ptr result = reader.next(should_stop);
-     if (result)
-     {
-       const bool is_error = result->is_error();
-@@ -399,10 +453,14 @@ struct wllama_context
-       params.image_max_tokens = req.image_max_tokens.value;
- 
-     // model params
--    if (req.use_mmap.not_null())
--      params.use_mmap = req.use_mmap.value;
--    if (req.use_mlock.not_null())
--      params.use_mlock = req.use_mlock.value;
-+    if (req.use_mmap.not_null() || req.use_mlock.not_null())
-+    {
-+      const bool use_mmap = req.use_mmap.not_null() && req.use_mmap.value;
-+      const bool use_mlock = req.use_mlock.not_null() && req.use_mlock.value;
-+      params.load_mode = use_mmap
-+          ? (use_mlock ? LLAMA_LOAD_MODE_MMAP_MLOCK : LLAMA_LOAD_MODE_MMAP)
-+          : (use_mlock ? LLAMA_LOAD_MODE_MLOCK : LLAMA_LOAD_MODE_NONE);
-+    }
-     if (req.n_gpu_layers.not_null())
-       params.n_gpu_layers = req.n_gpu_layers.value;
-     if (req.model_alias.not_null())
-@@ -630,7 +688,9 @@ struct wllama_context
-     glue_msg_completion_res res;
- 
-     // prepare
--    rd = std::make_unique<server_response_reader>(ctx_server.get_response_reader());
-+    const int request_id = next_request_id++;
-+    auto reader = std::make_unique<server_response_reader>(ctx_server.get_response_reader());
-+    auto &reader_ref = *reader;
-     last_error = "";
-     std::vector<raw_buffer> input_files;
-     for (const auto &file : req.files.arr)
-@@ -639,13 +699,15 @@ struct wllama_context
-     }
- 
-     // create completion task and post to the queue
--    create_completion_task(req.data_json.value, input_files, req.is_chat.value);
-+    create_completion_task(reader_ref, req.data_json.value, input_files, req.is_chat.value);
-+    readers[request_id] = std::move(reader);
- 
-     res.success.value = true;
-+    res.request_id.value = request_id;
-     return res;
-   }
- 
--  void create_embedding_tasks(std::string &req_raw)
-+  void create_embedding_tasks(server_response_reader &reader, std::string &req_raw)
-   {
-     json body = json::parse(req_raw);
- 
-@@ -682,13 +744,13 @@ struct wllama_context
-     for (size_t i = 0; i < tokenized_prompts.size(); i++)
-     {
-       server_task task = server_task(SERVER_TASK_TYPE_EMBEDDING);
--      task.id = rd->get_new_id();
-+      task.id = reader.get_new_id();
-       task.tokens = std::move(tokenized_prompts[i]);
-       task.params.res_type = TASK_RESPONSE_TYPE_OAI_EMBD;
-       task.params.embd_normalize = embd_normalize;
-       tasks.push_back(std::move(task));
-     }
--    rd->post_tasks(std::move(tasks));
-+    reader.post_tasks(std::move(tasks));
-   }
- 
-   glue_msg_embedding_res action_embedding(const char *req_raw)
-@@ -696,12 +758,16 @@ struct wllama_context
-     PARSE_REQ(glue_msg_embedding_req);
-     glue_msg_embedding_res res;
- 
--    rd = std::make_unique<server_response_reader>(ctx_server.get_response_reader());
-+    const int request_id = next_request_id++;
-+    auto reader = std::make_unique<server_response_reader>(ctx_server.get_response_reader());
-+    auto &reader_ref = *reader;
-     last_error = "";
- 
--    create_embedding_tasks(req.data_json.value);
-+    create_embedding_tasks(reader_ref, req.data_json.value);
-+    readers[request_id] = std::move(reader);
- 
-     res.success.value = true;
-+    res.request_id.value = request_id;
-     return res;
-   }
- 
-@@ -722,17 +788,21 @@ struct wllama_context
-     std::string query = body.at("query");
-     std::string document = body.at("document");
- 
--    rd = std::make_unique<server_response_reader>(ctx_server.get_response_reader());
-+    const int request_id = next_request_id++;
-+    auto reader = std::make_unique<server_response_reader>(ctx_server.get_response_reader());
-+    auto &reader_ref = *reader;
-     last_error = "";
- 
-     auto tokens = format_prompt_rerank(model, vocab, nullptr, query, document);
-     server_task task = server_task(SERVER_TASK_TYPE_RERANK);
--    task.id = rd->get_new_id();
-+    task.id = reader_ref.get_new_id();
-     task.index = 0;
-     task.tokens = std::move(tokens);
--    rd->post_task(std::move(task));
-+    reader_ref.post_task(std::move(task));
-+    readers[request_id] = std::move(reader);
- 
-     res.success.value = true;
-+    res.request_id.value = request_id;
-     return res;
-   }
- 
-@@ -741,8 +811,15 @@ struct wllama_context
-     PARSE_REQ(glue_msg_get_result_req);
-     glue_msg_get_result_res res;
- 
-+    auto reader_it = readers.find(req.request_id.value);
-+    if (reader_it == readers.end())
-+    {
-+      throw app_exception("Unknown request_id: " + std::to_string(req.request_id.value));
-+    }
-+    auto &reader = *reader_it->second;
-+
-     bool has_more = run_loop();
--    auto [result, is_error] = get_next_result();
-+    auto [result, is_error] = get_next_result(reader);
- 
-     json data_json;
-     if (result)
-@@ -771,6 +848,17 @@ struct wllama_context
-       }
-     }
- 
-+    const bool reader_done = result && (result->is_error() || (result->is_stop() && !reader.has_next()));
-+    if (reader_done)
-+    {
-+      readers.erase(reader_it);
-+      has_more = false;
-+    }
-+    else
-+    {
-+      has_more = has_more || reader.has_next();
-+    }
-+
-     res.success.value = true;
-     res.has_more.value = has_more;
-     res.data_json.value = result ? data_json.dump() : "";
-@@ -804,6 +892,22 @@ struct wllama_context
- 
-     return res;
-   }
-+
-+  glue_msg_release_result_reader_res action_release_result_reader(const char *req_raw)
-+  {
-+    PARSE_REQ(glue_msg_release_result_reader_req);
-+    glue_msg_release_result_reader_res res;
-+
-+    auto reader_it = readers.find(req.request_id.value);
-+    if (reader_it != readers.end())
-+    {
-+      reader_it->second->stop();
-+      readers.erase(reader_it);
-+    }
-+
-+    res.success.value = true;
-+    return res;
-+  }
- };
- 
- ////////////////////////////
-@@ -914,16 +1018,22 @@ void server_response::add_waiting_task_ids(const std::unordered_set<int> &id_tas
- 
- void server_response::remove_waiting_task_ids(const std::unordered_set<int> &id_tasks)
- {
--  // no-op
-+  queue_results.erase(
-+      std::remove_if(queue_results.begin(), queue_results.end(), [&id_tasks](const server_task_result_ptr &result)
-+                     { return result && id_tasks.find(result->id) != id_tasks.end(); }),
-+      queue_results.end());
- }
- 
--server_task_result_ptr server_response::recv(const std::unordered_set<int> &)
-+server_task_result_ptr server_response::recv(const std::unordered_set<int> &id_tasks)
- {
-   for (size_t i = 0; i < queue_results.size(); i++)
-   {
--    server_task_result_ptr res = std::move(queue_results[i]);
--    queue_results.erase(queue_results.begin() + i);
--    return res;
-+    if (id_tasks.find(queue_results[i]->id) != id_tasks.end())
-+    {
-+      server_task_result_ptr res = std::move(queue_results[i]);
-+      queue_results.erase(queue_results.begin() + i);
-+      return res;
-+    }
-   }
-   return nullptr;
- }
-@@ -940,7 +1050,7 @@ void server_queue::start_loop(int64_t idle_sleep_ms)
-     queue_tasks.pop_front();
- 
-     LOG_DBG("processing task, id = %d\n", task.id);
--    callback_new_task(std::move(task));
-+    GGML_ASSERT(callback_new_task(std::move(task), false));
-   }
-   // all tasks in the current loop is processed, slots data is now ready
-   LOG_DBG("%s", "update slots\n");
-@@ -951,6 +1061,19 @@ void server_queue::start_loop(int64_t idle_sleep_ms)
-   has_more_tasks = !queue_tasks.empty();
- }
- 
-+void server_queue::yield_to_queue(std::function<void()> &&work)
-+{
-+  // The browser runtime advances one server-loop iteration per get_result
-+  // action and cannot run a second native queue worker concurrently with a
-+  // JSPI-suspended wasm export. Execute the work inline instead.
-+  work();
-+}
-+
-+void server_queue::worker_stop()
-+{
-+  // No queue worker is started by the browser-specific start_loop above.
-+}
-+
- const char *llama_build_info()
- {
-   return "wllama";
-@@ -1018,6 +1141,10 @@ server_task_result_ptr server_response_reader::next(const std::function<bool()>
-     LOG_DBG("%s: received error result, stop further processing\n", __func__);
-     stop();
-   }
-+  if (result && result->is_stop())
-+  {
-+    received_count++;
-+  }
-   return result;
- }
- 
+           body,
+-          meta->chat_params,
++          *chat_params,
+           dummy_files,
+           chat_session);
+       body = std::move(body_parsed);
 diff --git a/cpp/wllama.cpp b/cpp/wllama.cpp
-index f9776ba..1fcbfbe 100644
+index b499be1..30f6697 100644
 --- a/cpp/wllama.cpp
 +++ b/cpp/wllama.cpp
 @@ -24,7 +24,7 @@
@@ -485,31 +101,24 @@ index f9776ba..1fcbfbe 100644
      res.handler.serialize(output_buffer);  \
    }
  
-@@ -60,7 +60,9 @@ static void printStr(ggml_log_level level, const char *text)
+@@ -60,7 +60,10 @@ static void printStr(ggml_log_level level, const char *text)
  }
  
  static glue_outbuf output_buffer;
 -static wllama_context app;
-+// A pointer, so wllama_unload can free the model and make a new context in
-+// the same worker (fllama: a new worker cannot always get WebAssembly memory).
++// fllama: a pointer, so wllama_unload can free the model and make a new
++// context in the same worker (a new worker cannot always get WebAssembly
++// memory on iOS Safari).
 +static wllama_context *app = new wllama_context();
  
  static std::vector<char> input_buffer;
  // second argument is dummy
-@@ -115,6 +117,7 @@ extern "C" const char *wllama_action(const char *name, const char *req_raw)
-     WLLAMA_ACTION(rerank)
-     WLLAMA_ACTION(get_result)
-     WLLAMA_ACTION(test_backend_ops)
-+    WLLAMA_ACTION(release_result_reader)
- 
-     else
-     {
-@@ -134,6 +137,23 @@ extern "C" const char *wllama_action(const char *name, const char *req_raw)
+@@ -136,6 +139,23 @@ extern "C" const char *wllama_action(const char *name, const char *req_raw)
    }
  }
  
-+// Frees the model, its context, KV cache and mmproj. The files stay in the
-+// worker's file system; a load action can follow.
++// fllama: frees the model, its context, KV cache and mmproj. The files stay
++// in the worker's file system; a load action can follow.
 +extern "C" const char *wllama_unload()
 +{
 +  try
@@ -528,32 +137,11 @@ index f9776ba..1fcbfbe 100644
  extern "C" const char *wllama_exit()
  {
    try
-diff --git a/llama.cpp b/llama.cpp
-index dd4623a..ece963f 160000
---- a/llama.cpp
-+++ b/llama.cpp
-@@ -1 +1 @@
--Subproject commit dd4623a74f0c85e6b1dd9ee99a92b9c67cac3708
-+Subproject commit ece963f41b0b02d7a0d61436ae365762c073a4c8
-diff --git a/src/types/types.ts b/src/types/types.ts
-index 2b3cca7..400b90e 100644
---- a/src/types/types.ts
-+++ b/src/types/types.ts
-@@ -4,6 +4,9 @@ export interface LoadModelParams {
-   seed?: number;
-   n_ctx?: number;
-   n_batch?: number;
-+  // Experimental: number of parallel sequences supported by the llama.cpp context.
-+  // Values > 1 allow multiple active completions on one Wllama instance.
-+  n_parallel?: number;
-   // by default, all layers are offloaded if WebGPU is available
-   n_gpu_layers?: number;
-   // by default, on multi-thread build, we take half number of available threads (hardwareConcurrency / 2)
 diff --git a/src/utils.ts b/src/utils.ts
-index 6627f35..f86cae0 100644
+index fe45ec4..258a7b1 100644
 --- a/src/utils.ts
 +++ b/src/utils.ts
-@@ -272,15 +272,12 @@ export const isSupportWebGPU = () => {
+@@ -274,15 +274,12 @@ export const isSupportWebGPU = () => {
   * @returns true if browser support WASM Memory64
   */
  export const isSupportMem64 = (): boolean => {
@@ -566,7 +154,7 @@ index 6627f35..f86cae0 100644
 -  } catch {
 -    return false;
 -  }
-+  // A module with one 64-bit memory. WebKit accepts
++  // fllama: a module with one 64-bit memory. WebKit accepts
 +  // new WebAssembly.Memory({ address: 'i64' }) and makes a 32-bit memory, and
 +  // then cannot compile a Memory64 module.
 +  return WebAssembly.validate(
@@ -576,29 +164,10 @@ index 6627f35..f86cae0 100644
  
  /**
 diff --git a/src/wllama.ts b/src/wllama.ts
-index ce74b2b..799544a 100644
+index 6ecbb68..ab396b0 100644
 --- a/src/wllama.ts
 +++ b/src/wllama.ts
-@@ -21,6 +21,7 @@ import type {
-   GlueMsgRerankRes,
-   GlueMsgGetResultRes,
-   GlueMsgLoadRes,
-+  GlueMsgReleaseResultReaderRes,
-   GlueMsgTestBackendOpsRes,
- } from './glue/messages';
- import { LIBLLAMA_VERSION } from './workers-code/generated';
-@@ -454,6 +455,10 @@ export class Wllama {
-    * @param ggufBlobsOrModel Can be either list of Blobs (in case you use local file), or a Model object (in case you use ModelManager)
-    * @param params LoadModelParams
-    */
-+  private loadedModelFiles: Awaited<ReturnType<typeof prepareBlobs>> | null = null;
-+  private loadedCompat: boolean = false;
-+  private loadedLogLevel: any = undefined;
-+
-   async loadModel(
-     ggufBlobsOrModel: Blob[] | Model,
-     params: LoadModelParams = {}
-@@ -476,7 +481,11 @@ export class Wllama {
+@@ -480,7 +480,11 @@ export class Wllama {
      }
  
      if (this.proxy) {
@@ -611,12 +180,13 @@ index ce74b2b..799544a 100644
      }
      // detect if we can use multi-thread and webgpu
      const supportMultiThread = await isSupportMultiThread();
-@@ -511,16 +520,55 @@ export class Wllama {
+@@ -518,17 +522,65 @@ export class Wllama {
+       );
      }
  
-     // load the model
 +    this.loadedModelFiles = modelFiles;
 +    this.loadedCompat = workerResources.compat;
++    this.loadedNoWebGPU = !!workerResources.noWebGPU;
 +    this.loadedLogLevel = logLevel;
 +    await this.loadInWorker(modelFiles, params, logLevel, workerResources.compat);
 +  }
@@ -626,13 +196,21 @@ index ce74b2b..799544a 100644
 +   * model and its context and loads in the same worker, instead of failing.
 +   * The worker keeps its WebAssembly memory, so the load reuses it (on iOS
 +   * Safari, a new worker cannot always get the memory of an ended one).
-+   * Needs async file reads; n_threads must not be more than the first load's.
++   * Needs async file reads; refuses, before unloading, more threads, another
++   * build, or another WebGPU setup (n_gpu_layers 0 or not).
 +   */
 +  reuseWorker: boolean = false;
++  private loadedModelFiles: Awaited<ReturnType<typeof prepareBlobs>> | null = null;
++  private loadedCompat: boolean = false;
++  private loadedNoWebGPU: boolean = false;
++  private loadedLogLevel: any = undefined;
 +
 +  private async loadInSameWorker(blobs: Blob[], params: LoadModelParams): Promise<void> {
 +    if (this.getWorkerResources().compat !== this.loadedCompat) {
 +      throw new WllamaError('A new worker would use another build', 'load_error');
++    }
++    if ((params.n_gpu_layers === 0) !== this.loadedNoWebGPU) {
++      throw new WllamaError('A new worker would set up WebGPU differently', 'load_error');
 +    }
 +    const nbThreads = params.n_threads ?? this.nbThreads;
 +    if (nbThreads > this.nbThreads) {
@@ -654,6 +232,7 @@ index ce74b2b..799544a 100644
 +    logLevel: any,
 +    compat: boolean
 +  ): Promise<void> {
+     // load the model
      this.logger().debug('Loading model...');
      const loadResult: GlueMsgLoadRes = await this.proxy.wllamaAction('load', {
        _name: 'load_req',
@@ -669,50 +248,7 @@ index ce74b2b..799544a 100644
        n_ctx_auto: false, // not supported for now
        mmproj_path: modelFiles.mmproj
          ? `/models/${MMPROJ_FILE_NAME}`
-@@ -540,7 +588,7 @@ export class Wllama {
-       yarn_orig_ctx: params.yarn_orig_ctx,
-       cache_type_k: params.cache_type_k as string,
-       cache_type_v: params.cache_type_v as string,
--      n_parallel: 1, // only support single sequence for now
-+      n_parallel: params.n_parallel ?? 1,
-       kv_unified: false, // TODO: support kv unified cache
-       flash_attn: params.flash_attn,
-       swa_full: params.swa_full,
-@@ -659,7 +707,11 @@ export class Wllama {
-       );
-     }
- 
--    return await this.getResponse(options as any, false);
-+    return await this.getResponse(
-+      options as any,
-+      false,
-+      result.request_id
-+    );
-   }
- 
-   /**
-@@ -697,7 +749,9 @@ export class Wllama {
-         );
-       }
- 
--      const { score, tokens_evaluated } = await this.getRerankResult();
-+      const { score, tokens_evaluated } = await this.getRerankResult(
-+        result.request_id
-+      );
-       totalTokens += tokens_evaluated;
-       rawResults.push({ index: i, score });
-     }
-@@ -821,7 +875,8 @@ export class Wllama {
- 
-     return await this.getResponse(
-       options as StreamParams<TChunk> & { abortSignal?: AbortSignal },
--      isStream
-+      isStream,
-+      result.request_id
-     );
-   }
- 
-@@ -874,6 +929,7 @@ export class Wllama {
+@@ -918,6 +970,7 @@ export class Wllama {
    async exit(): Promise<void> {
      await this.proxy?.wllamaExit();
      this.proxy = null as any;
@@ -720,148 +256,8 @@ index ce74b2b..799544a 100644
    }
  
    /**
-@@ -1002,14 +1058,14 @@ export class Wllama {
-     };
-   }
- 
--  private async getRerankResult(): Promise<{
-+  private async getRerankResult(requestId: number): Promise<{
-     score: number;
-     tokens_evaluated: number;
-   }> {
-     while (true) {
-       const chunk = await this.proxy.wllamaAction<GlueMsgGetResultRes>(
-         'get_result',
--        { _name: 'gres_req' }
-+        { _name: 'gres_req', request_id: requestId }
-       );
- 
-       const jsonString = chunk.data_json;
-@@ -1032,61 +1088,85 @@ export class Wllama {
- 
-   private async getResponse(
-     options: StreamParams<any> & { abortSignal?: AbortSignal },
--    isStream: boolean
-+    isStream: boolean,
-+    requestId: number
-   ) {
-     let finalResult: any = null;
-+    let shouldReleaseReader = true;
- 
--    while (true) {
--      if (options.abortSignal?.aborted) {
--        throw new WllamaAbortError();
--      }
--      const result_chunk = await this.proxy.wllamaAction<GlueMsgGetResultRes>(
--        'get_result',
--        {
--          _name: 'gres_req',
-+    try {
-+      while (true) {
-+        if (options.abortSignal?.aborted) {
-+          throw new WllamaAbortError();
-         }
--      );
-+        const result_chunk = await this.proxy.wllamaAction<GlueMsgGetResultRes>(
-+          'get_result',
-+          {
-+            _name: 'gres_req',
-+            request_id: requestId,
-+          }
-+        );
- 
--      const jsonString = result_chunk.data_json;
--      if (!jsonString || jsonString.length === 0) {
--        if (!result_chunk.has_more) {
--          break;
--        } else {
-+        const jsonString = result_chunk.data_json;
-+        if (!jsonString || jsonString.length === 0) {
-+          if (!result_chunk.has_more) {
-+            break;
-+          } else {
-+            continue;
-+          }
-+        }
-+
-+        if (jsonString == 'null') {
-           continue;
-         }
--      }
- 
--      if (jsonString == 'null') {
--        continue; // this is the "is_begin = true" chunk on server side, we can ignore it
--      }
-+        let jsonData = this.jsonDecode(jsonString);
-+        finalResult = jsonData;
-+        if (result_chunk.is_error) {
-+          this.logger().error('Model returned an error:', jsonData);
-+          throw new WllamaError(
-+            jsonData.message || 'Unknown inference error',
-+            'inference_error'
-+          );
-+        }
- 
--      let jsonData = this.jsonDecode(jsonString);
--      finalResult = jsonData;
--      if (result_chunk.is_error) {
--        this.logger().error('Model returned an error:', jsonData);
--        throw new WllamaError(
--          jsonData.message || 'Unknown inference error',
--          'inference_error'
--        );
--      }
-+        if (isStream) {
-+          if (!Array.isArray(jsonData)) {
-+            jsonData = [jsonData];
-+          }
- 
--      if (isStream) {
--        if (!Array.isArray(jsonData)) {
--          jsonData = [jsonData];
-+          for (const chunk of jsonData) {
-+            options.onData?.(chunk);
-+            finalResult = chunk;
-+          }
-         }
- 
--        for (const chunk of jsonData) {
--          options.onData?.(chunk);
--          finalResult = chunk;
-+        if (!result_chunk.has_more) {
-+          shouldReleaseReader = false;
-+          break;
-         }
-       }
- 
--      if (!result_chunk.has_more) {
--        break;
-+      return finalResult;
-+    } finally {
-+      if (shouldReleaseReader) {
-+        try {
-+          await this.releaseResultReader(requestId);
-+        } catch (err) {
-+          this.logger().warn('Failed to release result reader:', err);
-+        }
-       }
-     }
-+  }
- 
--    return finalResult;
-+  private async releaseResultReader(requestId: number) {
-+    await this.proxy.wllamaAction<GlueMsgReleaseResultReaderRes>(
-+      'release_result_reader',
-+      {
-+        _name: 'grrr_req',
-+        request_id: requestId,
-+      }
-+    );
-   }
- 
-   getWorkerResources(): WllamaWorkerResources {
 diff --git a/src/worker.ts b/src/worker.ts
-index 10e6fc9..0b92e83 100644
+index 3cdc7c9..e0c1c5a 100644
 --- a/src/worker.ts
 +++ b/src/worker.ts
 @@ -44,6 +44,7 @@ interface TaskParam {
@@ -872,23 +268,14 @@ index 10e6fc9..0b92e83 100644
      | 'wllama.debug';
    args: any[];
    callbackId: number;
-@@ -92,7 +93,7 @@ export class ProxyToWorker {
-   taskQueue: Task[] = [];
-   taskId: number = 1;
-   resultQueue: Task[] = [];
--  busy = false; // is the work loop is running?
-+  actionInFlight = false;
-   worker?: Worker | undefined;
-   multiThread: boolean;
-   nbThread: number;
-@@ -216,6 +217,34 @@ export class ProxyToWorker {
+@@ -224,6 +225,34 @@ export class ProxyToWorker {
      return parsedResult as T;
    }
  
 +  /**
-+   * Puts these files in the worker's file system, in place of files of the
-+   * same name. Only with async file reads: the worker reads them from the
-+   * blobs, so no heap memory is taken.
++   * fllama: puts these files in the worker's file system, in place of files
++   * of the same name. Only with async file reads: the worker reads them from
++   * the blobs, so no heap memory is taken.
 +   */
 +  async replaceFiles(files: { name: string; blob: Blob }[]): Promise<void> {
 +    if (!this.useAsyncFile) {
@@ -901,8 +288,8 @@ index 10e6fc9..0b92e83 100644
 +  }
 +
 +  /**
-+   * Frees the model and its context in the worker; the worker, its memory
-+   * and its files stay. A load action can follow.
++   * fllama: frees the model and its context in the worker; the worker, its
++   * memory and its files stay. A load action can follow.
 +   */
 +  async wllamaUnload(): Promise<void> {
 +    const result = await this.pushTask({
@@ -916,67 +303,13 @@ index 10e6fc9..0b92e83 100644
    async wllamaExit(): Promise<void> {
      if (this.worker) {
        // we don't actually need to send exit
-@@ -330,28 +359,33 @@ export class ProxyToWorker {
-   }
- 
-   /**
--   * Main loop for processing tasks
-+   * Main loop for processing tasks.
-+   *
-+   * Emscripten/JSPI exports are not re-entrant-safe: an exported call can yield
-+   * to JS while WebGPU / async FS work is in flight. Posting another exported
-+   * call before the previous callback returns can corrupt shared glue buffers and
-+   * crash the wasm runtime. Keep the worker protocol strictly one-action-at-a-
-+   * time; concurrent streams are achieved by interleaving short `get_result`
-+   * calls for different request ids.
-    */
--  private async runTaskLoop() {
--    if (this.busy) {
--      return; // another loop is already running
-+  private runTaskLoop() {
-+    if (this.actionInFlight) {
-+      return; // another task is already posted / awaiting callback
-     }
--    this.busy = true;
--    while (true) {
--      const task = this.taskQueue.shift();
--      if (!task) break; // no more tasks
--      this.resultQueue.push(task);
--      // TODO @ngxson : Safari mobile doesn't support transferable ArrayBuffer
--      this.worker!!.postMessage(
--        task.param,
--        isSafariMobile()
--          ? undefined
--          : {
--              transfer: task.buffers ?? [],
--            }
--      );
--    }
--    this.busy = false;
-+    const task = this.taskQueue.shift();
-+    if (!task) return;
-+
-+    this.actionInFlight = true;
-+    this.resultQueue.push(task);
-+    // TODO @ngxson : Safari mobile doesn't support transferable ArrayBuffer
-+    this.worker!!.postMessage(
-+      task.param,
-+      isSafariMobile()
-+        ? undefined
-+        : {
-+            transfer: task.buffers ?? [],
-+          }
-+    );
-   }
- 
-   /**
-@@ -382,13 +416,15 @@ export class ProxyToWorker {
+@@ -390,13 +419,15 @@ export class ProxyToWorker {
        }
        (async () => {
          let stack = '';
 -        let newMsg = message.replace(
-+        // Emscripten passes an Error, not a string, when the wasm does not
-+        // compile. Without String(), this throws and no task is rejected.
++        // fllama: Emscripten passes an Error, not a string, when the wasm does
++        // not compile. Without String(), this throws and no task is rejected.
 +        let newMsg = String(message ?? '').replace(
            'Build with -sASSERTIONS for more info.',
            ''
@@ -988,37 +321,8 @@ index 10e6fc9..0b92e83 100644
          } else if (signalType === 'exception') {
            stack = rawStack;
          }
-@@ -414,17 +450,21 @@ export class ProxyToWorker {
-       );
-       if (idx !== -1) {
-         const waitingTask = this.resultQueue.splice(idx, 1)[0];
-+        this.actionInFlight = false;
-         if (err) waitingTask.reject(err);
-         else waitingTask.resolve(result);
-       } else {
-+        this.actionInFlight = false;
-         this.logger.error(
-           `Cannot find waiting task with callbackId = ${callbackId}`
-         );
-       }
-+      this.runTaskLoop();
-     }
-   }
- 
-   private abort(text: string, stack: string) {
-+    this.actionInFlight = false;
-     const error = new WllamaRuntimeError(
-       text.length == 0 ? '(unknown error)' : text,
-       stack
-@@ -439,5 +479,6 @@ export class ProxyToWorker {
-       if (!pendingTask) break;
-       pendingTask.reject(error);
-     }
-+    this.runTaskLoop();
-   }
- }
 diff --git a/src/workers-code/llama-cpp.js b/src/workers-code/llama-cpp.js
-index be62030..bb87056 100644
+index d0792b5..60a3fe2 100644
 --- a/src/workers-code/llama-cpp.js
 +++ b/src/workers-code/llama-cpp.js
 @@ -3,6 +3,7 @@ let wllamaMalloc;
@@ -1034,9 +338,9 @@ index be62030..bb87056 100644
  const getWModuleConfig = (_argMainScriptBlob) => {
    var pathConfig = RUN_OPTIONS.pathConfig;
 -  var pthreadPoolSize = RUN_OPTIONS.nbThread;
-+  // The text model and the mtmd image encoder each start n_threads - 1
-+  // pthreads. In Safari, a pthread beyond the pool never starts, and image
-+  // encoding waits forever. So the pool has room for both.
++  // fllama: the text model and the mtmd image encoder each start
++  // n_threads - 1 pthreads. In Safari, a pthread beyond the pool never
++  // starts, and image encoding waits forever. So the pool has room for both.
 +  var pthreadPoolSize = RUN_OPTIONS.nbThread * 2;
    var argMainScriptBlob = _argMainScriptBlob;
  
@@ -1046,15 +350,16 @@ index be62030..bb87056 100644
  
    msg({
      verb: 'console.debug',
-@@ -398,6 +402,7 @@ onmessage = async (e) => {
+@@ -461,6 +465,8 @@ onmessage = async (e) => {
            true
          );
          wllamaExit = callWrapper('wllama_exit', 'string', []);
++        // async: freeing a WebGPU model suspends under JSPI.
 +        wllamaUnload = callWrapper('wllama_unload', 'string', [], true);
          wllamaDebug = callWrapper('wllama_debug', 'string', []);
          msg({ callbackId, result: null });
        };
-@@ -413,16 +418,19 @@ onmessage = async (e) => {
+@@ -476,16 +482,19 @@ onmessage = async (e) => {
      const argSize = args[1];
      const argAllocBuffer = args[2];
      try {
@@ -1068,8 +373,8 @@ index be62030..bb87056 100644
 -        true,
 -        true
 -      );
-+      // create blank file (a file of a later load in the same worker can
-+      // have the name of an earlier one)
++      // create blank file (fllama: a later load in the same worker can have
++      // a file of the same name)
 +      if (!Module['FS'].analyzePath('/models/' + argFilename).exists) {
 +        const emptyBuffer = new ArrayBuffer(0);
 +        Module['FS_createDataFile'](
@@ -1084,20 +389,22 @@ index be62030..bb87056 100644
        // alloc data on heap
        const fileId = heapfsAlloc(argFilename, argSize, argAllocBuffer);
        msg({ callbackId, result: { fileId } });
-@@ -489,6 +497,16 @@ onmessage = async (e) => {
+@@ -525,6 +534,18 @@ onmessage = async (e) => {
      return;
    }
  
 +  if (verb === 'wllama.unload') {
-+    try {
-+      const result = await wllamaUnload();
-+      msg({ callbackId, result });
-+    } catch (err) {
-+      handleError(err);
-+    }
++    await runWasmCall(callbackId, async () => {
++      try {
++        const result = await wllamaUnload();
++        msg({ callbackId, result });
++      } catch (err) {
++        handleError(err);
++      }
++    });
 +    return;
 +  }
 +
    if (verb === 'wllama.exit') {
-     try {
-       const result = await wllamaExit();
+     await runWasmCall(callbackId, async () => {
+       try {
