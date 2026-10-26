@@ -542,6 +542,31 @@ bool fllama_backends_set_gpu_allowed(bool allowed) {
   return true;
 }
 
+bool fllama_backends_device_runs_models(ggml_backend_dev_t dev) {
+  ggml_init_params params = {
+      /*.mem_size   =*/ 16 * ggml_tensor_overhead(),
+      /*.mem_buffer =*/ nullptr,
+      /*.no_alloc   =*/ true,
+  };
+  ggml_context *ctx = ggml_init(params);
+  if (ctx == nullptr) {
+    return false;
+  }
+  ggml_tensor *w = ggml_new_tensor_2d(ctx, GGML_TYPE_F16, 64, 64);
+  ggml_tensor *x = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 64, 8);
+  ggml_tensor *ops[] = {
+      ggml_mul_mat(ctx, w, x),
+      ggml_rms_norm(ctx, x, 1e-6f),
+      ggml_soft_max(ctx, x),
+  };
+  bool supported = true;
+  for (ggml_tensor *op : ops) {
+    supported = supported && ggml_backend_dev_supports_op(dev, op);
+  }
+  ggml_free(ctx);
+  return supported;
+}
+
 std::vector<ggml_backend_dev_t> fllama_backends_gpu_devices() {
   fllama_backends_init_once();
   auto lock = fllama_backends_registry_read_lock();

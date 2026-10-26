@@ -100,4 +100,10 @@ std::vector<std::string> fllama_backends_device_keys(
 std::string fllama_backends_pick_windows_arm64_cpu(
     const std::vector<std::string> &file_names, bool has_dotprod);
 
+// Whether [dev] runs the ops of every model: matrix multiply, RMS norm and
+// softmax. A GPU without them splits the graph between itself and the CPU
+// at nearly every op. Metal on a macOS VM's paravirtual GPU (no Apple7 or
+// Metal3 family) is such a device, and crashes in the image encoder.
+bool fllama_backends_device_runs_models(ggml_backend_dev_t dev);
+
 #endif // FLLAMA_BACKENDS_H

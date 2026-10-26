@@ -305,7 +305,7 @@ static void run_inference_body(const fllama_inference_request &request,
         request.gpu_device_key ? request.gpu_device_key : "";
     if (!gpu_device_key.empty()) {
       if (auto *dev = fllama_backends_find_device(gpu_device_key)) {
-        params.devices = {dev};
+        params.devices = {dev, nullptr};
         log_message("[fllama] GPU: " + gpu_device_key, request.dart_logger);
       } else {
         log_message("[fllama] WARNING: GPU not found, using Auto: " +
@@ -314,8 +314,44 @@ static void run_inference_body(const fllama_inference_request &request,
       }
     }
 
+    // Leave out GPUs that cannot run the ops of every model (a macOS VM's
+    // paravirtual Metal device): llama.cpp would split the graph at nearly
+    // every op, and the image encoder crashes. An empty list is every GPU.
+    if (params.n_gpu_layers != 0) {
+      // params.devices is NULL-terminated, as llama_model_params.devices.
+      std::vector<ggml_backend_dev_t> candidates;
+      for (auto *dev : params.devices) {
+        if (dev != nullptr) candidates.push_back(dev);
+      }
+      if (candidates.empty()) {
+        candidates = fllama_backends_gpu_devices();
+      }
+      std::vector<ggml_backend_dev_t> usable;
+      for (auto *dev : candidates) {
+        if (fllama_backends_device_runs_models(dev)) {
+          usable.push_back(dev);
+        } else {
+          log_message("[fllama] GPU skipped, it cannot run matrix multiply, "
+                      "RMS norm and softmax: " +
+                          fllama_backends_device_key(dev),
+                      request.dart_logger);
+        }
+      }
+      if (usable.size() != candidates.size()) {
+        params.devices = usable;
+        if (!params.devices.empty()) params.devices.push_back(nullptr);
+      }
+      if (!candidates.empty() && usable.empty()) {
+        params.n_gpu_layers = 0;
+        log_message("[fllama] No usable GPU: running on the CPU.",
+                    request.dart_logger);
+      }
+    }
+
     if (request.model_mmproj_path && strlen(request.model_mmproj_path) > 0)
       params.mmproj.path = request.model_mmproj_path;
+    // The image encoder follows the model: CPU only when no layer is on a GPU.
+    params.mmproj_use_gpu = params.n_gpu_layers != 0;
 
     // Multi-Token Prediction (MTP) speculative decoding. When a drafter/
     // assistant GGUF is supplied (e.g. gemma-4-31B-it-assistant), wire it into
