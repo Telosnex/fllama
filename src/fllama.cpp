@@ -54,9 +54,8 @@ static char *dart_string(const std::string &s) {
 
 // JSON text. Replaces invalid UTF-8, which a model can generate, as
 // llama-server's safe_json_to_str does. dump() would throw.
-static std::string json_text(const nlohmann::ordered_json &j) {
-  return j.dump(-1, ' ', false,
-                nlohmann::ordered_json::error_handler_t::replace);
+static std::string json_text(const json &j) {
+  return safe_json_to_str(j);
 }
 
 // ── Logging ──────────────────────────────────────────────────────────────────
@@ -241,7 +240,7 @@ static bool fllama_error_requires_backend_recreation(const std::string &msg) {
 }
 
 // The fllama error type of an error result from llama.cpp's server code.
-static std::string error_type_of_server_error(const nlohmann::ordered_json &e,
+static std::string error_type_of_server_error(const json &e,
                                               const std::string &message) {
   if (fllama_error_requires_backend_recreation(message)) return "backend";
   const std::string type = e.value("type", "");
@@ -435,6 +434,9 @@ static void run_inference_body(const fllama_inference_request &request,
     json body_parsed = json::object();
     // image_url parts of the messages, in order.
     std::vector<raw_buffer> files;
+    // The chat's template, parser and message boundaries: the task and the
+    // reader (which parses tool calls from the stream) use it.
+    common_chat_session chat_session;
 
     if (request.openai_request_json_string) {
       is_oai = true;
@@ -473,23 +475,26 @@ static void run_inference_body(const fllama_inference_request &request,
                         request.dart_logger);
             tmpls = common_chat_templates_init(model, "chatml");
           }
-          const server_chat_params request_chat = {
-              /* use_jinja            */ chat.use_jinja,
-              /* prefill_assistant    */ chat.prefill_assistant,
-              /* reasoning_format     */ chat.reasoning_format,
-              /* chat_template_kwargs */ chat.chat_template_kwargs,
-              /* tmpls                */ std::move(tmpls),
-              /* allow_image          */ chat.allow_image,
-              /* allow_audio          */ chat.allow_audio,
-              /* allow_video          */ chat.allow_video,
-              /* enable_thinking      */ chat.enable_thinking,
-              /* reasoning_budget     */ chat.reasoning_budget,
-              /* reasoning_budget_msg */ chat.reasoning_budget_message,
-              /* media_path           */ chat.media_path,
-              /* force_pure_content   */ chat.force_pure_content};
-          body_parsed = oaicompat_chat_params_parse(body, request_chat, files);
+          // By name: the field order of server_chat_params changes upstream.
+          server_chat_params request_chat;
+          request_chat.use_jinja                = chat.use_jinja;
+          request_chat.prefill_assistant        = chat.prefill_assistant;
+          request_chat.reasoning_format         = chat.reasoning_format;
+          request_chat.chat_template_kwargs     = chat.chat_template_kwargs;
+          request_chat.tmpls                    = std::move(tmpls);
+          request_chat.allow_image              = chat.allow_image;
+          request_chat.allow_audio              = chat.allow_audio;
+          request_chat.allow_video              = chat.allow_video;
+          request_chat.enable_thinking          = chat.enable_thinking;
+          request_chat.reasoning_budget         = chat.reasoning_budget;
+          request_chat.reasoning_budget_message = chat.reasoning_budget_message;
+          request_chat.media_path               = chat.media_path;
+          request_chat.force_pure_content       = chat.force_pure_content;
+          body_parsed = oaicompat_chat_params_parse(vocab, body, request_chat,
+                                                    files, chat_session);
         } else {
-          body_parsed = oaicompat_chat_params_parse(body, chat, files);
+          body_parsed = oaicompat_chat_params_parse(vocab, body, chat, files,
+                                                    chat_session);
         }
         prompt = body_parsed.at("prompt").get<std::string>();
 
@@ -553,8 +558,6 @@ static void run_inference_body(const fllama_inference_request &request,
       return;
     }
 
-    const auto delimiters_json =
-        json_value(body_parsed, "message_delimiters", json::array());
     if (files.empty()) {
       // As llama-server: tokenize on the request thread, not on the thread
       // that runs every request, so a long prompt does not pause the others.
@@ -565,12 +568,6 @@ static void run_inference_body(const fllama_inference_request &request,
       task.cli = false;
       task.tokens = server_tokens(common_tokenize(vocab, prompt, true, true),
                                   !srv->mmproj_path.empty());
-      if (!delimiters_json.empty()) {
-        auto delimiters = common_chat_msg_delimiters_parse(delimiters_json);
-        delimiters.tokenize(vocab);
-        task.params.message_spans =
-            task.tokens.find_message_spans(delimiters);
-      }
     } else {
       // With images, llama.cpp tokenizes the prompt: only it has the
       // multimodal context.
@@ -585,7 +582,12 @@ static void run_inference_body(const fllama_inference_request &request,
       task.params.oaicompat_cmpl_id  = gen_chatcmplid();
     }
 
-    reader.post_task(std::move(task));
+    // As llama-server: the chat's sampling, format, stops and message spans
+    // (from the tokens; with images there are none yet).
+    task.apply_chat_session(chat_session);
+    std::vector<server_task> tasks;
+    tasks.push_back(std::move(task));
+    reader.post_tasks(std::move(tasks), chat_session);
 
     // ── 6. Read results, invoke callbacks ─────────────────────────────
 
@@ -634,7 +636,7 @@ static void run_inference_body(const fllama_inference_request &request,
       auto *partial =
           dynamic_cast<server_task_result_cmpl_partial *>(res.get());
       if (partial) {
-        full_content += partial->content;
+        full_content += partial->content.text;
         auto j = res->to_json();
         if (!j.is_null()) {
           last_json = json_text(j);
