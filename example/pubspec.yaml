@@ -52,6 +52,13 @@ dev_dependencies:
     sdk: flutter
   flutter_driver:
     sdk: flutter
+  # The web tests' console capture, result reporting and driver. The same
+  # tag as the telosnex_ci_tools actions in .github/workflows.
+  telosnex_web_test:
+    git:
+      url: https://github.com/Telosnex/telosnex_ci_tools.git
+      path: packages/telosnex_web_test
+      ref: v0.5.2
   dio: ^5.4.0
   path: ^1.9.0
   path_provider: ^2.1.0

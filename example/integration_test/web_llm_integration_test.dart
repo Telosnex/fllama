@@ -27,6 +27,7 @@ import 'package:dio/dio.dart';
 import 'package:fllama/fllama.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:telosnex_web_test/telosnex_web_test.dart';
 
 const _wasmBuild = bool.fromEnvironment('dart.tool.dart2wasm');
 
@@ -45,7 +46,9 @@ String _url(String file) => Uri.base.resolve('test_models/$file').toString();
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   final report = <String, Object?>{};
-  _captureConsole();
+  // Every test's result (flutter drive passes failed plain test()s) and the
+  // page console, which the driver saves to web_console.log as it runs.
+  installWebTestSupport(binding);
   final browser = _Browser.read();
   // One CPU stays free, as on native: llama.cpp threads spin at barriers.
   final threads = _threadsOverride > 0
@@ -58,14 +61,14 @@ void main() {
   });
 
   tearDownAll(() {
-    // The console (with llama.cpp's log) is apart from 'web': CI prints
-    // 'web' in the log, and the console is in the artifact.
-    binding.reportData = {'web': report, 'console': _consoleLines()};
+    // The console (with llama.cpp's log) is not in the report: the driver
+    // writes it to web_console.log, in the CI artifact.
+    binding.reportData = {...?binding.reportData, 'web': report};
   });
 
   /// Runs [request] with [threads] and records it in the report as [name].
   Future<_Run> chat(String name, OpenAiRequest request) async {
-    _consoleMark(name);
+    markWebTestStep(name);
     final run = await _chat(request, threads: threads);
     report[name] = run.toJson();
     return run;
@@ -364,54 +367,6 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
-}
-
-/// Keeps the page's console lines (llama.cpp's log among them) in
-/// `globalThis.__fllamaConsole`, at most 20,000, for the report.
-void _captureConsole() {
-  globalContext.callMethod<JSAny?>(
-    'eval'.toJS,
-    r'''
-(() => {
-  if (globalThis.__fllamaConsole) return;
-  const lines = [];
-  globalThis.__fllamaConsole = lines;
-  const start = performance.now();
-  const text = (x) => {
-    if (typeof x === 'string') return x;
-    if (x instanceof Error) return x.stack || String(x);
-    try { return JSON.stringify(x); } catch (_) { return String(x); }
-  };
-  const add = (level, args) => {
-    try {
-      const line = args.map(text).join(' ');
-      lines.push(Math.round(performance.now() - start) + ' ' + level + ' ' +
-          line.slice(0, 2000));
-      if (lines.length > 20000) lines.splice(0, lines.length - 20000);
-    } catch (_) {}
-  };
-  for (const level of ['debug', 'log', 'info', 'warn', 'error']) {
-    const original = console[level].bind(console);
-    console[level] = (...args) => { add(level, args); original(...args); };
-  }
-  addEventListener('error', (e) => add('window.error', [e.message]));
-  addEventListener('unhandledrejection',
-      (e) => add('unhandledrejection', [e.reason]));
-})()
-'''
-        .toJS,
-  );
-}
-
-void _consoleMark(String name) => globalContext.callMethod<JSAny?>(
-      'eval'.toJS,
-      'console.info(${jsonEncode('==== test $name')})'.toJS,
-    );
-
-List<String> _consoleLines() {
-  final lines = globalContext['__fllamaConsole'];
-  if (lines == null) return const [];
-  return (lines as JSArray<JSString>).toDart.map((l) => l.toDart).toList();
 }
 
 OpenAiRequest _request(

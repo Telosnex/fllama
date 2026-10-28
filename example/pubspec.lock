@@ -651,6 +651,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.3.1"
+  telosnex_web_test:
+    dependency: "direct dev"
+    description:
+      path: "packages/telosnex_web_test"
+      ref: "v0.5.2"
+      resolved-ref: "6042c18cd940a801f4158918c126bde5520cecc3"
+      url: "https://github.com/Telosnex/telosnex_ci_tools.git"
+    source: git
+    version: "0.1.0"
   term_glyph:
     dependency: transitive
     description:
