@@ -67,10 +67,7 @@ void main() {
       expect(toolchain, contains('set(CMAKE_CXX_COMPILER clang++)'));
 
       hook.requireClang((name) => '/usr/bin/$name');
-      expect(
-        () => hook.requireClang((_) => null),
-        throwsA(isA<StateError>()),
-      );
+      expect(() => hook.requireClang((_) => null), throwsA(isA<StateError>()));
     });
 
     test('src/CMakeLists.txt sets no CPU architecture for Android', () {

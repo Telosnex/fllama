@@ -34,7 +34,7 @@ void main() {
     // over to https://jsonformatter.org/, then bring it back here.
     final expectedAsObject = {
       "grammar":
-          "space ::= \" \"?\nstring ::=  \"\\\"\" (\n        [^\"\\\\] |\n        \"\\\\\" ([\"\\\\/bfnrt] | \"u\" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])\n      )* \"\\\"\" space \nroot ::= \"{\" space \"\\\"follow_up_query_0\\\"\" \":\" space string \",\" space \"\\\"follow_up_query_1\\\"\" \":\" space string \",\" space \"\\\"follow_up_query_2\\\"\" \":\" space string \",\" space \"\\\"follow_up_query_3\\\"\" \":\" space string \"}\" space"
+          "space ::= \" \"?\nstring ::=  \"\\\"\" (\n        [^\"\\\\] |\n        \"\\\\\" ([\"\\\\/bfnrt] | \"u\" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])\n      )* \"\\\"\" space \nroot ::= \"{\" space \"\\\"follow_up_query_0\\\"\" \":\" space string \",\" space \"\\\"follow_up_query_1\\\"\" \":\" space string \",\" space \"\\\"follow_up_query_2\\\"\" \":\" space string \",\" space \"\\\"follow_up_query_3\\\"\" \":\" space string \"}\" space",
     };
     expect(grammar, isNotEmpty);
     expect(grammar, equals(expectedAsObject['grammar']));

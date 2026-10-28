@@ -107,8 +107,7 @@ void main(List<String> args) async {
     if (!input.config.buildCodeAssets) {
       // A web build: install the web runtime files of native_artifacts/web.json
       // into the app (kiln ADR 002).
-      return Kiln(input: input, output: output, log: print)
-          .installWeb();
+      return Kiln(input: input, output: output, log: print).installWeb();
     }
 
     final hookStopwatch = Stopwatch()..start();
@@ -973,8 +972,7 @@ Future<void> publishFromCache({
   // build copy the library again. Compares the bytes: two builds often have
   // the same size, and a cache entry can be older than the published file.
   var needCopy = true;
-  if (await dest.exists() &&
-      await dest.length() == await cachedLib.length()) {
+  if (await dest.exists() && await dest.length() == await cachedLib.length()) {
     final a = await dest.readAsBytes();
     final b = await cachedLib.readAsBytes();
     var same = true;

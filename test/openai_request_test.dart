@@ -68,12 +68,15 @@ void main() {
     for (final key in ['seed', 'stop', 'grammar', 'response_format']) {
       expect(json, isNot(contains(key)));
     }
-    final message = (jsonDecode(
-      OpenAiRequest(
-        modelPath: 'm',
-        messages: [Message(Role.user, 'hi')],
-      ).toJsonString(),
-    )['messages'] as List).single;
+    final message =
+        (jsonDecode(
+                  OpenAiRequest(
+                    modelPath: 'm',
+                    messages: [Message(Role.user, 'hi')],
+                  ).toJsonString(),
+                )['messages']
+                as List)
+            .single;
     expect(message, isNot(contains('tool_call_id')));
   });
 }

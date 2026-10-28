@@ -105,8 +105,10 @@ void main() {
     _recordLoads();
     // requestGpuLayers() checks only that navigator.gpu exists.
     if (!hadGpu) {
-      _eval("Object.defineProperty(Navigator.prototype, 'gpu', "
-          '{configurable: true, get() { return {}; }})');
+      _eval(
+        "Object.defineProperty(Navigator.prototype, 'gpu', "
+        '{configurable: true, get() { return {}; }})',
+      );
     }
     try {
       final error = await _chat(model, numGpuLayers: 0, contextSize: 0);
@@ -240,9 +242,12 @@ void _recordLoads() {
 }
 
 List<Map<String, dynamic>> _loads() => [
-  for (final load in jsonDecode(
-    (_evalAny('JSON.stringify(window.__fllamaLoads)')! as JSString).toDart,
-  ) as List)
+  for (final load
+      in jsonDecode(
+            (_evalAny('JSON.stringify(window.__fllamaLoads)')! as JSString)
+                .toDart,
+          )
+          as List)
     load as Map<String, dynamic>,
 ];
 

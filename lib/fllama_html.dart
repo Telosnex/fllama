@@ -274,8 +274,10 @@ external JSPromise<JSNumber> fllamaTokenizeJs(String modelPath, String input);
 /// in wllama, which can unload the model of a running chat.
 Future<int> fllamaTokenize(FllamaTokenizeRequest request) async {
   await loadFllamaWebRuntime();
-  return (await fllamaTokenizeJs(request.modelPath, request.input).toDart)
-      .toDartInt;
+  return (await fllamaTokenizeJs(
+    request.modelPath,
+    request.input,
+  ).toDart).toDartInt;
 }
 
 @JS('fllamaCancelInferenceJs')

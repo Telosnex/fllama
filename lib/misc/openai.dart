@@ -119,6 +119,7 @@ class OpenAiRequest {
   // Not in OpenAI, but used by llama.
   final String modelPath;
   final String? mmprojPath;
+
   /// Layers on the GPU. -1 is auto: llama.cpp fits the layers to free GPU
   /// memory (all layers on web). 0 is the CPU.
   final int numGpuLayers;

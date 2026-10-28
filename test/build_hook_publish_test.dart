@@ -13,24 +13,27 @@ void main() {
   // Full audit: a Mach-O library is padded to whole pages, so a small source
   // change often keeps its size. The hook then kept the published library of
   // the other build.
-  test('publishes a cached library of the same size and an older time', () async {
-    final cached = File('${dir.path}/cache/libfllama.dylib')
-      ..createSync(recursive: true)
-      ..writeAsStringSync('new!');
-    final published = File('${dir.path}/out/libfllama.dylib')
-      ..createSync(recursive: true)
-      ..writeAsStringSync('old!');
-    cached.setLastModifiedSync(DateTime(2020));
+  test(
+    'publishes a cached library of the same size and an older time',
+    () async {
+      final cached = File('${dir.path}/cache/libfllama.dylib')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('new!');
+      final published = File('${dir.path}/out/libfllama.dylib')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('old!');
+      cached.setLastModifiedSync(DateTime(2020));
 
-    await hook.publishFromCache(
-      cachedLib: cached,
-      outputDirectory: Directory('${dir.path}/out/').uri,
-      libFileName: 'libfllama.dylib',
-      logger: Logger('test'),
-    );
+      await hook.publishFromCache(
+        cachedLib: cached,
+        outputDirectory: Directory('${dir.path}/out/').uri,
+        libFileName: 'libfllama.dylib',
+        logger: Logger('test'),
+      );
 
-    expect(published.readAsStringSync(), 'new!');
-  });
+      expect(published.readAsStringSync(), 'new!');
+    },
+  );
 
   test('does not copy a library with the same bytes', () async {
     final cached = File('${dir.path}/cache/libfllama.dylib')

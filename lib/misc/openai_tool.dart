@@ -55,7 +55,9 @@ String formatFunctionDefinition(Map<String, dynamic> function) {
     parameters = jsonDecode(parameters);
   }
   if (parameters is! Map<String, dynamic>) {
-    throw Exception('Expected Map<String, dynamic> but got type ${parameters.runtimeType}:\n\n$parameters');
+    throw Exception(
+      'Expected Map<String, dynamic> but got type ${parameters.runtimeType}:\n\n$parameters',
+    );
   }
   final parametersProperties = parameters['properties'];
   if (parametersProperties != null &&
@@ -97,7 +99,8 @@ String _formatObjectProperties(Map<String, dynamic> parameters, int indent) {
     final isRequired = required != null && required.contains(name);
     final hasDefault = param.containsKey('default');
     lines.add(
-        '$name${isRequired ? '' : '?'}: ${_formatType(param, indent)},${hasDefault ? ' // default: ${param['default']}' : ''}');
+      '$name${isRequired ? '' : '?'}: ${_formatType(param, indent)},${hasDefault ? ' // default: ${param['default']}' : ''}',
+    );
   }
   final indentString = ' ' * indent;
   final indented = lines.map((e) => '$indentString$e').join('\n');

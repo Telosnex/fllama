@@ -81,7 +81,9 @@ void _handleTokenizeIsolateMessage(dynamic data) {
     // input cannot be tokenized: -1, or 0xFFFFFFFF where size_t has 32 bits.
     if (data.result == -1 || data.result == 0xFFFFFFFF) {
       requestCompleter.completeError(
-        StateError('fllamaTokenize: the model did not load, or the input is too long'),
+        StateError(
+          'fllamaTokenize: the model did not load, or the input is too long',
+        ),
       );
     } else {
       requestCompleter.complete(data.result);

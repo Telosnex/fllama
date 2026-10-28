@@ -8,7 +8,8 @@ String convertToJsonGrammar(String jsonSchema) {
 
   if (result is! Map<String, dynamic>) {
     throw Exception(
-        'Expected Map<String, dynamic> but got type ${result.runtimeType}:\n\n$result. Input was:\n\n$jsonSchema');
+      'Expected Map<String, dynamic> but got type ${result.runtimeType}:\n\n$result. Input was:\n\n$jsonSchema',
+    );
   }
 
   final schema = result;
@@ -72,10 +73,14 @@ String convertToJsonGrammar(String jsonSchema) {
           ' "[" space ($itemRuleName ("," space $itemRuleName)*)? "]" space';
       return addRule(ruleName, rule);
     } else {
-      assert(_primitiveRules.containsKey(schemaType),
-          'Unrecognized schema: $schema');
-      return addRule(ruleName == 'root' ? 'root' : schemaType,
-          _primitiveRules[schemaType]!);
+      assert(
+        _primitiveRules.containsKey(schemaType),
+        'Unrecognized schema: $schema',
+      );
+      return addRule(
+        ruleName == 'root' ? 'root' : schemaType,
+        _primitiveRules[schemaType]!,
+      );
     }
   }
 
