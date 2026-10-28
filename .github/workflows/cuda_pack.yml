@@ -70,7 +70,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
 
       - run: flutter pub get --no-example
 
