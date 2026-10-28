@@ -42,46 +42,35 @@ defaults:
     shell: bash
 
 env:
-  FLUTTER_VERSION: 3.47.1
   # hook/cuda_pack.dart (cudaToolkitVersion) uses the same version.
   CUDA_VERSION: "12.8"
+  GH_TOKEN: ${{ github.token }}
+  # Only the owner publishes, from this repository.
+  PUBLISH: >-
+    ${{ github.repository == 'Telosnex/fllama' &&
+        github.actor == 'jpohhhh' && github.triggering_actor == 'jpohhhh' &&
+        !inputs.dry_run }}
 
 jobs:
-  build:
-    name: ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
+  # The runners of the native release (kiln ADR 001 D8): the same glibc and
+  # the same Visual Studio major version. The Linux job shares the steps of
+  # the Windows job (YAML anchor).
+  cuda-pack-windows-x64:
+    name: Windows x64 CUDA pack
+    runs-on: windows-2022
     timeout-minutes: 240
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # The runners of the native release (kiln ADR 001 D8): the
-          # same glibc and the same Visual Studio major version.
-          - { target: windows-x64, runner: windows-2022 }
-          - { target: linux-x64, runner: ubuntu-22.04 }
     env:
-      TARGET: ${{ matrix.target }}
-      GH_TOKEN: ${{ github.token }}
-      # Only the owner publishes, from this repository.
-      PUBLISH: >-
-        ${{ github.repository == 'Telosnex/fllama' &&
-            github.actor == 'jpohhhh' && github.triggering_actor == 'jpohhhh' &&
-            !inputs.dry_run }}
-    steps:
+      TARGET: windows-x64
+    steps: &cuda_pack_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Install Flutter
-        run: |
-          git clone -q --depth 1 --branch "$FLUTTER_VERSION" \
-            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
-          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/flutter/bin/flutter" config --no-analytics > /dev/null
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
 
       - run: flutter pub get --no-example
 
@@ -135,17 +124,17 @@ jobs:
       # Per-file nvcc timings (Linux only: Visual Studio ignores the
       # compiler launcher). Kept even if the build fails.
       - name: Summarize CUDA compile timings
-        if: always() && steps.status.outputs.published != 'true' && matrix.target == 'linux-x64'
+        if: always() && steps.status.outputs.published != 'true' && env.TARGET == 'linux-x64'
         run: |
           python3 scripts/summarize_cuda_timings.py \
             --cache "$RUNNER_TEMP/cuda-build" \
             --out "$RUNNER_TEMP/cuda-timings" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save CUDA compile timings
-        if: always() && steps.status.outputs.published != 'true' && matrix.target == 'linux-x64'
+        if: always() && steps.status.outputs.published != 'true' && env.TARGET == 'linux-x64'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cuda-timings-${{ matrix.target }}
+          name: cuda-timings-${{ env.TARGET }}
           path: ${{ runner.temp }}/cuda-timings/
           if-no-files-found: warn
           retention-days: 30
@@ -170,6 +159,16 @@ jobs:
         if: steps.status.outputs.published != 'true' && env.PUBLISH != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cuda-pack-${{ matrix.target }}
+          name: cuda-pack-${{ env.TARGET }}
           path: ${{ runner.temp }}/cuda-pack/
           retention-days: 7
+
+  cuda-pack-linux-x64:
+    name: Linux x64 CUDA pack
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    permissions:
+      contents: write
+    env:
+      TARGET: linux-x64
+    steps: *cuda_pack_steps

@@ -16,4 +16,4 @@ permissions:
 
 jobs:
   kiln-check:
-    uses: Telosnex/telosnex_ci_tools/.github/workflows/kiln_check.yml@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+    uses: Telosnex/telosnex_ci_tools/.github/workflows/kiln_check.yml@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2

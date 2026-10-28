@@ -1,37 +1,22 @@
-# fllama's tests on GitHub-hosted runners.
-#
-# Pull requests run the fast cells: desktop linux-x64 and macos-arm64, web
-# Chrome dart2js and dart2wasm. A push to main, the nightly run and a manual
-# run with `cells: all` run every cell: also linux-arm64, macOS Metal,
-# Windows x64 and arm64, Firefox, Safari, iOS Safari, Android Chrome, the
-# Android emulator and the iOS simulator.
-#
-# CPU only, except the Metal cell: the runners have no other usable GPU.
-name: Test
+# fllama's integration tests on GitHub-hosted runners: desktop (6), desktop
+# browsers (4), mobile browsers (2), the Android emulator and the iOS
+# simulator. On main, nightly and by hand; pull requests run unit.yml.
+name: Integration
 
 on:
-  pull_request:
-    branches: [main]
-    paths-ignore: ['**.md', 'docs/**']
   push:
-    branches: [main]
+    branches: [main, 'ci/**']
     paths-ignore: ['**.md', 'docs/**']
   schedule:
     - cron: '17 7 * * *'
   workflow_dispatch:
-    inputs:
-      cells:
-        description: pr (the fast cells) or all.
-        type: choice
-        options: [all, pr]
-        default: all
 
 permissions:
   contents: read
 
 concurrency:
-  group: test-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
 
 # bash with pipefail: a pipe into tee must not hide a failed test.
 defaults:
@@ -42,59 +27,8 @@ env:
   MODEL_CACHE: example/.model_cache
 
 jobs:
-  plan:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      all: ${{ steps.plan.outputs.all }}
-      desktop: ${{ steps.plan.outputs.desktop }}
-      web: ${{ steps.plan.outputs.web }}
-    steps:
-      - id: plan
-        env:
-          EVENT: ${{ github.event_name }}
-          CELLS: ${{ inputs.cells }}
-        run: |
-          all=true
-          if [[ "$EVENT" == pull_request || "$CELLS" == pr ]]; then all=false; fi
-          desktop='[{"target":"linux-x64","runner":"ubuntu-24.04","device":"linux"},{"target":"macos-arm64","runner":"macos-15","device":"macos"}]'
-          web='[{"browser":"chrome","compiler":"dart2js","runner":"ubuntu-24.04"},{"browser":"chrome","compiler":"dart2wasm","runner":"ubuntu-24.04"}]'
-          if [[ $all == true ]]; then
-            # The Metal cell runs on the paravirtual GPU of macos-15: fllama
-            # must skip what the GPU cannot run, and not crash.
-            desktop=$(jq -c '. + [
-              {"target":"linux-arm64","runner":"ubuntu-24.04-arm","device":"linux"},
-              {"target":"macos-arm64-metal","runner":"macos-15","device":"macos","gpu":true},
-              {"target":"windows-x64","runner":"windows-2025","device":"windows"},
-              {"target":"windows-arm64","runner":"windows-11-arm","device":"windows"}]' <<< "$desktop")
-            # Flutter runs dart2wasm builds only in Chromium by default:
-            # Firefox and Safari users get dart2js.
-            web=$(jq -c '. + [
-              {"browser":"firefox","compiler":"dart2js","runner":"ubuntu-24.04"},
-              {"browser":"safari","compiler":"dart2js","runner":"macos-15"}]' <<< "$web")
-          fi
-          {
-            echo "all=$all"
-            echo "desktop=$desktop"
-            echo "web=$web"
-          } >> "$GITHUB_OUTPUT"
-          echo "Cells: $( [[ $all == true ]] && echo all || echo pr )" >> "$GITHUB_STEP_SUMMARY"
-
-  # Native (src/llama.cpp) and web (web_build/wllama.json) pin one
-  # llama.cpp commit.
-  llama-cpp-pin:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
-      - run: |
-          flutter pub get --no-example
-          flutter test test/llama_cpp_pin_test.dart
-
   models:
+    name: Models
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -108,7 +42,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
       - if: steps.cache.outputs.cache-hit != 'true'
-        uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+        uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
       - if: steps.cache.outputs.cache-hit != 'true'
         working-directory: example
         run: |
@@ -116,16 +50,19 @@ jobs:
           MODEL_CACHE_DIR="$GITHUB_WORKSPACE/$MODEL_CACHE" dart integration_test/test/download_test_models.dart
       - run: ls -la "$MODEL_CACHE"
 
-  desktop:
-    needs: [plan, models]
-    name: desktop / ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
+  # Desktop: the jobs share the steps of the first (YAML anchor). CPU only
+  # (FLLAMA_TEST_NUM_GPU_LAYERS=0), except the Metal job on the paravirtual
+  # GPU of macos-15: fllama must skip what the GPU cannot run, and not crash.
+  desktop-linux-x64:
+    needs: models
+    name: Linux x64
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.plan.outputs.desktop) }}
-    steps:
+    env:
+      TARGET: linux-x64
+      DEVICE: linux
+      GPU: 'false'
+    steps: &desktop_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -139,14 +76,14 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: example/.model_cache/gpu_packs
-          key: fllama-gpu-packs-${{ matrix.target }}-${{ hashFiles('native_artifacts/prebuilt.json') }}
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+          key: fllama-gpu-packs-${{ env.TARGET }}-${{ hashFiles('native_artifacts/prebuilt.json') }}
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev xvfb > /dev/null
       - name: Integration tests
-        uses: Telosnex/telosnex_ci_tools/actions/watch@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+        uses: Telosnex/telosnex_ci_tools/actions/watch@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
         with:
           working-directory: example
           # The first build of the app prints nothing for minutes.
@@ -154,8 +91,8 @@ jobs:
           run: |
             flutter pub get
             export MODEL_CACHE_DIR="$GITHUB_WORKSPACE/$MODEL_CACHE"
-            if [[ "${{ matrix.gpu }}" != true ]]; then export FLLAMA_TEST_NUM_GPU_LAYERS=0; fi
-            run=(flutter test -d "${{ matrix.device }}" integration_test/local_llm_integration_test.dart -r expanded)
+            if [[ "$GPU" != true ]]; then export FLLAMA_TEST_NUM_GPU_LAYERS=0; fi
+            run=(flutter test -d "$DEVICE" integration_test/local_llm_integration_test.dart -r expanded)
             if [[ "$RUNNER_OS" == Linux ]]; then run=(xvfb-run -a "${run[@]}"); fi
             "${run[@]}"
       - name: Crash reports
@@ -166,16 +103,70 @@ jobs:
       - if: failure() && runner.os == 'macOS'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: crashes-${{ matrix.target }}
+          name: crashes-${{ env.TARGET }}
           path: ${{ runner.temp }}/crashes/
           if-no-files-found: ignore
+
+  desktop-linux-arm64:
+    needs: models
+    name: Linux ARM64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    env:
+      TARGET: linux-arm64
+      DEVICE: linux
+      GPU: 'false'
+    steps: *desktop_steps
+
+  desktop-macos-arm64:
+    needs: models
+    name: macOS ARM64
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      TARGET: macos-arm64
+      DEVICE: macos
+      GPU: 'false'
+    steps: *desktop_steps
+
+  desktop-macos-arm64-metal:
+    needs: models
+    name: macOS ARM64 Metal
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      TARGET: macos-arm64-metal
+      DEVICE: macos
+      GPU: 'true'
+    steps: *desktop_steps
+
+  desktop-windows-x64:
+    needs: models
+    name: Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 60
+    env:
+      TARGET: windows-x64
+      DEVICE: windows
+      GPU: 'false'
+    steps: *desktop_steps
+
+  desktop-windows-arm64:
+    needs: models
+    name: Windows ARM64
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    env:
+      TARGET: windows-arm64
+      DEVICE: windows
+      GPU: 'false'
+    steps: *desktop_steps
 
   # The wllama files of this commit: web_build/wllama.patch can be newer
   # than the release. Built in the emsdk image of web_build/wllama.json, as
   # kiln_release builds them; cached by the build inputs.
   web-files:
-    needs: plan
-    name: web files
+    name: Web files
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     container:
@@ -195,7 +186,7 @@ jobs:
           path: ${{ runner.temp }}/kiln_web
           key: fllama-web-files-${{ hashFiles('web_build/**', 'patches/llama.cpp/**', 'tool/kiln/build_web.dart') }}
       - if: steps.cache.outputs.cache-hit != 'true'
-        uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+        uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
       - name: Build (tool/kiln/build_web.dart)
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -207,16 +198,17 @@ jobs:
           path: ${{ runner.temp }}/kiln_web
           if-no-files-found: error
 
-  web:
-    needs: [plan, models, web-files]
-    name: web / ${{ matrix.browser }} / ${{ matrix.compiler }}
-    runs-on: ${{ matrix.runner }}
+  # Desktop browsers: the jobs share the steps of the first. Flutter runs
+  # dart2wasm builds only in Chromium: Firefox and Safari users get dart2js.
+  web-linux-chrome-dart2js:
+    needs: [models, web-files]
+    name: Web Linux x64 Chrome dart2js
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.plan.outputs.web) }}
-    steps:
+    env:
+      BROWSER: chrome
+      COMPILER: dart2js
+    steps: &web_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -226,7 +218,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
       - name: Test files into the web directory (same origin)
         run: |
           mkdir -p example/web/test_models
@@ -252,38 +244,56 @@ jobs:
             '{schema: 1, user_defines: {web_build: "local", web_build_dir: $dir}}' > "$root/defaults.json"
           cat "$root/defaults.json"
       - name: flutter drive
-        uses: Telosnex/telosnex_ci_tools/actions/web-driver@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
+        uses: Telosnex/telosnex_ci_tools/actions/web-driver@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
         timeout-minutes: 25
         with:
-          browser: ${{ matrix.browser }}
+          browser: ${{ env.BROWSER }}
           working-directory: example
+          artifact-name: web-${{ env.BROWSER }}-${{ env.COMPILER }}
+          # Never pass without results: the last test must have run.
+          require-result: '.web.load_error_file.done == true'
           run: |
             flutter pub get
-            args=(--dart-define=FLLAMA_TEST_EXPECT_COMPILER=${{ matrix.compiler }})
-            if [[ "${{ matrix.compiler }}" == dart2wasm ]]; then args+=(--wasm); fi
-            flutter drive --release -d web-server --browser-name "${{ matrix.browser }}" \
+            args=(--dart-define=FLLAMA_TEST_EXPECT_COMPILER=$COMPILER)
+            if [[ "$COMPILER" == dart2wasm ]]; then args+=(--wasm); fi
+            flutter drive --release -d web-server --browser-name "$BROWSER" \
               --driver test_driver/integration_test.dart \
               --target integration_test/web_llm_integration_test.dart "${args[@]}"
-            # Never pass without results: the last test must have run.
-            if ! jq -e '.web.load_error_file.done == true' build/integration_response_data.json > /dev/null; then
-              echo "::error::flutter drive passed, but the report has no load_error_file result."
-              exit 1
-            fi
-      - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: web-${{ matrix.browser }}-${{ matrix.compiler }}
-          path: |
-            example/build/integration_response_data.json
-            example/build/web_console.log
-            ${{ runner.temp }}/web_driver.log
-          if-no-files-found: ignore
+
+  web-linux-chrome-dart2wasm:
+    needs: [models, web-files]
+    name: Web Linux x64 Chrome dart2wasm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BROWSER: chrome
+      COMPILER: dart2wasm
+    steps: *web_steps
+
+  web-linux-firefox-dart2js:
+    needs: [models, web-files]
+    name: Web Linux x64 Firefox dart2js
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BROWSER: firefox
+      COMPILER: dart2js
+    steps: *web_steps
+
+  web-macos-safari-dart2js:
+    needs: [models, web-files]
+    name: Web macOS ARM64 Safari dart2js
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      BROWSER: safari
+      COMPILER: dart2js
+    steps: *web_steps
 
   android:
-    needs: [plan, models]
-    if: needs.plan.outputs.all == 'true'
+    needs: models
     # ubuntu-24.04-arm has no /dev/kvm.
-    name: android / emulator
+    name: Android x64 emulator
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -296,7 +306,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
       # Built before the emulator boots: Gradle and the emulator share the 4
       # CPUs (the build took 12 min beside the API 37.0 emulator, 6 min on
       # API 35). The build in the test step is then incremental.
@@ -309,7 +319,7 @@ jobs:
             --dart-define=FLLAMA_TEST_MODEL_BASE_URL=http://10.0.2.2:8765 \
             --dart-define=FLLAMA_TEST_NUM_GPU_LAYERS=0
       - id: emulator
-        uses: Telosnex/telosnex_ci_tools/actions/android-emulator@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+        uses: Telosnex/telosnex_ci_tools/actions/android-emulator@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
         with:
           # The newest Android. Its google_apis image restarts Android every
           # ~40 s on CI (surfaceflinger aborts, also 36.1); the ATD image (no
@@ -320,7 +330,7 @@ jobs:
           # resident) in "context size 0" (a 2 GB KV cache).
           ram-mb: '6144'
       - name: Integration tests
-        uses: Telosnex/telosnex_ci_tools/actions/watch@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+        uses: Telosnex/telosnex_ci_tools/actions/watch@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
         with:
           working-directory: example
           idle-minutes: '15'
@@ -334,7 +344,7 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: android-emulator-log
+          name: android-emulator-logs
           path: |
             ${{ steps.emulator.outputs.log }}
             ${{ steps.emulator.outputs.logcat }}
@@ -342,10 +352,9 @@ jobs:
 
   # Mobile browsers. dart2js only: Flutter runs dart2wasm builds in Chromium
   # only, and these are compat builds (no JSPI).
-  web-ios-safari:
-    needs: [plan, models, web-files]
-    if: needs.plan.outputs.all == 'true'
-    name: web / ios-safari / dart2js
+  web-ios-safari-dart2js:
+    needs: [models, web-files]
+    name: Web iOS ARM64 Safari dart2js
     # macos-26 (Xcode 26.6, iOS 26.5 simulators). On macos-15 (iOS 26.2) the
     # first request stalled after attach_threadpool in 3 of 3 runs, and
     # Safari's first launch did not return in 5 min; GitHub calls Xcode 26
@@ -362,7 +371,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
       - name: Test files into the web directory (same origin)
         run: |
           mkdir -p example/web/test_models
@@ -387,11 +396,11 @@ jobs:
           jq -n --arg dir "$RUNNER_TEMP/kiln_web" \
             '{schema: 1, user_defines: {web_build: "local", web_build_dir: $dir}}' > "$root/defaults.json"
           cat "$root/defaults.json"
-      - uses: Telosnex/telosnex_ci_tools/actions/ios-simulator-boot@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
+      - uses: Telosnex/telosnex_ci_tools/actions/ios-simulator-boot@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
         timeout-minutes: 15
       # web-driver opens Safari once before safaridriver (slow first launch).
       - name: flutter drive
-        uses: Telosnex/telosnex_ci_tools/actions/web-driver@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
+        uses: Telosnex/telosnex_ci_tools/actions/web-driver@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
         timeout-minutes: 35
         env:
           BROWSER_NAME: ios-safari
@@ -399,30 +408,19 @@ jobs:
         with:
           browser: ios-safari
           working-directory: example
+          artifact-name: web-ios-safari-dart2js
+          # Never pass without results: the last test must have run.
+          require-result: '.web.load_error_file.done == true'
           run: |
             flutter pub get
             flutter drive --release -d web-server --browser-name "$BROWSER_NAME" $DRIVE_FLAGS \
               --driver test_driver/integration_test.dart \
               --target integration_test/web_llm_integration_test.dart \
               --dart-define=FLLAMA_TEST_EXPECT_COMPILER=dart2js
-            if ! jq -e '.web.load_error_file.done == true' build/integration_response_data.json > /dev/null; then
-              echo "::error::flutter drive passed, but the report has no load_error_file result."
-              exit 1
-            fi
-      - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: web-ios-safari-dart2js
-          path: |
-            example/build/integration_response_data.json
-            example/build/web_console.log
-            ${{ runner.temp }}/web_driver.log
-          if-no-files-found: ignore
 
-  web-android-chrome:
-    needs: [plan, models, web-files]
-    if: needs.plan.outputs.all == 'true'
-    name: web / android-chrome / dart2js
+  web-android-chrome-dart2js:
+    needs: [models, web-files]
+    name: Web Android x64 Chrome dart2js
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -435,7 +433,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
       - name: Test files into the web directory (same origin)
         run: |
           mkdir -p example/web/test_models
@@ -461,7 +459,7 @@ jobs:
             '{schema: 1, user_defines: {web_build: "local", web_build_dir: $dir}}' > "$root/defaults.json"
           cat "$root/defaults.json"
       - id: emulator
-        uses: Telosnex/telosnex_ci_tools/actions/android-emulator@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
+        uses: Telosnex/telosnex_ci_tools/actions/android-emulator@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
         with:
           # The newest image with Chrome that is stable on CI: 36 (Chrome 133).
           # 36.1 and 37.0 google_apis restart Android every ~40 s
@@ -471,7 +469,7 @@ jobs:
       # the emulator's localhost:8091 is the runner's.
       - run: adb reverse tcp:8091 tcp:8091
       - name: flutter drive
-        uses: Telosnex/telosnex_ci_tools/actions/web-driver@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
+        uses: Telosnex/telosnex_ci_tools/actions/web-driver@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
         timeout-minutes: 30
         env:
           BROWSER_NAME: android-chrome
@@ -479,37 +477,32 @@ jobs:
         with:
           browser: android-chrome
           working-directory: example
+          artifact-name: web-android-chrome-dart2js
+          # Never pass without results: the last test must have run.
+          require-result: '.web.load_error_file.done == true'
           run: |
             flutter pub get
             flutter drive --release -d web-server --browser-name "$BROWSER_NAME" $DRIVE_FLAGS \
               --driver test_driver/integration_test.dart \
               --target integration_test/web_llm_integration_test.dart \
               --dart-define=FLLAMA_TEST_EXPECT_COMPILER=dart2js
-            if ! jq -e '.web.load_error_file.done == true' build/integration_response_data.json > /dev/null; then
-              echo "::error::flutter drive passed, but the report has no load_error_file result."
-              exit 1
-            fi
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: web-android-chrome-dart2js
+          name: web-android-chrome-dart2js-emulator
           path: |
-            example/build/integration_response_data.json
-            example/build/web_console.log
-            ${{ runner.temp }}/web_driver.log
             ${{ steps.emulator.outputs.log }}
             ${{ steps.emulator.outputs.logcat }}
           if-no-files-found: ignore
 
   ios:
-    needs: [plan, models]
-    if: needs.plan.outputs.all == 'true'
-    name: ios / simulator
+    needs: models
+    name: iOS ARM64 simulator
     # macos-26 (Xcode 26.6, iOS 26.5 simulators): on macos-15, flutter test
     # missed the VM service in 3 of 5 runs, and its simulators stalled the
     # iOS Safari job (actions/runner-images 13264).
     runs-on: macos-26
-    timeout-minutes: 75
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -520,30 +513,24 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@c77f43af135fa5163072164f49e7160e974b753f # v0.4.0
-      # The Xcode build prints nothing for minutes. Built here, the build in
-      # the test step is incremental, and its silences are real stalls.
-      - name: Build the test app
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
+      - run: flutter pub get
         working-directory: example
-        timeout-minutes: 30
-        run: |
-          flutter pub get
-          flutter build ios --simulator --debug -t integration_test/local_llm_integration_test.dart \
-            --dart-define=FLLAMA_TEST_MODEL_BASE_URL=http://127.0.0.1:8765 \
-            --dart-define=FLLAMA_TEST_NUM_GPU_LAYERS=0
+      - uses: Telosnex/telosnex_ci_tools/actions/ios-simulator-boot@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
+        id: simulator
       - name: Serve the test models
         run: dart scripts/serve_test_models.dart "$GITHUB_WORKSPACE/$MODEL_CACHE" 127.0.0.1 8765 > "$RUNNER_TEMP/models.log" 2>&1 &
-      # Fresh simulators, a connect watchdog (flutter test sometimes never
-      # sees the VM service) and up to 3 attempts while no test started.
+      # No build ahead (flutter build ios --simulator): its generic
+      # destination does not match flutter test's -destination id=<udid>, and
+      # Xcode rebuilds everything (fonnx, 2026-10-27). The first attempt runs
+      # on the booted simulator; retries on fresh ones, while no test started.
       - name: Integration tests
-        uses: Telosnex/telosnex_ci_tools/actions/ios-flutter-test@8e94d6a140db5300d9e5329bc8c2e4dc30154a08 # main
+        uses: Telosnex/telosnex_ci_tools/actions/ios-flutter-test@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
         with:
           working-directory: example
           target: integration_test/local_llm_integration_test.dart
+          udid: ${{ steps.simulator.outputs.udid }}
+          artifact-name: ios-simulator-logs
+          # The Xcode build is silent for minutes.
+          idle-minutes: '15'
           args: --dart-define=FLLAMA_TEST_MODEL_BASE_URL=http://127.0.0.1:8765 --dart-define=FLLAMA_TEST_NUM_GPU_LAYERS=0
-      - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ios-diagnostics
-          path: ${{ runner.temp }}/ios-flutter-test/
-          if-no-files-found: ignore

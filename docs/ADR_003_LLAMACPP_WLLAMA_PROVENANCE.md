@@ -135,7 +135,7 @@ executables.
 
 The native release workflow builds it: the `web` job runs
 `tool/kiln/build_web.dart` in the image of `web_build/wllama.json`, and
-`web-test` loads a model with the result in Chrome. `test.yml`'s `web-files`
+`web-test` loads a model with the result in Chrome. `integration.yml`'s `web-files`
 job builds the same files for each commit. The steps:
 
 1. Check out wllama at the pinned commit and apply `web_build/wllama.patch`.
@@ -176,8 +176,8 @@ docker run --rm -v "$PWD:/src" -v /tmp/fllama_web:/out -w /src \
    (`LLAMA_BUILD_COMMIT`), `src/llama.cpp/FLLAMA_LLAMA_CPP_DROP.txt`, this
    ADR, and fllama's C++ for API changes.
 5. Run `flutter test test`, the native integration test, and the web test in
-   Chrome and iOS Safari; then push a branch and let `test.yml` run every
-   job. A change under `src/llama.cpp/ggml` starts `cuda_pack.yml`; publish
+   Chrome and iOS Safari; then push a `ci/**` branch and let `integration.yml` run
+   every job. A change under `src/llama.cpp/ggml` starts `cuda_pack.yml`; publish
    the CUDA pack before the native release.
 
 ---

@@ -1,0 +1,42 @@
+# The fast checks of every pull request: format, analyze, and the package's
+# tests (test/), among them llama_cpp_pin_test (native and web pin one
+# llama.cpp commit). The integration tests are integration.yml.
+name: Unit
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  push:
+    # ci/** branches run it too: a new workflow cannot be started by hand
+    # before it is on main.
+    branches: [main, 'ci/**']
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  unit:
+    name: Unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@6042c18cd940a801f4158918c126bde5520cecc3 # v0.5.2
+      - run: flutter pub get --no-example
+      # Not generated files (*.g.dart).
+      - run: git ls-files 'lib/*.dart' 'test/*.dart' 'scripts/*.dart' 'hook/*.dart' 'tool/*.dart' | grep -v '\.g\.dart$' | xargs dart format --output=none --set-exit-if-changed
+      - run: dart analyze --fatal-warnings lib test scripts hook tool
+      - run: flutter test --no-pub test/ -r expanded
