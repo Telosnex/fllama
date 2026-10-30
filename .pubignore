@@ -48,3 +48,19 @@ src/llama.cpp/tools/tts/
 src/llama.cpp/tools/tuning/
 src/llama.cpp/tools/ui/
 src/llama.cpp/*.py
+# GPU backends the hook never enables (it uses CPU, Metal, Vulkan and BLAS;
+# CUDA comes as a prebuilt pack, but ggml-cuda/ stays: the CUDA pack key
+# hashes it).
+src/llama.cpp/ggml/src/ggml-cann/
+src/llama.cpp/ggml/src/ggml-et/
+src/llama.cpp/ggml/src/ggml-hexagon/
+src/llama.cpp/ggml/src/ggml-hip/
+src/llama.cpp/ggml/src/ggml-musa/
+src/llama.cpp/ggml/src/ggml-opencl/
+src/llama.cpp/ggml/src/ggml-openvino/
+src/llama.cpp/ggml/src/ggml-rpc/
+src/llama.cpp/ggml/src/ggml-sycl/
+src/llama.cpp/ggml/src/ggml-virtgpu/
+src/llama.cpp/ggml/src/ggml-webgpu/
+src/llama.cpp/ggml/src/ggml-zdnn/
+src/llama.cpp/ggml/src/ggml-zendnn/
