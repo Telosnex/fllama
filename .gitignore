@@ -37,3 +37,4 @@ ios/Flutter/ephemeral/**
 # flutter pub get at the package root writes these.
 /ios/Flutter/
 macos/Flutter/ephemeral/**
+__pycache__/
