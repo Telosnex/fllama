@@ -346,12 +346,16 @@ final class CudaPackDescriptor {
       if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(file.sha256)) {
         throw StateError('$name: sha256 is not a lowercase SHA-256.');
       }
-      final url = githubAssetUrl(
-        repository,
-        expected.tag,
-        cudaPackAssetName(target, name),
-      );
-      if (file.url != url) {
+      final asset = cudaPackAssetName(target, name);
+      final url = githubAssetUrl(repository, expected.tag, asset);
+      // The repository was Telosnex/fllama before it was renamed: packs
+      // published then name it, and GitHub redirects their URLs.
+      final urls = {
+        url,
+        if (repository == 'Telosnex/fllama_cpp')
+          githubAssetUrl('Telosnex/fllama', expected.tag, asset),
+      };
+      if (!urls.contains(file.url)) {
         throw StateError('$name: URL ${file.url}, expected $url.');
       }
       if (name.contains('ggml-cuda')) backends++;
