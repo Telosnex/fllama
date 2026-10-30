@@ -20,7 +20,7 @@ import 'package:test/test.dart';
 void main() {
   final model = Uri.base.resolve('web_models/stories15M-q4_0.gguf').toString();
   setUpAll(() {
-    FllamaWeb.runtimeUri = Uri.parse('packages/fllama/web/');
+    FllamaWeb.runtimeUri = Uri.parse('packages/fllama_cpp/web/');
     // The test runner loads more files than the default buffer of 250
     // resource entries holds. Start with an empty, larger buffer.
     _clearResourceTimings();
@@ -30,7 +30,7 @@ void main() {
   test('the init URL has the webVersion query', () {
     expect(
       fllamaWebInitUrl(baseUri: 'https://a.b/app/x.html').toString(),
-      'https://a.b/app/packages/fllama/web/fllama_web_init.js'
+      'https://a.b/app/packages/fllama_cpp/web/fllama_web_init.js'
       '?v=$webRuntimeVersion',
     );
   });
@@ -201,7 +201,7 @@ void main() {
     final loaded = [
       for (final entry in _resourceEntries().toDart)
         Uri.parse((entry as _Entry).name),
-    ].where((u) => u.path.contains('/packages/fllama/web/'));
+    ].where((u) => u.path.contains('/packages/fllama_cpp/web/'));
     expect(loaded.map((u) => u.path.split('/web/').last).toSet(), {
       'fllama_web_init.js',
       'wllama/index.js',
