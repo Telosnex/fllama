@@ -3,10 +3,10 @@ import 'dart:ffi';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
-import 'package:fllama/io/fllama_bindings_generated.dart';
-import 'package:fllama/io/fllama_io_isolate.dart';
-import 'package:fllama/fllama_io.dart';
-import 'package:fllama/fllama_universal.dart';
+import 'package:fllama_cpp/io/fllama_bindings_generated.dart';
+import 'package:fllama_cpp/io/fllama_io_isolate.dart';
+import 'package:fllama_cpp/fllama_io.dart';
+import 'package:fllama_cpp/fllama_universal.dart';
 
 typedef NativeTokenizeCallback = Void Function(Int count);
 typedef NativeFllamaTokenizeCallback =

@@ -1,8 +1,11 @@
-name: fllama
-description: "A new Flutter FFI plugin project."
-version: 0.0.1
-homepage:
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+name: fllama_cpp
+description: >-
+  Run LLMs locally in Flutter with llama.cpp: chat, tool calls, images and
+  structured output on Android, iOS, macOS, Linux, Windows, and the web
+  (WebGPU).
+version: 0.1.0
+repository: https://github.com/Telosnex/fllama_cpp
+issue_tracker: https://github.com/Telosnex/fllama_cpp/issues
 
 environment:
   sdk: '>=3.10.0 <4.0.0'
@@ -16,13 +19,13 @@ dependencies:
   uuid: ^4.3.3
   objective_c: ^9.3.0
   # Native assets build hook dependencies
-  hooks: any
-  code_assets: any
+  hooks: '>=1.0.0 <3.0.0'
+  code_assets: '>=1.0.0 <3.0.0'
   kiln: ^0.1.1
   native_toolchain_cmake: ^0.2.4
-  logging: any
-  crypto: any
-  path: any
+  logging: ^1.3.0
+  crypto: ^3.0.6
+  path: ^1.9.0
 
 dev_dependencies:
   flutter_test:

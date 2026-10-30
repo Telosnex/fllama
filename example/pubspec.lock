@@ -225,13 +225,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
-  fllama:
+  fllama_cpp:
     dependency: "direct main"
     description:
       path: ".."
       relative: true
     source: path
-    version: "0.0.1"
+    version: "0.1.0"
   flutter:
     dependency: "direct main"
     description: flutter

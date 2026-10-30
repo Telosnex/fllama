@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
 
-import '../hook/cache_key.dart';
+import '../hook_src/cache_key.dart';
 
 void main() {
   String key({

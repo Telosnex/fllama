@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:fllama/misc/openai.dart';
+import 'package:fllama_cpp/misc/openai.dart';
 import 'package:test/test.dart';
 
 void main() {

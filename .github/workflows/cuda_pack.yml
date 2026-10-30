@@ -1,6 +1,6 @@
 # Builds the CUDA GPU pack and publishes it as release cuda-<target>-<key16>
 # (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D16). The pack takes 1.5 to 2 hours
-# to build, so it is built once per CUDA pack key (hook/cuda_pack.dart), not
+# to build, so it is built once per CUDA pack key (hook_src/cuda_pack.dart), not
 # in each fllama release. The key changes only with the ggml-base and
 # ggml-cuda sources, src/cuda_pack/, the CUDA version and the pinned CUDA
 # archives. A target whose pack is published is skipped in about a minute.
@@ -23,7 +23,7 @@ on:
     paths:
       - src/llama.cpp/ggml/**
       - src/cuda_pack/**
-      - hook/cuda_pack.dart
+      - hook_src/cuda_pack.dart
       - scripts/cuda_pack.dart
       - scripts/install_cuda_toolkit.dart
       - .github/workflows/cuda_pack.yml
@@ -42,12 +42,12 @@ defaults:
     shell: bash
 
 env:
-  # hook/cuda_pack.dart (cudaToolkitVersion) uses the same version.
+  # hook_src/cuda_pack.dart (cudaToolkitVersion) uses the same version.
   CUDA_VERSION: "12.8"
   GH_TOKEN: ${{ github.token }}
   # Only the owner publishes, from this repository.
   PUBLISH: >-
-    ${{ github.repository == 'Telosnex/fllama' &&
+    ${{ github.repository == 'Telosnex/fllama_cpp' &&
         github.actor == 'jpohhhh' && github.triggering_actor == 'jpohhhh' &&
         !inputs.dry_run }}
 

@@ -24,7 +24,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:fllama/fllama.dart';
+import 'package:fllama_cpp/fllama_cpp.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:telosnex_web_test/telosnex_web_test.dart';

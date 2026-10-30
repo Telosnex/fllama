@@ -7,7 +7,7 @@ import 'package:fllama_example/example_tools.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'package:fllama/fllama.dart';
+import 'package:fllama_cpp/fllama_cpp.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 late final SharedPreferences kSharedPrefs;

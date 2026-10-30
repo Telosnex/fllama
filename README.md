@@ -1,4 +1,4 @@
-<img src="fllama_header.png"
+<img src="https://raw.githubusercontent.com/Telosnex/fllama_cpp/main/fllama_header.png"
      alt="fllama image header, bird like Flutter mascot riding a llama. Text reads: FLLAMA. Run cutting-edge, free, large language models. Near ChatGPT quality. On any platform.
      iOS, macOS, Android, Windows, Linux, and Web. Metal GPU support."
      style="float: left; margin-right: 0px;" />
@@ -19,17 +19,13 @@ every platform and the web runtime, and runs the web runtime tests (see
 see `example/integration_test/README.md`.
 
 ## Integrate
-- Add this to your package's pubspec.yaml file:
-```yaml
-dependencies:
-  fllama:
-    git:
-      url: https://github.com/Telosnex/fllama.git
-      ref: main
+- Add it to your app:
+```
+flutter pub add fllama_cpp
 ```
 - Run inference:
 ```dart
-import 'package:fllama/fllama.dart';
+import 'package:fllama_cpp/fllama_cpp.dart';
 
 String latestResult = "";
 
@@ -67,7 +63,7 @@ fllamaChat(request, (response, json, done, error) {
 ```
 ## Tips & Tricks
 ### Web
-  Web uses a wllama/WebGPU runtime. In a Flutter web build, the fllama build hook installs it in `web/kiln/fllama/` of the app, and fllama loads it at the first call; the app needs no script tag (kiln ADR 002). Other embedders serve those files and set `FllamaWeb.runtimeUri`.
+  Web uses a wllama/WebGPU runtime. In a Flutter web build, the fllama build hook installs it in `web/kiln/fllama_cpp/` of the app, and fllama loads it at the first call; the app needs no script tag (kiln ADR 002). Other embedders serve those files and set `FllamaWeb.runtimeUri`.
   For best performance, serve the app with cross-origin isolation enabled so the multi-threaded WebAssembly backend can run.
 
   To check the web runtime locally:

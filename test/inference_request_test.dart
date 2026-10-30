@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:fllama/fllama_universal.dart';
-import 'package:fllama/misc/openai.dart';
-import 'package:fllama/src/web_parallel_slots.dart';
+import 'package:fllama_cpp/fllama_universal.dart';
+import 'package:fllama_cpp/misc/openai.dart';
+import 'package:fllama_cpp/src/web_parallel_slots.dart';
 import 'package:test/test.dart';
 
 void main() {

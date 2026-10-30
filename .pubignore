@@ -1,0 +1,50 @@
+# Not part of the package: repository docs and tools, CI and test output,
+# and the parts of llama.cpp the build does not use (it builds the
+# libraries, common, tools/mtmd and the server sources; tests, examples,
+# the app and other tools are off in src/CMakeLists.txt).
+build/
+tmp/
+test-results/
+windows_build.log
+dev/
+doc/
+scripts/
+AUDIT_WORKLOG.md
+DESIGN.md
+fllama_header.png
+example/build/
+example/.dart_tool/
+src/build/
+src/llama.cpp/build/
+src/llama.cpp/models/
+src/llama.cpp/docs/
+src/llama.cpp/tests/
+src/llama.cpp/benches/
+src/llama.cpp/examples/
+src/llama.cpp/pocs/
+src/llama.cpp/app/
+src/llama.cpp/gguf-py/
+src/llama.cpp/scripts/
+src/llama.cpp/media/
+src/llama.cpp/ci/
+src/llama.cpp/conversion/
+src/llama.cpp/requirements/
+src/llama.cpp/skills/
+src/llama.cpp/tools/batched-bench/
+src/llama.cpp/tools/cli/
+src/llama.cpp/tools/completion/
+src/llama.cpp/tools/cvector-generator/
+src/llama.cpp/tools/export-lora/
+src/llama.cpp/tools/fit-params/
+src/llama.cpp/tools/gguf-split/
+src/llama.cpp/tools/imatrix/
+src/llama.cpp/tools/llama-bench/
+src/llama.cpp/tools/perplexity/
+src/llama.cpp/tools/quantize/
+src/llama.cpp/tools/results/
+src/llama.cpp/tools/rpc/
+src/llama.cpp/tools/tokenize/
+src/llama.cpp/tools/tts/
+src/llama.cpp/tools/tuning/
+src/llama.cpp/tools/ui/
+src/llama.cpp/*.py

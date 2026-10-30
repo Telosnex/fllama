@@ -30,9 +30,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  fllama:
+  fllama_cpp:
     # When depending on this package from a real application you should use:
-    #   fllama: ^x.y.z
+    #   fllama_cpp: ^x.y.z
     # See https://dart.dev/tools/pub/dependencies#version-constraints
     # The example app is bundled with the plugin so we use a path dependency on
     # the parent directory to use the current plugin's version.
@@ -79,7 +79,7 @@ dev_dependencies:
 # Set it to source or download to force one (kiln ADR 001 D2).
 hooks:
   user_defines:
-    fllama:
+    fllama_cpp:
       native_build: auto
 
 # The following section is specific to Flutter packages.
