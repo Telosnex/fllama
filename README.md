@@ -119,11 +119,9 @@ fllamaChat(request, (response, json, done, error) {
 
 # Licensing
 
-FLLAMA is licensed under a dual-license model.
-
-The code as-is on GitHub is licensed under GPL v2. That requires distribution of the integrating app's source code, and this is unlikely to be desirable for commercial entities. See LICENSE.
-
-Commercial licenses are also available. Contact info@telosnex.com. Expect very fair terms: our intent is to charge only entities, with a launched app, making a lot of money, with FLLAMA as a core dependency. The base agreement is here: https://github.com/lawndoc/dual-license-templates/blob/main/pdf/Basic-Yearly.pdf
+FLLAMA is licensed under the MIT License. See LICENSE, which also has the
+licenses of the code it bundles (llama.cpp, nlohmann_json, and the NVIDIA CUDA
+libraries of the CUDA pack).
 
 # llama.cpp source layout and update process
 
