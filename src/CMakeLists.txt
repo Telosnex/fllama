@@ -143,7 +143,7 @@ target_link_libraries(server-context PUBLIC llama-common mtmd ${CMAKE_THREAD_LIB
 #
 # The CUDA pack is not built here (ADR 004 D16). The release build passes
 # the files of the published pack in FLLAMA_CUDA_PACK_FILES:
-# <name>|<sha256>|<url>, separated by ";". hook/cuda_pack.dart checks that
+# <name>|<sha256>|<url>, separated by ";". hook_src/cuda_pack.dart checks that
 # the pack was built from the ggml sources of this build.
 set(FLLAMA_GPU_PACK_URL_TEMPLATE "" CACHE STRING
   "Release URL of a gzipped GPU pack file, with @FILE@ for the file name")

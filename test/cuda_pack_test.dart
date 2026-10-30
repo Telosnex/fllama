@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 
 import '../hook/build.dart' as hook;
 
-const repo = 'Telosnex/fllama';
+const repo = 'Telosnex/fllama_cpp';
 final root = Directory.current.uri;
 
 String digest(String text) => sha256.convert(utf8.encode(text)).toString();

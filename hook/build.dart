@@ -94,10 +94,10 @@ import 'package:kiln/kiln.dart';
 import 'package:native_toolchain_cmake/native_toolchain_cmake.dart';
 import 'package:path/path.dart' as p;
 
-import 'cache_key.dart';
-import 'cuda_pack.dart';
+import '../hook_src/cache_key.dart';
+import '../hook_src/cuda_pack.dart';
 
-export 'cuda_pack.dart';
+export '../hook_src/cuda_pack.dart';
 
 void main(List<String> args) async {
   final hookLog = _HookLogBuffer('fllama');

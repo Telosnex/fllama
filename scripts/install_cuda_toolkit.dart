@@ -8,7 +8,7 @@
 // It downloads NVIDIA's redistributable archives, checks the SHA-256 values
 // from NVIDIA's manifest redistrib_12.8.1.json, and merges them into one
 // toolkit directory. scripts/cuda_pack.dart looks for the toolkit at
-// `cudaToolkitRoot` (hook/cuda_pack.dart). Windows also needs Visual Studio;
+// `cudaToolkitRoot` (hook_src/cuda_pack.dart). Windows also needs Visual Studio;
 // the build selects the toolkit with `cmake -T cuda=<dir>`, so the Visual
 // Studio installation is not changed. This file is in the CUDA pack key:
 // the archives it pins are the runtime files of the pack.

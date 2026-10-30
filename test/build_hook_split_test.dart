@@ -193,7 +193,7 @@ void main() {
       () {
         const sdk = hook.VulkanSdk(headerVersion: 357);
         const template =
-            'https://github.com/Telosnex/fllama/releases/download/native-0123456789abcdef/windows-x64-@FILE@.gz';
+            'https://github.com/Telosnex/fllama_cpp/releases/download/native-0123456789abcdef/windows-x64-@FILE@.gz';
         expect(
           hook.computeDefines(OS.windows, Architecture.x64, '', vulkan: sdk),
           isNot(contains('FLLAMA_GPU_PACK_URL_TEMPLATE')),

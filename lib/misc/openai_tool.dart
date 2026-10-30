@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:fllama/fllama.dart';
-import 'package:fllama/misc/gbnf.dart';
+import 'package:fllama_cpp/fllama_cpp.dart';
+import 'package:fllama_cpp/misc/gbnf.dart';
 
 class Tool {
   final String name;

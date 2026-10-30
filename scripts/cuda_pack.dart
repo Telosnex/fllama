@@ -1,5 +1,5 @@
 // Builds, publishes and resolves the CUDA GPU pack
-// (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D16). See hook/cuda_pack.dart for
+// (docs/ADR_004_DESKTOP_GPU_BACKENDS.md, D16). See hook_src/cuda_pack.dart for
 // the key. Commands:
 //
 //   dart scripts/cuda_pack.dart key     --target <t> [--list]
@@ -10,7 +10,7 @@
 //   dart scripts/cuda_pack.dart resolve --target <t> --descriptor <file>
 //
 // <t> is windows-x64 or linux-x64. The repository defaults to
-// GITHUB_REPOSITORY, else Telosnex/fllama. `status` writes `published` and
+// GITHUB_REPOSITORY, else Telosnex/fllama_cpp. `status` writes `published` and
 // `tag` to GITHUB_OUTPUT when it is set. `build` needs the CUDA Toolkit from
 // scripts/install_cuda_toolkit.dart and writes the gzipped assets and
 // cuda-pack.json to <out>/assets. `publish` uploads them as release
@@ -27,7 +27,7 @@ import 'package:kiln/kiln.dart';
 import 'package:kiln/src/publisher.dart';
 import 'package:path/path.dart' as p;
 
-import '../hook/cuda_pack.dart';
+import '../hook_src/cuda_pack.dart';
 
 Future<void> main(List<String> arguments) async {
   if (arguments.isEmpty) _usage();
@@ -37,7 +37,7 @@ Future<void> main(List<String> arguments) async {
   final repository =
       options['repo'] ??
       Platform.environment['GITHUB_REPOSITORY'] ??
-      'Telosnex/fllama';
+      'Telosnex/fllama_cpp';
   final packageRoot = Directory.current.uri;
   try {
     final key = await _key(packageRoot, target);

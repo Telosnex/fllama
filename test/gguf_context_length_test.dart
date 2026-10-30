@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:fllama/io/fllama_io_gguf.dart';
+import 'package:fllama_cpp/io/fllama_io_gguf.dart';
 import 'package:test/test.dart';
 
 void main() {

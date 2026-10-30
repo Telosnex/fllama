@@ -6,9 +6,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
 
-import 'package:fllama/fllama.dart';
-import 'package:fllama/src/web_runtime.g.dart';
-import 'package:fllama/src/web_runtime_loader.dart';
+import 'package:fllama_cpp/fllama_cpp.dart';
+import 'package:fllama_cpp/src/web_runtime.g.dart';
+import 'package:fllama_cpp/src/web_runtime_loader.dart';
 import 'package:test/test.dart';
 
 /// The fllama web runtime on the files in lib/web/ (kiln ADR 002

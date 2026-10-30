@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:isolate';
 
-import 'package:fllama/io/fllama_io_isolate.dart';
+import 'package:fllama_cpp/io/fllama_io_isolate.dart';
 import 'package:test/test.dart';
 
 void main() {

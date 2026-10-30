@@ -512,7 +512,7 @@ GPU packs (D13):
 its download functions (`src/fllama_download_stub.cpp`), and a shared
 `llama-common` would need httplib.
 
-CUDA pack (D16). `hook/cuda_pack.dart` defines the key, the CMake defines
+CUDA pack (D16). `hook_src/cuda_pack.dart` defines the key, the CMake defines
 and the descriptor. `scripts/cuda_pack.dart` builds, publishes and
 resolves the pack.
 
@@ -569,12 +569,12 @@ builds `ggml-cpu` once for each `GGML_CPU_ARM_ARCH` value, and it publishes
 each result under the name above. `OpenCL.dll` is the Khronos ICD loader.
 Windows does not include it.
 
-Code asset IDs: `package:fllama/fllama_io.dart` for `fllama`.
-`package:fllama/native/<file name without extension>` for each other library
+Code asset IDs: `package:fllama_cpp/fllama_io.dart` for `fllama`.
+`package:fllama_cpp/native/<file name without extension>` for each other library
 in the package. Pack files are not code assets.
 
 Pack file URL: the kiln ADR 001 release asset
-`https://github.com/Telosnex/fllama/releases/download/native-<16 hex>/<target>-<file name>.gz`.
+`https://github.com/Telosnex/fllama_cpp/releases/download/native-<16 hex>/<target>-<file name>.gz`.
 The manifest entry has `delivery: runtime` and `pack: <pack>`. Released apps
 expect these files, so they are never deleted or changed (kiln
 ADR 001 R6).

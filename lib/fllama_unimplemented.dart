@@ -1,4 +1,4 @@
-import 'package:fllama/fllama.dart';
+import 'package:fllama_cpp/fllama_cpp.dart';
 
 typedef FllamaWebLoadCallback =
     void Function(double downloadProgress, double loadProgress);

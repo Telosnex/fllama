@@ -1,4 +1,4 @@
-import 'package:fllama/misc/openai.dart';
+import 'package:fllama_cpp/misc/openai.dart';
 
 /// Request slots of a model on the web, unless [OpenAiRequest.nParallel] sets
 /// them. fllama_web_init.js uses this value: Dart passes it with each request.

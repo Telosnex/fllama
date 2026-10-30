@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'dart:convert';
 
-import 'package:fllama/fllama.dart';
-import 'package:fllama/src/web_parallel_slots.dart';
-import 'package:fllama/src/web_runtime_loader.dart';
+import 'package:fllama_cpp/fllama_cpp.dart';
+import 'package:fllama_cpp/src/web_parallel_slots.dart';
+import 'package:fllama_cpp/src/web_runtime_loader.dart';
 
-export 'package:fllama/src/web_runtime_loader.dart' show FllamaWeb;
+export 'package:fllama_cpp/src/web_runtime_loader.dart' show FllamaWeb;
 
 @JS('fllamaInferenceJs')
 external JSPromise<JSNumber> fllamaInferenceJs(

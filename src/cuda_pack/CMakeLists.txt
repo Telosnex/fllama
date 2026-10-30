@@ -2,7 +2,7 @@
 #
 # A CMake project for ggml-cuda alone, so the pack does not depend on
 # fllama or on the rest of llama.cpp. scripts/cuda_pack.dart configures it
-# with the defines and the generator in hook/cuda_pack.dart, builds the
+# with the defines and the generator in hook_src/cuda_pack.dart, builds the
 # target ggml-cuda, and reads the pack file list that this project writes.
 # Every file in this directory is in the CUDA pack key.
 cmake_minimum_required(VERSION 3.18)

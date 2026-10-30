@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:fllama/fllama.dart';
-import 'package:fllama/misc/gbnf.dart';
+import 'package:fllama_cpp/fllama_cpp.dart';
+import 'package:fllama_cpp/misc/gbnf.dart';
 
 /// Called for each update of an inference request.
 ///
@@ -207,7 +207,7 @@ class FllamaGpuPackFile {
   final String sha256;
 
   /// The gzipped file in the fllama GitHub release, for example
-  /// `https://github.com/Telosnex/fllama/releases/download/native-<16 hex>/windows-x64-ggml-vulkan.dll.gz`.
+  /// `https://github.com/Telosnex/fllama_cpp/releases/download/native-<16 hex>/windows-x64-ggml-vulkan.dll.gz`.
   final String url;
 
   const FllamaGpuPackFile({

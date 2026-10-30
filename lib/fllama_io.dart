@@ -6,9 +6,9 @@ export 'io/fllama_io_tokenize.dart';
 import 'dart:ffi';
 import 'dart:io';
 
-import 'package:fllama/fllama_universal.dart';
-import 'package:fllama/io/fllama_bindings_generated.dart';
-import 'package:fllama/misc/openai.dart';
+import 'package:fllama_cpp/fllama_universal.dart';
+import 'package:fllama_cpp/io/fllama_bindings_generated.dart';
+import 'package:fllama_cpp/misc/openai.dart';
 
 typedef FllamaWebLoadCallback =
     void Function(double downloadProgress, double loadProgress);
