@@ -42,7 +42,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
       - if: steps.cache.outputs.cache-hit != 'true'
-        uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
       - if: steps.cache.outputs.cache-hit != 'true'
         working-directory: example
         run: |
@@ -77,13 +77,13 @@ jobs:
         with:
           path: example/.model_cache/gpu_packs
           key: fllama-gpu-packs-${{ env.TARGET }}-${{ hashFiles('native_artifacts/prebuilt.json') }}
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev xvfb > /dev/null
       - name: Integration tests
-        uses: Telosnex/telosnex_ci_tools/actions/watch@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/watch@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         with:
           working-directory: example
           # The first build of the app prints nothing for minutes.
@@ -186,7 +186,7 @@ jobs:
           path: ${{ runner.temp }}/kiln_web
           key: fllama-web-files-${{ hashFiles('web_build/**', 'patches/llama.cpp/**', 'tool/kiln/build_web.dart') }}
       - if: steps.cache.outputs.cache-hit != 'true'
-        uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
       - name: Build (tool/kiln/build_web.dart)
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -218,7 +218,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
       - name: Test files into the web directory (same origin)
         run: |
           mkdir -p example/web/test_models
@@ -244,7 +244,7 @@ jobs:
             '{schema: 1, user_defines: {web_build: "local", web_build_dir: $dir}}' > "$root/defaults.json"
           cat "$root/defaults.json"
       - name: flutter drive
-        uses: Telosnex/telosnex_ci_tools/actions/web-driver@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/web-driver@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         timeout-minutes: 25
         with:
           browser: ${{ env.BROWSER }}
@@ -306,7 +306,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
       # Built before the emulator boots: Gradle and the emulator share the 4
       # CPUs (the build took 12 min beside the API 37.0 emulator, 6 min on
       # API 35). The build in the test step is then incremental.
@@ -319,7 +319,7 @@ jobs:
             --dart-define=FLLAMA_TEST_MODEL_BASE_URL=http://10.0.2.2:8765 \
             --dart-define=FLLAMA_TEST_NUM_GPU_LAYERS=0
       - id: emulator
-        uses: Telosnex/telosnex_ci_tools/actions/android-emulator@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/android-emulator@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         with:
           # The newest Android. Its google_apis image restarts Android every
           # ~40 s on CI (surfaceflinger aborts, also 36.1); the ATD image (no
@@ -330,7 +330,7 @@ jobs:
           # resident) in "context size 0" (a 2 GB KV cache).
           ram-mb: '6144'
       - name: Integration tests
-        uses: Telosnex/telosnex_ci_tools/actions/watch@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/watch@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         with:
           working-directory: example
           idle-minutes: '15'
@@ -371,7 +371,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
       - name: Test files into the web directory (same origin)
         run: |
           mkdir -p example/web/test_models
@@ -396,11 +396,11 @@ jobs:
           jq -n --arg dir "$RUNNER_TEMP/kiln_web" \
             '{schema: 1, user_defines: {web_build: "local", web_build_dir: $dir}}' > "$root/defaults.json"
           cat "$root/defaults.json"
-      - uses: Telosnex/telosnex_ci_tools/actions/ios-simulator-boot@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+      - uses: Telosnex/telosnex_ci_tools/actions/ios-simulator-boot@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         timeout-minutes: 15
       # web-driver opens Safari once before safaridriver (slow first launch).
       - name: flutter drive
-        uses: Telosnex/telosnex_ci_tools/actions/web-driver@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/web-driver@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         timeout-minutes: 35
         env:
           BROWSER_NAME: ios-safari
@@ -433,7 +433,7 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
       - name: Test files into the web directory (same origin)
         run: |
           mkdir -p example/web/test_models
@@ -459,7 +459,7 @@ jobs:
             '{schema: 1, user_defines: {web_build: "local", web_build_dir: $dir}}' > "$root/defaults.json"
           cat "$root/defaults.json"
       - id: emulator
-        uses: Telosnex/telosnex_ci_tools/actions/android-emulator@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/android-emulator@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         with:
           # The newest image with Chrome that is stable on CI: 36 (Chrome 133).
           # 36.1 and 37.0 google_apis restart Android every ~40 s
@@ -469,7 +469,7 @@ jobs:
       # the emulator's localhost:8091 is the runner's.
       - run: adb reverse tcp:8091 tcp:8091
       - name: flutter drive
-        uses: Telosnex/telosnex_ci_tools/actions/web-driver@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/web-driver@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         timeout-minutes: 30
         env:
           BROWSER_NAME: android-chrome
@@ -513,10 +513,10 @@ jobs:
           key: fllama-test-models-${{ hashFiles('example/integration_test/test/test_model_manager.dart') }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
       - run: flutter pub get
         working-directory: example
-      - uses: Telosnex/telosnex_ci_tools/actions/ios-simulator-boot@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+      - uses: Telosnex/telosnex_ci_tools/actions/ios-simulator-boot@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         id: simulator
       - name: Serve the test models
         run: dart scripts/serve_test_models.dart "$GITHUB_WORKSPACE/$MODEL_CACHE" 127.0.0.1 8765 > "$RUNNER_TEMP/models.log" 2>&1 &
@@ -525,7 +525,7 @@ jobs:
       # Xcode rebuilds everything (fonnx, 2026-10-27). The first attempt runs
       # on the booted simulator; retries on fresh ones, while no test started.
       - name: Integration tests
-        uses: Telosnex/telosnex_ci_tools/actions/ios-flutter-test@cba77fc0d4330f1bef81193c53cd7dd976f0ebcf # v0.5.3
+        uses: Telosnex/telosnex_ci_tools/actions/ios-flutter-test@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
         with:
           working-directory: example
           target: integration_test/local_llm_integration_test.dart
