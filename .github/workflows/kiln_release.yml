@@ -49,7 +49,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 1
-      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
+      - uses: Telosnex/telosnex_ci_tools/actions/setup-flutter@0554f3662445d678e2effbd838d15968d673f7af # v0.5.6
       - run: flutter pub get --no-example
       # ADR 004 I5: fails if ggml-base or ggml-cuda includes a file that is
       # not in the CUDA pack key. Run as a script: `dart test` would first
@@ -76,7 +76,7 @@ jobs:
 
   kiln-release:
     needs: cuda-packs
-    uses: Telosnex/telosnex_ci_tools/.github/workflows/kiln_release.yml@027b68d29929047f2ba95034735d4b9e4be3c650 # v0.5.5
+    uses: Telosnex/telosnex_ci_tools/.github/workflows/kiln_release.yml@0554f3662445d678e2effbd838d15968d673f7af # v0.5.6
     permissions:
       contents: write
     with:
